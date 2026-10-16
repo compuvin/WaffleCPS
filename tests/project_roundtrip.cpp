@@ -64,6 +64,31 @@ int main(int argc, char *argv[])
         return 7;
     }
 
+    loaded.newProject();
+    if (!loaded.repeaterNames().isEmpty() || !loaded.sourceCodeplugName().isEmpty()
+        || loaded.modified() || !loaded.saveProjectToFile(QStringLiteral("empty.waffle"))) {
+        qCritical() << "New project was not empty or could not be saved";
+        return 8;
+    }
+    RepeaterStore empty;
+    if (!empty.openProjectFromFile(QStringLiteral("empty.waffle"))
+        || !empty.repeaterNames().isEmpty()
+        || !empty.addRepeater(QStringLiteral("Brooklyn"), QStringLiteral("445.7375"),
+                              QStringLiteral("440.7375"), 3)
+        || !empty.addSimplexToSelectedRepeater(QStringLiteral("Local simplex"),
+                                                QStringLiteral("446.000"), true, 3, 1)
+        || !empty.saveProjectToFile(QStringLiteral("simplex.waffle"))) {
+        qCritical() << "Could not add a repeater and simplex frequency";
+        return 9;
+    }
+    RepeaterStore withSimplex;
+    if (!withSimplex.openProjectFromFile(QStringLiteral("simplex.waffle"))
+        || withSimplex.selectedName() != QStringLiteral("Brooklyn")
+        || withSimplex.selectedSimplexFrequencies().size() != 1) {
+        qCritical() << "Simplex frequency did not round-trip";
+        return 10;
+    }
+
     qInfo() << "Project round-trip and corruption checks passed";
     return 0;
 }

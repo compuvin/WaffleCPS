@@ -57,10 +57,10 @@ QStringList RepeaterStore::repeaterNames() const
 }
 
 int RepeaterStore::selectedIndex() const { return m_selectedIndex; }
-QString RepeaterStore::selectedName() const { return selected().name; }
-QString RepeaterStore::rxFrequency() const { return formatFrequency(selected().rxHz); }
-QString RepeaterStore::txFrequency() const { return formatFrequency(selected().txHz); }
-int RepeaterStore::colorCode() const { return selected().colorCode; }
+QString RepeaterStore::selectedName() const { return m_repeaters.empty() ? QString() : selected().name; }
+QString RepeaterStore::rxFrequency() const { return m_repeaters.empty() ? QString() : formatFrequency(selected().rxHz); }
+QString RepeaterStore::txFrequency() const { return m_repeaters.empty() ? QString() : formatFrequency(selected().txHz); }
+int RepeaterStore::colorCode() const { return m_repeaters.empty() ? 0 : selected().colorCode; }
 QString RepeaterStore::projectDisplayName() const
 {
     return m_projectPath.isEmpty() ? QStringLiteral("Untitled project") : QFileInfo(m_projectPath).fileName();
@@ -104,25 +104,40 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
         return {};
     const auto &group = m_importedGroups.at(m_selectedImportedIndex);
     QVariantList zones;
+    QVariantList additionalSimplex;
     for (int zoneIndex : group.zoneIndexes) {
         const auto &zone = m_importedCodeplug.zones.at(zoneIndex);
         QVariantList channels;
+        QVariantList repeaterChannels;
         for (int channelIndex : zone.channelIndexes) {
             const auto &channel = m_importedCodeplug.channels.at(channelIndex);
-            channels.append(QVariantMap{
+            QVariantMap item{
                 {QStringLiteral("name"), channel.name},
                 {QStringLiteral("number"), channelIndex + 1},
-                {QStringLiteral("frequencyA"), formatFrequency(channel.frequencyAHz)},
-                {QStringLiteral("frequencyB"), formatFrequency(channel.frequencyBHz)},
+                {QStringLiteral("receiveFrequency"), formatFrequency(channel.frequencyBHz)},
+                {QStringLiteral("transmitFrequency"), formatFrequency(channel.frequencyAHz)},
                 {QStringLiteral("mode"), channel.digital ? QStringLiteral("Digital") : QStringLiteral("Analog / other")},
                 {QStringLiteral("colorCode"), channel.digital ? QVariant(channel.colorCode) : QVariant()},
-                {QStringLiteral("timeSlot"), channel.digital ? QVariant(channel.timeSlot) : QVariant()}});
+                {QStringLiteral("timeSlot"), channel.digital ? QVariant(channel.timeSlot) : QVariant()}};
+            channels.append(item);
+            if (group.repeater && channel.frequencyAHz == channel.frequencyBHz) {
+                item.insert(QStringLiteral("zoneName"), zone.name);
+                additionalSimplex.append(item);
+            } else {
+                repeaterChannels.append(item);
+            }
         }
         zones.append(QVariantMap{{QStringLiteral("name"), zone.name},
-                                 {QStringLiteral("channels"), channels}});
+                                 {QStringLiteral("channels"), channels},
+                                 {QStringLiteral("repeaterChannels"), repeaterChannels}});
     }
     return {{QStringLiteral("name"), group.name},
             {QStringLiteral("classification"), group.reason},
+            {QStringLiteral("isRepeater"), group.repeater},
+            {QStringLiteral("receiveFrequency"), group.repeater ? formatFrequency(group.frequencyBHz) : QString()},
+            {QStringLiteral("transmitFrequency"), group.repeater ? formatFrequency(group.frequencyAHz) : QString()},
+            {QStringLiteral("colorCode"), group.colorCode},
+            {QStringLiteral("simplexChannels"), additionalSimplex},
             {QStringLiteral("zones"), zones}};
 }
 
@@ -134,6 +149,37 @@ void RepeaterStore::selectImportedGroup(int index)
     emit importedSelectionChanged();
 }
 
+bool RepeaterStore::addSimplexToSelectedImportedRepeater(int zoneInGroup, const QString &name,
+                                                        const QString &frequency, bool digital,
+                                                        int colorCode, int timeSlot)
+{
+    if (m_selectedImportedIndex < 0 || m_selectedImportedIndex >= m_importedGroups.size())
+        return false;
+    const auto &group = m_importedGroups.at(m_selectedImportedIndex);
+    if (!group.repeater || zoneInGroup < 0 || zoneInGroup >= group.zoneIndexes.size()
+        || m_importedCodeplug.channels.size() >= 3000)
+        return false;
+    const int zoneIndex = group.zoneIndexes.at(zoneInGroup);
+    if (m_importedCodeplug.zones.at(zoneIndex).channelIndexes.size() >= 64)
+        return false;
+    qint64 hz = 0;
+    const QString cleanName = name.trimmed();
+    if (cleanName.isEmpty() || cleanName.size() > 16 || !parseFrequency(frequency, &hz)
+        || (digital && (colorCode < 0 || colorCode > 15 || timeSlot < 1 || timeSlot > 2)))
+        return false;
+    const int channelIndex = m_importedCodeplug.channels.size();
+    m_importedCodeplug.channels.append({cleanName, static_cast<quint32>(hz),
+                                       static_cast<quint32>(hz), digital,
+                                       digital ? colorCode : 0, digital ? timeSlot : 0});
+    m_importedCodeplug.zones[zoneIndex].channelIndexes.append(channelIndex);
+    const int previousIndex = m_selectedImportedIndex;
+    rebuildImportedGroups();
+    m_selectedImportedIndex = previousIndex;
+    emit importedSelectionChanged();
+    setModified(true);
+    return true;
+}
+
 void RepeaterStore::rebuildImportedGroups()
 {
     m_importedGroups.clear();
@@ -141,33 +187,35 @@ void RepeaterStore::rebuildImportedGroups()
     QVector<ImportedGroup> remainingZones;
     for (int zoneIndex = 0; zoneIndex < m_importedCodeplug.zones.size(); ++zoneIndex) {
         const auto &zone = m_importedCodeplug.zones.at(zoneIndex);
-        bool repeater = !zone.channelIndexes.isEmpty();
-        QString reason = repeater ? QString() : QStringLiteral("Empty zone");
+        bool repeater = true;
+        bool hasRepeaterChannel = false;
+        QString reason;
         ImportedChannel first;
-        if (repeater)
-            first = m_importedCodeplug.channels.at(zone.channelIndexes.constFirst());
-        if (repeater && !first.digital) {
-            repeater = false;
-            reason = QStringLiteral("Contains an analog or unrecognized channel");
-        }
-        if (repeater && first.frequencyAHz == first.frequencyBHz) {
-            repeater = false;
-            reason = QStringLiteral("Same-frequency digital channels may be simplex or a hotspot");
-        }
         for (int channelIndex : zone.channelIndexes) {
             const auto &channel = m_importedCodeplug.channels.at(channelIndex);
+            if (channel.frequencyAHz == channel.frequencyBHz) {
+                continue;
+            }
             if (!channel.digital) {
                 repeater = false;
-                reason = QStringLiteral("Contains an analog or unrecognized channel");
+                reason = QStringLiteral("Contains an analog or unrecognized non-simplex channel");
+            } else if (!hasRepeaterChannel) {
+                first = channel;
+                hasRepeaterChannel = true;
             } else if (channel.frequencyAHz != first.frequencyAHz
                        || channel.frequencyBHz != first.frequencyBHz) {
                 repeater = false;
-                reason = QStringLiteral("Channels use different frequency pairs");
+                reason = QStringLiteral("Channels use different repeater frequency pairs");
             } else if (channel.colorCode != first.colorCode) {
                 repeater = false;
-                reason = QStringLiteral("Channels use different color codes");
+                reason = QStringLiteral("Repeater channels use different color codes");
             }
         }
+        repeater = repeater && hasRepeaterChannel;
+        if (!hasRepeaterChannel)
+            reason = zone.channelIndexes.isEmpty()
+                ? QStringLiteral("Empty zone")
+                : QStringLiteral("Only same-frequency channels; may be simplex or a hotspot");
         if (repeater) {
             const QString key = QStringLiteral("%1/%2/%3")
                 .arg(first.frequencyAHz).arg(first.frequencyBHz).arg(first.colorCode);
@@ -176,7 +224,7 @@ void RepeaterStore::rebuildImportedGroups()
             } else {
                 ImportedGroup group;
                 group.name = zone.name;
-                group.reason = QStringLiteral("All channels share the same non-simplex frequency pair and color code");
+                group.reason = QStringLiteral("One repeater frequency pair and color code; simplex channels shown separately");
                 group.zoneIndexes.append(zoneIndex);
                 group.repeater = true;
                 group.frequencyAHz = first.frequencyAHz;
@@ -199,8 +247,69 @@ void RepeaterStore::rebuildImportedGroups()
     emit importedSelectionChanged();
 }
 
-QVariantList RepeaterStore::slot1Talkgroups() const { return toVariantList(selected().slot1); }
-QVariantList RepeaterStore::slot2Talkgroups() const { return toVariantList(selected().slot2); }
+QVariantList RepeaterStore::slot1Talkgroups() const { return m_repeaters.empty() ? QVariantList() : toVariantList(selected().slot1); }
+QVariantList RepeaterStore::slot2Talkgroups() const { return m_repeaters.empty() ? QVariantList() : toVariantList(selected().slot2); }
+QVariantList RepeaterStore::selectedSimplexFrequencies() const
+{
+    QVariantList result;
+    if (m_repeaters.empty())
+        return result;
+    for (const auto &item : selected().simplexFrequencies)
+        result.append(QVariantMap{{QStringLiteral("name"), item.name},
+                                  {QStringLiteral("frequency"), formatFrequency(item.hz)},
+                                  {QStringLiteral("mode"), item.digital ? QStringLiteral("Digital") : QStringLiteral("Analog / other")},
+                                  {QStringLiteral("colorCode"), item.digital ? QVariant(item.colorCode) : QVariant()},
+                                  {QStringLiteral("timeSlot"), item.digital ? QVariant(item.timeSlot) : QVariant()}});
+    return result;
+}
+
+void RepeaterStore::newProject()
+{
+    m_repeaters.clear();
+    m_selectedIndex = 0;
+    m_projectPath.clear();
+    m_sourceCodeplugName.clear();
+    m_sourceCodeplug.clear();
+    m_importedCodeplug = {};
+    m_importedGroups.clear();
+    m_selectedImportedIndex = 0;
+    m_modified = false;
+    emit repeatersChanged();
+    emit selectedRepeaterChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    emit importedCodeplugChanged();
+    emit importedSelectionChanged();
+    emit projectChanged();
+}
+
+void RepeaterStore::newProjectDialog()
+{
+    if (m_modified && QMessageBox::question(nullptr, tr("Discard unsaved changes?"),
+                                             tr("Creating a new project will discard your unsaved changes."))
+                          != QMessageBox::Yes)
+        return;
+    newProject();
+}
+
+bool RepeaterStore::addRepeater(const QString &name, const QString &rxFrequency,
+                                const QString &txFrequency, int colorCode)
+{
+    const QString cleanName = name.trimmed();
+    qint64 rxHz = 0, txHz = 0;
+    if (cleanName.isEmpty() || cleanName.size() > 32 || m_repeaters.size() >= 10000
+        || !parseFrequency(rxFrequency, &rxHz) || !parseFrequency(txFrequency, &txHz)
+        || colorCode < 0 || colorCode > 15)
+        return false;
+    m_repeaters.push_back({cleanName, rxHz, txHz, colorCode, {}, {}});
+    m_selectedIndex = static_cast<int>(m_repeaters.size()) - 1;
+    emit repeatersChanged();
+    emit selectedRepeaterChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    setModified(true);
+    return true;
+}
 
 void RepeaterStore::selectRepeater(int index)
 {
@@ -209,6 +318,23 @@ void RepeaterStore::selectRepeater(int index)
     m_selectedIndex = index;
     emit selectedRepeaterChanged();
     emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+}
+
+bool RepeaterStore::addSimplexToSelectedRepeater(const QString &name, const QString &frequency,
+                                                 bool digital, int colorCode, int timeSlot)
+{
+    qint64 hz = 0;
+    const QString cleanName = name.trimmed();
+    if (m_repeaters.empty() || cleanName.isEmpty() || cleanName.size() > 16
+        || selected().simplexFrequencies.size() >= 64 || !parseFrequency(frequency, &hz)
+        || (digital && (colorCode < 0 || colorCode > 15 || timeSlot < 1 || timeSlot > 2)))
+        return false;
+    selected().simplexFrequencies.push_back({cleanName, hz, digital,
+                                             digital ? colorCode : 0, digital ? timeSlot : 0});
+    emit simplexFrequenciesChanged();
+    setModified(true);
+    return true;
 }
 
 bool RepeaterStore::updateSelectedRepeater(const QString &name, const QString &rxFrequency,
@@ -217,7 +343,7 @@ bool RepeaterStore::updateSelectedRepeater(const QString &name, const QString &r
     const QString cleanName = name.trimmed();
     qint64 rxHz = 0;
     qint64 txHz = 0;
-    if (cleanName.isEmpty() || cleanName.size() > 32 || !parseFrequency(rxFrequency, &rxHz)
+    if (m_repeaters.empty() || cleanName.isEmpty() || cleanName.size() > 32 || !parseFrequency(rxFrequency, &rxHz)
         || !parseFrequency(txFrequency, &txHz) || colorCode < 0 || colorCode > 15)
         return false;
 
@@ -238,7 +364,7 @@ bool RepeaterStore::updateSelectedRepeater(const QString &name, const QString &r
 bool RepeaterStore::addTalkgroup(int timeSlot, const QString &name, int id)
 {
     const QString cleanName = name.trimmed();
-    if ((timeSlot != 1 && timeSlot != 2) || cleanName.isEmpty() || cleanName.size() > 32
+    if (m_repeaters.empty() || (timeSlot != 1 && timeSlot != 2) || cleanName.isEmpty() || cleanName.size() > 32
         || id < 1 || id > 16777215)
         return false;
 
@@ -253,7 +379,7 @@ bool RepeaterStore::addTalkgroup(int timeSlot, const QString &name, int id)
 
 void RepeaterStore::removeTalkgroup(int timeSlot, int id)
 {
-    if (timeSlot != 1 && timeSlot != 2)
+    if (m_repeaters.empty() || (timeSlot != 1 && timeSlot != 2))
         return;
     auto &items = talkgroups(timeSlot);
     const auto firstRemoved = std::remove_if(items.begin(), items.end(),
@@ -268,6 +394,7 @@ void RepeaterStore::removeTalkgroup(int timeSlot, int id)
 bool RepeaterStore::saveProjectToFile(const QString &path)
 {
     QJsonArray repeaters;
+    bool hasEditableSimplex = false;
     for (const auto &repeater : m_repeaters) {
         auto convert = [](const std::vector<Talkgroup> &groups) {
             QJsonArray result;
@@ -276,17 +403,30 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                           {QStringLiteral("id"), group.id}});
             return result;
         };
-        repeaters.append(QJsonObject{
+        QJsonObject item{
             {QStringLiteral("name"), repeater.name},
             {QStringLiteral("rxHz"), repeater.rxHz},
             {QStringLiteral("txHz"), repeater.txHz},
             {QStringLiteral("colorCode"), repeater.colorCode},
             {QStringLiteral("slots"), QJsonObject{{QStringLiteral("1"), convert(repeater.slot1)},
-                                                   {QStringLiteral("2"), convert(repeater.slot2)}}}});
+                                                   {QStringLiteral("2"), convert(repeater.slot2)}}}};
+        if (!repeater.simplexFrequencies.empty()) {
+            hasEditableSimplex = true;
+            QJsonArray simplex;
+            for (const auto &frequency : repeater.simplexFrequencies)
+                simplex.append(QJsonObject{{QStringLiteral("name"), frequency.name},
+                                           {QStringLiteral("frequencyHz"), frequency.hz},
+                                           {QStringLiteral("digital"), frequency.digital},
+                                           {QStringLiteral("colorCode"), frequency.colorCode},
+                                           {QStringLiteral("timeSlot"), frequency.timeSlot}});
+            item.insert(QStringLiteral("simplexFrequencies"), simplex);
+        }
+        repeaters.append(item);
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), hasImportedCodeplug() ? 2 : 1},
+                     {QStringLiteral("schemaVersion"), (hasEditableSimplex || m_repeaters.empty())
+                          ? 3 : (hasImportedCodeplug() ? 2 : 1)},
                      {QStringLiteral("repeaters"), repeaters}};
     if (hasImportedCodeplug()) {
         QJsonArray channels;
@@ -348,12 +488,12 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 2, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 3, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
-    if (!repeatersValue.isArray() || repeatersValue.toArray().isEmpty()
-        || repeatersValue.toArray().size() > 10000)
+    if (!repeatersValue.isArray() || repeatersValue.toArray().size() > 10000
+        || (version == 1 && repeatersValue.toArray().isEmpty()))
         return fail(QStringLiteral("Project has no valid repeater list."));
 
     std::vector<Repeater> loaded;
@@ -397,11 +537,34 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         if (!readGroups(slotObject.value(QStringLiteral("1")), &repeater.slot1)
             || !readGroups(slotObject.value(QStringLiteral("2")), &repeater.slot2))
             return fail(QStringLiteral("A repeater has invalid talkgroups."));
+        const QJsonValue simplexValue = item.value(QStringLiteral("simplexFrequencies"));
+        if (!simplexValue.isUndefined()) {
+            if (version < 3 || !simplexValue.isArray() || simplexValue.toArray().size() > 64)
+                return fail(QStringLiteral("A repeater has invalid simplex frequencies."));
+            for (const QJsonValue &entry : simplexValue.toArray()) {
+                if (!entry.isObject())
+                    return fail(QStringLiteral("A simplex frequency is invalid."));
+                const QJsonObject frequency = entry.toObject();
+                Repeater::SimplexFrequency simplex;
+                simplex.name = frequency.value(QStringLiteral("name")).toString();
+                qint64 colorCode = 0, timeSlot = 0;
+                if (simplex.name.isEmpty() || simplex.name.size() > 16
+                    || !integerValue(frequency.value(QStringLiteral("frequencyHz")), 1, 999999999, &simplex.hz)
+                    || !frequency.value(QStringLiteral("digital")).isBool()
+                    || !integerValue(frequency.value(QStringLiteral("colorCode")), 0, 15, &colorCode)
+                    || !integerValue(frequency.value(QStringLiteral("timeSlot")), 0, 2, &timeSlot))
+                    return fail(QStringLiteral("A simplex frequency has invalid details."));
+                simplex.digital = frequency.value(QStringLiteral("digital")).toBool();
+                simplex.colorCode = colorCode;
+                simplex.timeSlot = timeSlot;
+                repeater.simplexFrequencies.push_back(simplex);
+            }
+        }
         loaded.push_back(std::move(repeater));
     }
 
     ImportedCodeplug imported;
-    if (version == 2) {
+    if (version == 2 || (version == 3 && root.contains(QStringLiteral("importedCodeplug")))) {
         const QJsonValue importedValue = root.value(QStringLiteral("importedCodeplug"));
         if (!importedValue.isObject())
             return fail(QStringLiteral("Imported codeplug data is missing."));
@@ -491,6 +654,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     emit repeatersChanged();
     emit selectedRepeaterChanged();
     emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
     emit projectChanged();
     return true;
 }

@@ -1,6 +1,6 @@
 # WaffleCPS
 
-WaffleCPS is an early Qt 6 desktop prototype for a repeater-centered DMR codeplug editor. You can edit the sample repeaters, save or open a WaffleCPS project, and import a CS7000-M17 Plus codeplug made by CPS V1.02.20.00. The import shows channels and zones, groups zones whose digital channels all share a frequency pair and color code under a repeater, and keeps the remaining zones in a separate list. Imported records are read only. The original codeplug bytes are preserved in the project; the app does not export a codeplug or write a radio.
+WaffleCPS is an early Qt 6 desktop prototype for a repeater-centered DMR codeplug editor. You can create a blank project, add repeaters and simplex frequencies, save or open a WaffleCPS project, and import a CS7000-M17 Plus codeplug made by CPS V1.02.20.00. The import shows channels and zones. Zones with one digital repeater frequency pair and color code appear under that repeater even when they also contain simplex channels; other zones stay in the zone list. You can add a simplex channel to an imported repeater zone. The original codeplug bytes are preserved in the project; the app does not export a codeplug or write a radio.
 
 The evolving product direction is in [ProjectPlan.md](ProjectPlan.md). The open project container is documented in [docs/ProjectFormat.md](docs/ProjectFormat.md). Import rules and early sample-file findings are in [docs/](docs/).
 

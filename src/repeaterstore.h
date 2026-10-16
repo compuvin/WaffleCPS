@@ -19,6 +19,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(int colorCode READ colorCode NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QVariantList slot1Talkgroups READ slot1Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList slot2Talkgroups READ slot2Talkgroups NOTIFY talkgroupsChanged)
+    Q_PROPERTY(QVariantList selectedSimplexFrequencies READ selectedSimplexFrequencies NOTIFY simplexFrequenciesChanged)
     Q_PROPERTY(QString projectDisplayName READ projectDisplayName NOTIFY projectChanged)
     Q_PROPERTY(QString sourceCodeplugName READ sourceCodeplugName NOTIFY projectChanged)
     Q_PROPERTY(bool modified READ modified NOTIFY projectChanged)
@@ -40,6 +41,7 @@ public:
     int colorCode() const;
     QVariantList slot1Talkgroups() const;
     QVariantList slot2Talkgroups() const;
+    QVariantList selectedSimplexFrequencies() const;
     QString projectDisplayName() const;
     QString sourceCodeplugName() const;
     bool modified() const;
@@ -51,16 +53,25 @@ public:
     int selectedImportedIndex() const;
 
     Q_INVOKABLE void selectRepeater(int index);
+    Q_INVOKABLE bool addRepeater(const QString &name, const QString &rxFrequency,
+                                const QString &txFrequency, int colorCode);
     Q_INVOKABLE bool updateSelectedRepeater(const QString &name, const QString &rxFrequency,
                                             const QString &txFrequency, int colorCode);
     Q_INVOKABLE bool addTalkgroup(int timeSlot, const QString &name, int id);
     Q_INVOKABLE void removeTalkgroup(int timeSlot, int id);
+    Q_INVOKABLE bool addSimplexToSelectedRepeater(const QString &name, const QString &frequency,
+                                                  bool digital, int colorCode, int timeSlot);
     Q_INVOKABLE void openProjectDialog();
     Q_INVOKABLE void saveProjectDialog(bool saveAs = false);
     Q_INVOKABLE void attachSourceDialog();
     Q_INVOKABLE void importCodeplugDialog();
     Q_INVOKABLE void importAttachedCodeplug();
     Q_INVOKABLE void selectImportedGroup(int index);
+    Q_INVOKABLE bool addSimplexToSelectedImportedRepeater(int zoneInGroup, const QString &name,
+                                                         const QString &frequency, bool digital,
+                                                         int colorCode, int timeSlot);
+    Q_INVOKABLE void newProject();
+    Q_INVOKABLE void newProjectDialog();
 
     bool openProjectFromFile(const QString &path);
     bool saveProjectToFile(const QString &path);
@@ -76,6 +87,7 @@ signals:
     void errorOccurred(const QString &message);
     void importedCodeplugChanged();
     void importedSelectionChanged();
+    void simplexFrequenciesChanged();
 
 private:
     struct Talkgroup {
@@ -90,6 +102,14 @@ private:
         int colorCode;
         std::vector<Talkgroup> slot1;
         std::vector<Talkgroup> slot2;
+        struct SimplexFrequency {
+            QString name;
+            qint64 hz;
+            bool digital;
+            int colorCode;
+            int timeSlot;
+        };
+        std::vector<SimplexFrequency> simplexFrequencies;
     };
 
     const Repeater &selected() const;

@@ -12,11 +12,18 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     RepeaterStore store;
-    if (argc > 1 && !store.importCodeplugFromFile(QString::fromLocal8Bit(argv[1]))) {
+    if (argc > 1 && QByteArray(argv[1]) == "--new")
+        store.newProject();
+    else if (argc > 1 && !store.importCodeplugFromFile(QString::fromLocal8Bit(argv[1]))) {
         qCritical() << "Could not import sample for UI test";
         return 1;
     }
     QQmlApplicationEngine engine;
+    int qmlWarningCount = 0;
+    QObject::connect(&engine, &QQmlEngine::warnings, &app,
+                     [&qmlWarningCount](const QList<QQmlError> &warnings) {
+                         qmlWarningCount += warnings.size();
+                     });
     engine.rootContext()->setContextProperty(QStringLiteral("store"), &store);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
@@ -25,5 +32,6 @@ int main(int argc, char *argv[])
         if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()))
             window->close();
     });
-    return app.exec();
+    const int exitCode = app.exec();
+    return qmlWarningCount == 0 ? exitCode : 3;
 }

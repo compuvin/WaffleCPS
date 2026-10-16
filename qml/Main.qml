@@ -59,6 +59,7 @@ ApplicationWindow {
 
                 Item { Layout.fillWidth: true }
 
+                Button { text: "New"; onClicked: store.newProjectDialog() }
                 Button { text: "Open"; onClicked: store.openProjectDialog() }
                 Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
                 Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
@@ -102,6 +103,12 @@ ApplicationWindow {
                             highlighted: index === store.selectedIndex
                             onClicked: store.selectRepeater(index)
                         }
+                    }
+
+                    Button {
+                        text: "+ Add repeater"
+                        Layout.fillWidth: true
+                        onClicked: editDialog.openForNew()
                     }
 
                     Rectangle {
@@ -236,21 +243,25 @@ ApplicationWindow {
                         spacing: 6
 
                         Label {
-                            text: store.selectedName
+                            text: store.repeaterNames.length > 0 ? store.selectedName : "New project"
                             font.pixelSize: 30
                             font.bold: true
                             color: "#183b2d"
                         }
 
                         Label {
-                            text: store.projectDisplayName === "Untitled project"
-                                  ? "Example data · Edit and save as a project"
-                                  : "Repeater overview"
+                            text: store.repeaterNames.length > 0 ? "Repeater overview" : "Add a repeater to get started."
                             color: "#718379"
+                        }
+                        Button {
+                            visible: store.repeaterNames.length === 0
+                            text: "+ Add repeater"
+                            onClicked: editDialog.openForNew()
                         }
                     }
 
                     Frame {
+                        visible: store.repeaterNames.length > 0
                         Layout.fillWidth: true
                         padding: 20
                         background: Rectangle {
@@ -295,6 +306,7 @@ ApplicationWindow {
                     }
 
                     Label {
+                        visible: store.repeaterNames.length > 0
                         text: "TIME SLOTS"
                         color: "#697c71"
                         font.pixelSize: 11
@@ -302,6 +314,7 @@ ApplicationWindow {
                     }
 
                     RowLayout {
+                        visible: store.repeaterNames.length > 0
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignTop
                         spacing: 16
@@ -323,6 +336,56 @@ ApplicationWindow {
                         }
                     }
 
+                    Frame {
+                        visible: store.repeaterNames.length > 0
+                        Layout.fillWidth: true
+                        padding: 16
+                        background: Rectangle { color: "white"; radius: 12; border.color: "#dce4df" }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 10
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: "ADDITIONAL SIMPLEX FREQUENCIES"
+                                    color: "#697c71"
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                    Layout.fillWidth: true
+                                }
+                                Button { text: "+ Add simplex"; onClicked: simplexDialog.openForCurrent(false) }
+                            }
+                            Label {
+                                visible: store.selectedSimplexFrequencies.length === 0
+                                text: "No additional simplex frequencies."
+                                color: "#64776c"
+                            }
+                            Repeater {
+                                model: store.selectedSimplexFrequencies
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 44
+                                    radius: 8
+                                    color: "#f5f8f5"
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        Label { text: modelData.name; Layout.fillWidth: true }
+                                        Label { text: modelData.frequency + " MHz"; color: "#64776c" }
+                                        Label {
+                                            text: modelData.mode === "Digital"
+                                                  ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
+                                                  : modelData.mode
+                                            color: "#64776c"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Item { Layout.preferredHeight: 10 }
                 }
             }
@@ -335,6 +398,7 @@ ApplicationWindow {
                 clip: true
 
                 ColumnLayout {
+                    id: importedContent
                     property var group: store.selectedImportedGroup
                     width: importedWorkspace.availableWidth - 40
                     x: 20
@@ -354,10 +418,14 @@ ApplicationWindow {
                         Layout.fillWidth: true
                     }
                     Label {
-                        text: "Frequency A and B follow the codeplug's stored order; RX/TX direction is still being verified."
-                        color: "#64776c"
-                        wrapMode: Text.WordWrap
+                        visible: importedContent.group.isRepeater || false
+                        text: "Receive " + importedContent.group.receiveFrequency + " MHz  ·  Transmit "
+                              + importedContent.group.transmitFrequency + " MHz  ·  Color code "
+                              + importedContent.group.colorCode
+                        font.pixelSize: 16
+                        color: "#20372e"
                         Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
                     }
                     Repeater {
                         model: parent.group.zones || []
@@ -376,7 +444,7 @@ ApplicationWindow {
                                     color: "#20372e"
                                 }
                                 Repeater {
-                                    model: modelData.channels
+                                    model: importedContent.group.isRepeater ? modelData.repeaterChannels : modelData.channels
                                     delegate: Rectangle {
                                         required property var modelData
                                         Layout.fillWidth: true
@@ -388,7 +456,7 @@ ApplicationWindow {
                                             anchors.leftMargin: 12
                                             anchors.rightMargin: 12
                                             Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
-                                            Label { text: modelData.frequencyA + " / " + modelData.frequencyB + " MHz"; color: "#64776c" }
+                                            Label { text: "RX " + modelData.receiveFrequency + " · TX " + modelData.transmitFrequency + " MHz"; color: "#64776c" }
                                             Label {
                                                 text: modelData.mode === "Digital"
                                                       ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
@@ -396,6 +464,59 @@ ApplicationWindow {
                                                 color: "#64776c"
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Frame {
+                        visible: importedContent.group.isRepeater || false
+                        Layout.fillWidth: true
+                        padding: 16
+                        background: Rectangle { color: "white"; radius: 12; border.color: "#dce4df" }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 10
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label {
+                                    text: "ADDITIONAL SIMPLEX FREQUENCIES"
+                                    color: "#697c71"
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                    Layout.fillWidth: true
+                                }
+                                Button {
+                                    text: "+ Add simplex"
+                                    onClicked: simplexDialog.openForCurrent(true)
+                                }
+                            }
+                            Label {
+                                visible: (importedContent.group.simplexChannels || []).length === 0
+                                text: "No additional simplex frequencies in these zones."
+                                color: "#64776c"
+                            }
+                            Repeater {
+                                model: importedContent.group.simplexChannels || []
+                                delegate: Rectangle {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 48
+                                    radius: 8
+                                    color: "#f5f8f5"
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 12
+                                        anchors.rightMargin: 12
+                                        Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
+                                        Label { text: modelData.receiveFrequency + " MHz"; color: "#64776c" }
+                                        Label {
+                                            text: modelData.mode === "Digital"
+                                                  ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
+                                                  : modelData.mode
+                                            color: "#64776c"
+                                        }
+                                        Label { text: modelData.zoneName; color: "#64776c" }
                                     }
                                 }
                             }
@@ -409,8 +530,10 @@ ApplicationWindow {
 
     Dialog {
         id: editDialog
+        property bool creating: false
 
         function openForCurrent() {
+            creating = false
             repeaterNameField.text = store.selectedName
             rxField.text = store.rxFrequency
             txField.text = store.txFrequency
@@ -419,11 +542,22 @@ ApplicationWindow {
             open()
         }
 
+        function openForNew() {
+            creating = true
+            repeaterNameField.text = ""
+            rxField.text = ""
+            txField.text = ""
+            colorCodeField.value = 1
+            editError.text = ""
+            open()
+            repeaterNameField.forceActiveFocus()
+        }
+
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
         width: 380
         modal: true
-        title: "Edit repeater"
+        title: creating ? "Add repeater" : "Edit repeater"
         standardButtons: Dialog.NoButton
 
         ColumnLayout {
@@ -452,15 +586,103 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
                 Button { text: "Cancel"; onClicked: editDialog.close() }
                 Button {
-                    text: "Save changes"
+                    text: editDialog.creating ? "Add repeater" : "Save changes"
                     highlighted: true
                     onClicked: {
-                        if (store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
-                                                         txField.text, colorCodeField.value)) {
+                        const saved = editDialog.creating
+                                      ? store.addRepeater(repeaterNameField.text, rxField.text,
+                                                          txField.text, colorCodeField.value)
+                                      : store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
+                                                                     txField.text, colorCodeField.value)
+                        if (saved) {
                             editDialog.close()
                         } else {
                             editError.text = "Enter a name and valid MHz frequencies. Color code must be 0–15."
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: simplexDialog
+        property bool forImported: false
+
+        function openForCurrent(importedMode) {
+            forImported = importedMode
+            simplexName.text = ""
+            simplexFrequency.text = ""
+            simplexDigital.checked = true
+            simplexColorCode.value = importedMode ? store.selectedImportedGroup.colorCode : store.colorCode
+            simplexTimeSlot.value = 1
+            simplexZone.currentIndex = 0
+            simplexError.text = ""
+            open()
+            simplexName.forceActiveFocus()
+        }
+
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        width: 390
+        modal: true
+        title: "Add simplex frequency"
+        standardButtons: Dialog.NoButton
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 9
+            Label { text: "Name" }
+            TextField { id: simplexName; Layout.fillWidth: true; maximumLength: 16 }
+            Label { text: "Frequency (MHz)" }
+            TextField {
+                id: simplexFrequency
+                Layout.fillWidth: true
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                placeholderText: "446.00000"
+            }
+            CheckBox { id: simplexDigital; text: "Digital channel" }
+            RowLayout {
+                visible: simplexDigital.checked
+                Label { text: "Color code" }
+                SpinBox { id: simplexColorCode; from: 0; to: 15 }
+                Label { text: "Time slot" }
+                SpinBox { id: simplexTimeSlot; from: 1; to: 2 }
+            }
+            Label { visible: simplexDialog.forImported; text: "Add to zone" }
+            ComboBox {
+                id: simplexZone
+                visible: simplexDialog.forImported
+                Layout.fillWidth: true
+                model: (store.selectedImportedGroup.zones || []).map(zone => zone.name)
+            }
+            Label {
+                id: simplexError
+                visible: text.length > 0
+                text: ""
+                color: "#a33a33"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                Button { text: "Cancel"; onClicked: simplexDialog.close() }
+                Button {
+                    text: "Add"
+                    highlighted: true
+                    onClicked: {
+                        const saved = simplexDialog.forImported
+                                      ? store.addSimplexToSelectedImportedRepeater(simplexZone.currentIndex,
+                                            simplexName.text, simplexFrequency.text, simplexDigital.checked,
+                                            simplexColorCode.value, simplexTimeSlot.value)
+                                      : store.addSimplexToSelectedRepeater(simplexName.text, simplexFrequency.text,
+                                            simplexDigital.checked, simplexColorCode.value,
+                                            simplexTimeSlot.value)
+                        if (saved)
+                            simplexDialog.close()
+                        else
+                            simplexError.text = "Enter a name and a valid MHz frequency. The selected zone must have room for another channel."
                     }
                 }
             }

@@ -19,9 +19,9 @@ Channels with different RX or TX frequencies or color codes belong to different 
 For each imported zone:
 
 1. Resolve every member to its channel. A missing or unreadable member makes the zone uncertain.
-2. If every member is a DMR channel with the same repeater key and the RX and TX frequencies differ, classify the zone under that repeater. Time slots and talkgroups may vary.
-3. If members have different repeater keys, include analog channels, or mix repeater and simplex channels, keep it in **Zones**.
-4. If every member is a same-frequency DMR channel on one key, mark it uncertain for review because it may be simplex or a hotspot.
+2. If all non-simplex members are DMR channels with the same repeater key, classify the zone under that repeater. Time slots and talkgroups may vary. Put same-frequency members in an **Additional simplex frequencies** box while preserving their zone membership and order.
+3. If non-simplex members have different repeater keys or include analog or unrecognized channels, keep the zone in **Zones**.
+4. If every member is same-frequency, keep the zone in **Zones** because it may represent simplex or a hotspot.
 5. Keep empty zones in **Zones**.
 6. If several zones match one repeater, show all of them under that repeater with their own names and channel order. Do not merge them automatically.
 
@@ -43,8 +43,9 @@ A later node canvas can use the same data and commands as the expandable hierarc
 |---|---|
 | DMR channels on one repeater RX/TX pair and color code, across both time slots | Under the matching repeater |
 | Two zones on the same repeater RX/TX pair and color code | Both under one repeater, still separate zones |
+| One repeater RX/TX pair and color code plus same-frequency channels | Under the repeater; same-frequency channels in Additional simplex frequencies |
 | Channels on two frequency pairs | Stays in Zones |
-| DMR and analog channels together | Stays in Zones |
+| One digital repeater plus analog simplex channels | Under the repeater; analog simplex channels in Additional simplex frequencies |
 | Same-frequency DMR channels with no repeater evidence | Uncertain candidate for review |
 | Unresolved channel reference | Uncertain zone for review |
 
