@@ -1,0 +1,4 @@
+/Codeplugs/
+*.waffle
+/build/
+/cmake-build-*/
