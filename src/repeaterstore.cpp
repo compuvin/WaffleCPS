@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QMap>
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QSet>
@@ -66,6 +67,137 @@ QString RepeaterStore::projectDisplayName() const
 }
 QString RepeaterStore::sourceCodeplugName() const { return m_sourceCodeplugName; }
 bool RepeaterStore::modified() const { return m_modified; }
+bool RepeaterStore::hasImportedCodeplug() const { return !m_importedCodeplug.channels.isEmpty(); }
+QString RepeaterStore::importedCodeplugSummary() const
+{
+    if (!hasImportedCodeplug())
+        return {};
+    return QStringLiteral("%1 · %2 · %3 channels · %4 zones")
+        .arg(m_importedCodeplug.model, m_importedCodeplug.cpsVersion)
+        .arg(m_importedCodeplug.channels.size())
+        .arg(m_importedCodeplug.zones.size());
+}
+
+QStringList RepeaterStore::importedRepeaterNames() const
+{
+    QStringList names;
+    for (const auto &group : m_importedGroups)
+        if (group.repeater)
+            names.append(group.name);
+    return names;
+}
+
+QStringList RepeaterStore::importedZoneNames() const
+{
+    QStringList names;
+    for (const auto &group : m_importedGroups)
+        if (!group.repeater)
+            names.append(group.name);
+    return names;
+}
+
+int RepeaterStore::selectedImportedIndex() const { return m_selectedImportedIndex; }
+
+QVariantMap RepeaterStore::selectedImportedGroup() const
+{
+    if (m_selectedImportedIndex < 0 || m_selectedImportedIndex >= m_importedGroups.size())
+        return {};
+    const auto &group = m_importedGroups.at(m_selectedImportedIndex);
+    QVariantList zones;
+    for (int zoneIndex : group.zoneIndexes) {
+        const auto &zone = m_importedCodeplug.zones.at(zoneIndex);
+        QVariantList channels;
+        for (int channelIndex : zone.channelIndexes) {
+            const auto &channel = m_importedCodeplug.channels.at(channelIndex);
+            channels.append(QVariantMap{
+                {QStringLiteral("name"), channel.name},
+                {QStringLiteral("number"), channelIndex + 1},
+                {QStringLiteral("frequencyA"), formatFrequency(channel.frequencyAHz)},
+                {QStringLiteral("frequencyB"), formatFrequency(channel.frequencyBHz)},
+                {QStringLiteral("mode"), channel.digital ? QStringLiteral("Digital") : QStringLiteral("Analog / other")},
+                {QStringLiteral("colorCode"), channel.digital ? QVariant(channel.colorCode) : QVariant()},
+                {QStringLiteral("timeSlot"), channel.digital ? QVariant(channel.timeSlot) : QVariant()}});
+        }
+        zones.append(QVariantMap{{QStringLiteral("name"), zone.name},
+                                 {QStringLiteral("channels"), channels}});
+    }
+    return {{QStringLiteral("name"), group.name},
+            {QStringLiteral("classification"), group.reason},
+            {QStringLiteral("zones"), zones}};
+}
+
+void RepeaterStore::selectImportedGroup(int index)
+{
+    if (index < 0 || index >= m_importedGroups.size() || index == m_selectedImportedIndex)
+        return;
+    m_selectedImportedIndex = index;
+    emit importedSelectionChanged();
+}
+
+void RepeaterStore::rebuildImportedGroups()
+{
+    m_importedGroups.clear();
+    QMap<QString, int> repeaterIndexes;
+    QVector<ImportedGroup> remainingZones;
+    for (int zoneIndex = 0; zoneIndex < m_importedCodeplug.zones.size(); ++zoneIndex) {
+        const auto &zone = m_importedCodeplug.zones.at(zoneIndex);
+        bool repeater = !zone.channelIndexes.isEmpty();
+        QString reason = repeater ? QString() : QStringLiteral("Empty zone");
+        ImportedChannel first;
+        if (repeater)
+            first = m_importedCodeplug.channels.at(zone.channelIndexes.constFirst());
+        if (repeater && !first.digital) {
+            repeater = false;
+            reason = QStringLiteral("Contains an analog or unrecognized channel");
+        }
+        if (repeater && first.frequencyAHz == first.frequencyBHz) {
+            repeater = false;
+            reason = QStringLiteral("Same-frequency digital channels may be simplex or a hotspot");
+        }
+        for (int channelIndex : zone.channelIndexes) {
+            const auto &channel = m_importedCodeplug.channels.at(channelIndex);
+            if (!channel.digital) {
+                repeater = false;
+                reason = QStringLiteral("Contains an analog or unrecognized channel");
+            } else if (channel.frequencyAHz != first.frequencyAHz
+                       || channel.frequencyBHz != first.frequencyBHz) {
+                repeater = false;
+                reason = QStringLiteral("Channels use different frequency pairs");
+            } else if (channel.colorCode != first.colorCode) {
+                repeater = false;
+                reason = QStringLiteral("Channels use different color codes");
+            }
+        }
+        if (repeater) {
+            const QString key = QStringLiteral("%1/%2/%3")
+                .arg(first.frequencyAHz).arg(first.frequencyBHz).arg(first.colorCode);
+            if (repeaterIndexes.contains(key)) {
+                m_importedGroups[repeaterIndexes.value(key)].zoneIndexes.append(zoneIndex);
+            } else {
+                ImportedGroup group;
+                group.name = zone.name;
+                group.reason = QStringLiteral("All channels share the same non-simplex frequency pair and color code");
+                group.zoneIndexes.append(zoneIndex);
+                group.repeater = true;
+                group.frequencyAHz = first.frequencyAHz;
+                group.frequencyBHz = first.frequencyBHz;
+                group.colorCode = first.colorCode;
+                repeaterIndexes.insert(key, m_importedGroups.size());
+                m_importedGroups.append(group);
+            }
+        } else {
+            ImportedGroup group;
+            group.name = zone.name;
+            group.reason = reason;
+            group.zoneIndexes.append(zoneIndex);
+            remainingZones.append(group);
+        }
+    }
+    m_importedGroups += remainingZones;
+    m_selectedImportedIndex = 0;
+    emit importedCodeplugChanged();
+    emit importedSelectionChanged();
+}
 
 QVariantList RepeaterStore::slot1Talkgroups() const { return toVariantList(selected().slot1); }
 QVariantList RepeaterStore::slot2Talkgroups() const { return toVariantList(selected().slot2); }
@@ -154,8 +286,31 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), 1},
+                     {QStringLiteral("schemaVersion"), hasImportedCodeplug() ? 2 : 1},
                      {QStringLiteral("repeaters"), repeaters}};
+    if (hasImportedCodeplug()) {
+        QJsonArray channels;
+        for (const auto &channel : m_importedCodeplug.channels)
+            channels.append(QJsonObject{{QStringLiteral("name"), channel.name},
+                                        {QStringLiteral("frequencyAHz"), int(channel.frequencyAHz)},
+                                        {QStringLiteral("frequencyBHz"), int(channel.frequencyBHz)},
+                                        {QStringLiteral("digital"), channel.digital},
+                                        {QStringLiteral("colorCode"), channel.colorCode},
+                                        {QStringLiteral("timeSlot"), channel.timeSlot}});
+        QJsonArray zones;
+        for (const auto &zone : m_importedCodeplug.zones) {
+            QJsonArray indexes;
+            for (int index : zone.channelIndexes)
+                indexes.append(index);
+            zones.append(QJsonObject{{QStringLiteral("name"), zone.name},
+                                     {QStringLiteral("channelIndexes"), indexes}});
+        }
+        root.insert(QStringLiteral("importedCodeplug"),
+                    QJsonObject{{QStringLiteral("model"), m_importedCodeplug.model},
+                                {QStringLiteral("cpsVersion"), m_importedCodeplug.cpsVersion},
+                                {QStringLiteral("channels"), channels},
+                                {QStringLiteral("zones"), zones}});
+    }
     QMap<QString, QByteArray> entries;
     if (!m_sourceCodeplugName.isEmpty()) {
         const QByteArray hash = QCryptographicHash::hash(m_sourceCodeplug, QCryptographicHash::Sha256).toHex();
@@ -193,7 +348,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 1, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 2, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
@@ -245,6 +400,63 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         loaded.push_back(std::move(repeater));
     }
 
+    ImportedCodeplug imported;
+    if (version == 2) {
+        const QJsonValue importedValue = root.value(QStringLiteral("importedCodeplug"));
+        if (!importedValue.isObject())
+            return fail(QStringLiteral("Imported codeplug data is missing."));
+        const QJsonObject data = importedValue.toObject();
+        imported.model = data.value(QStringLiteral("model")).toString();
+        imported.cpsVersion = data.value(QStringLiteral("cpsVersion")).toString();
+        const QJsonValue channelsValue = data.value(QStringLiteral("channels"));
+        const QJsonValue zonesValue = data.value(QStringLiteral("zones"));
+        if (imported.model != QStringLiteral("CS7000-M17 PLUS")
+            || imported.cpsVersion != QStringLiteral("V1.02.20.00")
+            || !channelsValue.isArray() || channelsValue.toArray().isEmpty()
+            || channelsValue.toArray().size() > 3000 || !zonesValue.isArray()
+            || zonesValue.toArray().isEmpty() || zonesValue.toArray().size() > 500)
+            return fail(QStringLiteral("Imported codeplug metadata is invalid."));
+        for (const QJsonValue &value : channelsValue.toArray()) {
+            if (!value.isObject())
+                return fail(QStringLiteral("An imported channel is invalid."));
+            const QJsonObject item = value.toObject();
+            ImportedChannel channel;
+            channel.name = item.value(QStringLiteral("name")).toString();
+            qint64 frequencyA = 0, frequencyB = 0, colorCode = 0, timeSlot = 0;
+            if (channel.name.isEmpty() || channel.name.size() > 16
+                || !integerValue(item.value(QStringLiteral("frequencyAHz")), 100000000, 999999999, &frequencyA)
+                || !integerValue(item.value(QStringLiteral("frequencyBHz")), 100000000, 999999999, &frequencyB)
+                || !item.value(QStringLiteral("digital")).isBool()
+                || !integerValue(item.value(QStringLiteral("colorCode")), 0, 15, &colorCode)
+                || !integerValue(item.value(QStringLiteral("timeSlot")), 0, 2, &timeSlot))
+                return fail(QStringLiteral("An imported channel has invalid details."));
+            channel.frequencyAHz = frequencyA;
+            channel.frequencyBHz = frequencyB;
+            channel.digital = item.value(QStringLiteral("digital")).toBool();
+            channel.colorCode = colorCode;
+            channel.timeSlot = timeSlot;
+            imported.channels.append(channel);
+        }
+        for (const QJsonValue &value : zonesValue.toArray()) {
+            if (!value.isObject())
+                return fail(QStringLiteral("An imported zone is invalid."));
+            const QJsonObject item = value.toObject();
+            ImportedZone zone;
+            zone.name = item.value(QStringLiteral("name")).toString();
+            const QJsonValue indexesValue = item.value(QStringLiteral("channelIndexes"));
+            if (zone.name.isEmpty() || zone.name.size() > 16 || !indexesValue.isArray()
+                || indexesValue.toArray().size() > 64)
+                return fail(QStringLiteral("An imported zone has invalid details."));
+            for (const QJsonValue &indexValue : indexesValue.toArray()) {
+                qint64 channelIndex = 0;
+                if (!integerValue(indexValue, 0, imported.channels.size() - 1, &channelIndex))
+                    return fail(QStringLiteral("An imported zone references an unknown channel."));
+                zone.channelIndexes.append(channelIndex);
+            }
+            imported.zones.append(std::move(zone));
+        }
+    }
+
     QString sourceName;
     QByteArray sourceBytes;
     const QJsonValue sourceValue = root.value(QStringLiteral("sourceCodeplug"));
@@ -273,6 +485,8 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     m_projectPath = path;
     m_sourceCodeplugName = sourceName;
     m_sourceCodeplug = sourceBytes;
+    m_importedCodeplug = std::move(imported);
+    rebuildImportedGroups();
     m_modified = false;
     emit repeatersChanged();
     emit selectedRepeaterChanged();
@@ -296,6 +510,58 @@ bool RepeaterStore::attachSourceCodeplugFromFile(const QString &path)
     setModified(true);
     emit projectChanged();
     return true;
+}
+
+bool RepeaterStore::importCodeplugFromBytes(const QByteArray &bytes)
+{
+    ImportedCodeplug imported;
+    QString error;
+    if (!CodeplugReader::read(bytes, &imported, &error))
+        return fail(QStringLiteral("Could not import codeplug: %1").arg(error));
+    m_importedCodeplug = std::move(imported);
+    rebuildImportedGroups();
+    setModified(true);
+    return true;
+}
+
+bool RepeaterStore::importCodeplugFromFile(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return fail(QStringLiteral("Could not read codeplug: %1").arg(file.errorString()));
+    if (file.size() > maximumSourceSize)
+        return fail(QStringLiteral("Codeplug exceeds the project size limit."));
+    const QByteArray bytes = file.readAll();
+    if (bytes.size() != file.size())
+        return fail(QStringLiteral("Could not read the complete codeplug."));
+    if (!importCodeplugFromBytes(bytes))
+        return false;
+    m_sourceCodeplugName = QFileInfo(path).fileName();
+    m_sourceCodeplug = bytes;
+    m_projectPath.clear();
+    emit projectChanged();
+    return true;
+}
+
+void RepeaterStore::importAttachedCodeplug()
+{
+    if (m_sourceCodeplug.isEmpty()) {
+        fail(QStringLiteral("No source codeplug is attached."));
+        return;
+    }
+    importCodeplugFromBytes(m_sourceCodeplug);
+}
+
+void RepeaterStore::importCodeplugDialog()
+{
+    if (m_modified && QMessageBox::question(nullptr, tr("Discard unsaved changes?"),
+                                             tr("Importing a codeplug will replace the current imported view and discard unsaved changes."))
+                          != QMessageBox::Yes)
+        return;
+    const QString path = QFileDialog::getOpenFileName(nullptr, tr("Import CS7000 codeplug"), QString(),
+                                                      tr("CS7000 codeplugs (*.rdbx);;All files (*)"));
+    if (!path.isEmpty())
+        importCodeplugFromFile(path);
 }
 
 void RepeaterStore::openProjectDialog()

@@ -60,6 +60,7 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
 
                 Button { text: "Open"; onClicked: store.openProjectDialog() }
+                Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
                 Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
                 Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
             }
@@ -71,6 +72,7 @@ ApplicationWindow {
             spacing: 0
 
             Rectangle {
+                visible: !store.hasImportedCodeplug
                 Layout.preferredWidth: 242
                 Layout.fillHeight: true
                 color: "#ffffff"
@@ -133,9 +135,16 @@ ApplicationWindow {
                         onClicked: store.attachSourceDialog()
                     }
 
+                    Button {
+                        visible: store.sourceCodeplugName.length > 0
+                        text: "Import attached codeplug"
+                        Layout.fillWidth: true
+                        onClicked: store.importAttachedCodeplug()
+                    }
+
                     Label {
                         text: store.sourceCodeplugName.length > 0
-                              ? "Archived source: " + store.sourceCodeplugName + "\nNot imported yet"
+                              ? "Archived source: " + store.sourceCodeplugName
                               : "No source codeplug attached"
                         color: "#64776c"
                         wrapMode: Text.WordWrap
@@ -153,8 +162,64 @@ ApplicationWindow {
                 }
             }
 
+            Rectangle {
+                visible: store.hasImportedCodeplug
+                Layout.preferredWidth: 260
+                Layout.fillHeight: true
+                color: "#ffffff"
+                border.color: "#e0e8e0"
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 18
+                    spacing: 8
+
+                    Label { text: "REPEATERS"; color: "#697c71"; font.bold: true; font.pixelSize: 11 }
+                    ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        ColumnLayout {
+                            width: 220
+                            spacing: 3
+                            Repeater {
+                                model: store.importedRepeaterNames
+                                delegate: ItemDelegate {
+                                    required property int index
+                                    required property string modelData
+                                    text: modelData
+                                    Layout.fillWidth: true
+                                    highlighted: store.selectedImportedIndex === index
+                                    onClicked: store.selectImportedGroup(index)
+                                }
+                            }
+                            Label { text: "ZONES"; color: "#697c71"; font.bold: true; font.pixelSize: 11; Layout.topMargin: 12 }
+                            Repeater {
+                                model: store.importedZoneNames
+                                delegate: ItemDelegate {
+                                    required property int index
+                                    required property string modelData
+                                    text: modelData
+                                    Layout.fillWidth: true
+                                    highlighted: store.selectedImportedIndex === index + store.importedRepeaterNames.length
+                                    onClicked: store.selectImportedGroup(index + store.importedRepeaterNames.length)
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        text: store.importedCodeplugSummary
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: "#64776c"
+                        font.pixelSize: 11
+                    }
+                }
+            }
+
             ScrollView {
                 id: workspace
+                visible: !store.hasImportedCodeplug
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
@@ -258,6 +323,84 @@ ApplicationWindow {
                         }
                     }
 
+                    Item { Layout.preferredHeight: 10 }
+                }
+            }
+
+            ScrollView {
+                id: importedWorkspace
+                visible: store.hasImportedCodeplug
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                ColumnLayout {
+                    property var group: store.selectedImportedGroup
+                    width: importedWorkspace.availableWidth - 40
+                    x: 20
+                    spacing: 14
+
+                    Item { Layout.preferredHeight: 10 }
+                    Label {
+                        text: parent.group.name || "Imported codeplug"
+                        font.pixelSize: 28
+                        font.bold: true
+                        color: "#183b2d"
+                    }
+                    Label {
+                        text: parent.group.classification || ""
+                        color: "#64776c"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    Label {
+                        text: "Frequency A and B follow the codeplug's stored order; RX/TX direction is still being verified."
+                        color: "#64776c"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                    Repeater {
+                        model: parent.group.zones || []
+                        delegate: Frame {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            padding: 16
+                            background: Rectangle { color: "white"; radius: 12; border.color: "#dce4df" }
+                            ColumnLayout {
+                                anchors.fill: parent
+                                spacing: 8
+                                Label {
+                                    text: modelData.name + " · " + modelData.channels.length + " channels"
+                                    font.bold: true
+                                    font.pixelSize: 17
+                                    color: "#20372e"
+                                }
+                                Repeater {
+                                    model: modelData.channels
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 48
+                                        radius: 8
+                                        color: "#f5f8f5"
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            Label { text: modelData.frequencyA + " / " + modelData.frequencyB + " MHz"; color: "#64776c" }
+                                            Label {
+                                                text: modelData.mode === "Digital"
+                                                      ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
+                                                      : modelData.mode
+                                                color: "#64776c"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Item { Layout.preferredHeight: 10 }
                 }
             }

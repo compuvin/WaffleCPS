@@ -12,10 +12,16 @@ The private sample is in `Codeplugs/`, which Git ignores. Do not copy the file o
 
 These observations show that a repeater-only editor would leave significant parts of a real codeplug without a home. They also give us a large test case for import performance and for the mixed-zone view.
 
-## Work needed before importing or exporting
+## Verified first import
 
-1. Locate channel records and verify name-to-record indexing, RX/TX frequency units, mode, color code, time slot, contact reference, and other channel settings against the manufacturer's CPS.
-2. Decode zone records, membership indexes, order, and limits. Check whether zone names and membership are stored together or in separate tables.
+For the sample's CS7000-M17 Plus CPS V1.02.20.00 layout, WaffleCPS now decodes the 256-byte repeating XOR mask, 821 channel names and frequency records, and 82 zones with ordered one-based channel references. The digital marker, color code nibble, and time slot bit are inferred from the sample records. Six sample zones have channels sharing one non-simplex frequency pair and color code; they appear under repeater groups. The other 76 remain zones. The source bytes are archived unchanged in a `.waffle` project.
+
+The two frequency fields are displayed in stored order while their RX/TX direction awaits independent verification. Other CPS versions are rejected because their offsets have not been checked. The importer is read only and does not decode contacts or other radio settings.
+
+## Work needed before exporting
+
+1. Verify the frequency field direction, mode and digital flag variants, contact references, and other channel settings against controlled CPS edits.
+2. Confirm channel and zone limits and record offsets in other CPS versions.
 3. Map contacts, receive groups, scan lists, and radio-specific settings, including unknown bytes that must survive a round trip.
 4. Compare a small set of controlled CPS edits against binary copies to confirm field locations and checksums or length fields.
 5. Test unchanged import and export on copies before trying radio communication. Never use the sole original file as an output target.

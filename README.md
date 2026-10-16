@@ -1,6 +1,6 @@
 # WaffleCPS
 
-WaffleCPS is an early Qt 6 desktop prototype for a repeater-centered DMR codeplug editor. The current build starts with two sample repeaters. You can edit repeater details, add or remove talkgroups, and save or open a WaffleCPS project. You can attach an original codeplug to preserve its bytes in the project; the app does not yet import its radio settings, export a codeplug, or write a radio.
+WaffleCPS is an early Qt 6 desktop prototype for a repeater-centered DMR codeplug editor. You can edit the sample repeaters, save or open a WaffleCPS project, and import a CS7000-M17 Plus codeplug made by CPS V1.02.20.00. The import shows channels and zones, groups zones whose digital channels all share a frequency pair and color code under a repeater, and keeps the remaining zones in a separate list. Imported records are read only. The original codeplug bytes are preserved in the project; the app does not export a codeplug or write a radio.
 
 The evolving product direction is in [ProjectPlan.md](ProjectPlan.md). The open project container is documented in [docs/ProjectFormat.md](docs/ProjectFormat.md). Import rules and early sample-file findings are in [docs/](docs/).
 
@@ -24,7 +24,9 @@ cmake --build build
 ./build/wafflecps
 ```
 
-Run the project archive round-trip check with `ctest --test-dir build --output-on-failure`.
+You can also open a `.waffle` project or import a supported `.rdbx` file by passing its path to `wafflecps`.
+
+Run the project and importer checks with `ctest --test-dir build --output-on-failure`.
 
 Qt 6.4 or newer is required. Windows builds use the same CMake project with a Qt 6 installation and compatible compiler.
 

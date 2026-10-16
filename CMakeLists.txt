@@ -13,6 +13,8 @@ qt_add_executable(wafflecps
     src/main.cpp
     src/repeaterstore.cpp
     src/repeaterstore.h
+    src/codeplugreader.cpp
+    src/codeplugreader.h
     src/ziparchive.cpp
     src/ziparchive.h
 )
@@ -41,9 +43,41 @@ if(BUILD_TESTING)
         tests/project_roundtrip.cpp
         src/repeaterstore.cpp
         src/repeaterstore.h
+        src/codeplugreader.cpp
+        src/codeplugreader.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
     target_link_libraries(project_roundtrip_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME project_roundtrip COMMAND project_roundtrip_test)
+
+    qt_add_executable(codeplug_import_test
+        tests/codeplug_import.cpp
+        src/repeaterstore.cpp
+        src/repeaterstore.h
+        src/codeplugreader.cpp
+        src/codeplugreader.h
+        src/ziparchive.cpp
+        src/ziparchive.h
+    )
+    target_link_libraries(codeplug_import_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    add_test(NAME codeplug_import COMMAND codeplug_import_test)
+
+    qt_add_executable(ui_smoke_test
+        tests/ui_smoke.cpp
+        src/repeaterstore.cpp
+        src/repeaterstore.h
+        src/codeplugreader.cpp
+        src/codeplugreader.h
+        src/ziparchive.cpp
+        src/ziparchive.h
+    )
+    qt_add_resources(ui_smoke_test "test_qml"
+        PREFIX "/"
+        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml
+    )
+    target_link_libraries(ui_smoke_test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets ZLIB::ZLIB)
+    add_test(NAME ui_smoke COMMAND ui_smoke_test)
+    set_tests_properties(ui_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
