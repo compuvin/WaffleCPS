@@ -11,6 +11,13 @@ struct ImportedChannel {
     bool digital = false;
     int colorCode = 0;
     int timeSlot = 0;
+    int contactIndex = 0; // One-based contact table index; zero means no contact.
+};
+
+struct ImportedContact {
+    QString name;
+    int id = 0;
+    bool groupCall = false;
 };
 
 struct ImportedZone {
@@ -22,6 +29,7 @@ struct ImportedCodeplug {
     QString model;
     QString cpsVersion;
     QVector<ImportedChannel> channels;
+    QVector<ImportedContact> contacts;
     QVector<ImportedZone> zones;
 };
 

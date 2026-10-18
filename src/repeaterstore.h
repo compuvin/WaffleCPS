@@ -20,6 +20,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(QVariantList slot1Talkgroups READ slot1Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList slot2Talkgroups READ slot2Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList selectedSimplexFrequencies READ selectedSimplexFrequencies NOTIFY simplexFrequenciesChanged)
+    Q_PROPERTY(QVariantList contacts READ contacts NOTIFY contactsChanged)
     Q_PROPERTY(QString projectDisplayName READ projectDisplayName NOTIFY projectChanged)
     Q_PROPERTY(QString sourceCodeplugName READ sourceCodeplugName NOTIFY projectChanged)
     Q_PROPERTY(bool modified READ modified NOTIFY projectChanged)
@@ -42,6 +43,7 @@ public:
     QVariantList slot1Talkgroups() const;
     QVariantList slot2Talkgroups() const;
     QVariantList selectedSimplexFrequencies() const;
+    QVariantList contacts() const;
     QString projectDisplayName() const;
     QString sourceCodeplugName() const;
     bool modified() const;
@@ -57,19 +59,29 @@ public:
                                 const QString &txFrequency, int colorCode);
     Q_INVOKABLE bool updateSelectedRepeater(const QString &name, const QString &rxFrequency,
                                             const QString &txFrequency, int colorCode);
-    Q_INVOKABLE bool addTalkgroup(int timeSlot, const QString &name, int id);
+    Q_INVOKABLE bool addTalkgroup(int timeSlot, const QString &name, int id,
+                                 const QString &channelName = QString());
+    Q_INVOKABLE bool addContact(const QString &name, int id, bool groupCall);
+    Q_INVOKABLE bool updateContact(int index, const QString &name, int id);
     Q_INVOKABLE void removeTalkgroup(int timeSlot, int id);
     Q_INVOKABLE bool addSimplexToSelectedRepeater(const QString &name, const QString &frequency,
                                                   bool digital, int colorCode, int timeSlot);
+    Q_INVOKABLE bool removeSimplexFromSelectedRepeater(int index);
     Q_INVOKABLE void openProjectDialog();
     Q_INVOKABLE void saveProjectDialog(bool saveAs = false);
     Q_INVOKABLE void attachSourceDialog();
     Q_INVOKABLE void importCodeplugDialog();
     Q_INVOKABLE void importAttachedCodeplug();
     Q_INVOKABLE void selectImportedGroup(int index);
+    Q_INVOKABLE bool updateSelectedImportedRepeater(const QString &name, const QString &rxFrequency,
+                                                    const QString &txFrequency, int colorCode);
+    Q_INVOKABLE bool addImportedTalkgroup(int timeSlot, const QString &name, int id,
+                                         const QString &channelName = QString());
+    Q_INVOKABLE bool removeImportedTalkgroup(int timeSlot, int contactIndex);
     Q_INVOKABLE bool addSimplexToSelectedImportedRepeater(int zoneInGroup, const QString &name,
                                                          const QString &frequency, bool digital,
                                                          int colorCode, int timeSlot);
+    Q_INVOKABLE bool removeSimplexFromSelectedImportedRepeater(int zoneInGroup, int zonePosition);
     Q_INVOKABLE void newProject();
     Q_INVOKABLE void newProjectDialog();
 
@@ -80,6 +92,7 @@ public:
     bool importCodeplugFromBytes(const QByteArray &bytes);
 
 signals:
+    void aboutToResetProject();
     void repeatersChanged();
     void selectedRepeaterChanged();
     void talkgroupsChanged();
@@ -88,11 +101,13 @@ signals:
     void importedCodeplugChanged();
     void importedSelectionChanged();
     void simplexFrequenciesChanged();
+    void contactsChanged();
 
 private:
     struct Talkgroup {
         QString name;
         int id;
+        QString channelName;
     };
 
     struct Repeater {
@@ -140,6 +155,7 @@ private:
     QByteArray m_sourceCodeplug;
     bool m_modified = false;
     ImportedCodeplug m_importedCodeplug;
+    QVector<ImportedContact> m_manualContacts;
     QVector<ImportedGroup> m_importedGroups;
     int m_selectedImportedIndex = 0;
 };

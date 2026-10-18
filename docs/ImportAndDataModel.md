@@ -23,7 +23,7 @@ For each imported zone:
 3. If non-simplex members have different repeater keys or include analog or unrecognized channels, keep the zone in **Zones**.
 4. If every member is same-frequency, keep the zone in **Zones** because it may represent simplex or a hotspot.
 5. Keep empty zones in **Zones**.
-6. If several zones match one repeater, show all of them under that repeater with their own names and channel order. Do not merge them automatically.
+6. If several zones match one repeater, show a separate repeater entry for each zone, retaining its name, channel order, and 16-channel limit.
 
 Classification is a suggested view with a visible reason. Users can reassign a zone or leave it in **Zones**. Save the override separately from the imported records so reclassification does not erase it. Re-run automatic classification only for zones without a user override.
 
@@ -32,6 +32,8 @@ The importer may also group channels by repeater key when a codeplug lacks a mat
 ## Editor presentation
 
 The initial repeater view is an expandable hierarchy: repeater details, Time Slot 1 and Time Slot 2, then talkgroups and their channels. Show each matching zone's name and membership as part of the repeater view.
+
+Keep a channel's name separate from its talkgroup contact. On the user's radio, the selected channel name appears while idle; the talkgroup name appears while receiving or transmitting. Show both names in repeater channel listings. When adding a repeater channel, let the user choose or create a group contact and enter the channel name separately, while inheriting repeater frequencies, color code, and time slot.
 
 The **Zones** view should show each remaining zone as an ordered set of channel cards or rows. Each channel summary should expose name, mode, RX/TX frequencies, and, for DMR, color code, time slot, and talkgroup. Grouping and filters can help users understand large mixed zones while preserving the radio's actual order. Users should be able to edit membership and order directly.
 
@@ -42,7 +44,7 @@ A later node canvas can use the same data and commands as the expandable hierarc
 | Imported zone | Result |
 |---|---|
 | DMR channels on one repeater RX/TX pair and color code, across both time slots | Under the matching repeater |
-| Two zones on the same repeater RX/TX pair and color code | Both under one repeater, still separate zones |
+| Two zones on the same repeater RX/TX pair and color code | Two repeater entries, each retaining its own zone membership |
 | One repeater RX/TX pair and color code plus same-frequency channels | Under the repeater; same-frequency channels in Additional simplex frequencies |
 | Channels on two frequency pairs | Stays in Zones |
 | One digital repeater plus analog simplex channels | Under the repeater; analog simplex channels in Additional simplex frequencies |

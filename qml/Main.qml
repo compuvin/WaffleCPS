@@ -4,6 +4,15 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: window
+    property bool clearingProject: false
+    property string currentSection: "repeaters"
+    Connections {
+        target: store
+        function onAboutToResetProject() {
+            window.clearingProject = true
+            Qt.callLater(() => window.clearingProject = false)
+        }
+    }
     width: 1080
     height: 720
     minimumWidth: 800
@@ -84,6 +93,13 @@ ApplicationWindow {
                     anchors.margins: 18
                     spacing: 10
 
+                    Button {
+                        text: "Contacts"
+                        Layout.fillWidth: true
+                        highlighted: window.currentSection === "contacts"
+                        onClicked: window.currentSection = "contacts"
+                    }
+
                     Label {
                         text: "REPEATERS"
                         color: "#697c71"
@@ -101,14 +117,20 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             text: modelData
                             highlighted: index === store.selectedIndex
-                            onClicked: store.selectRepeater(index)
+                            onClicked: {
+                                store.selectRepeater(index)
+                                window.currentSection = "repeaters"
+                            }
                         }
                     }
 
                     Button {
                         text: "+ Add repeater"
                         Layout.fillWidth: true
-                        onClicked: editDialog.openForNew()
+                        onClicked: {
+                            window.currentSection = "repeaters"
+                            editDialog.openForNew()
+                        }
                     }
 
                     Rectangle {
@@ -169,10 +191,12 @@ ApplicationWindow {
                 }
             }
 
-            Rectangle {
-                visible: store.hasImportedCodeplug
+            Loader {
+                active: store.hasImportedCodeplug && !window.clearingProject
+                visible: active
                 Layout.preferredWidth: 260
                 Layout.fillHeight: true
+                sourceComponent: Component { Rectangle {
                 color: "#ffffff"
                 border.color: "#e0e8e0"
 
@@ -181,6 +205,12 @@ ApplicationWindow {
                     anchors.margins: 18
                     spacing: 8
 
+                    Button {
+                        text: "Contacts"
+                        Layout.fillWidth: true
+                        highlighted: window.currentSection === "contacts"
+                        onClicked: window.currentSection = "contacts"
+                    }
                     Label { text: "REPEATERS"; color: "#697c71"; font.bold: true; font.pixelSize: 11 }
                     ScrollView {
                         Layout.fillWidth: true
@@ -197,7 +227,10 @@ ApplicationWindow {
                                     text: modelData
                                     Layout.fillWidth: true
                                     highlighted: store.selectedImportedIndex === index
-                                    onClicked: store.selectImportedGroup(index)
+                                    onClicked: {
+                                        store.selectImportedGroup(index)
+                                        window.currentSection = "repeaters"
+                                    }
                                 }
                             }
                             Label { text: "ZONES"; color: "#697c71"; font.bold: true; font.pixelSize: 11; Layout.topMargin: 12 }
@@ -209,7 +242,10 @@ ApplicationWindow {
                                     text: modelData
                                     Layout.fillWidth: true
                                     highlighted: store.selectedImportedIndex === index + store.importedRepeaterNames.length
-                                    onClicked: store.selectImportedGroup(index + store.importedRepeaterNames.length)
+                                    onClicked: {
+                                        store.selectImportedGroup(index + store.importedRepeaterNames.length)
+                                        window.currentSection = "repeaters"
+                                    }
                                 }
                             }
                         }
@@ -222,17 +258,17 @@ ApplicationWindow {
                         font.pixelSize: 11
                     }
                 }
-            }
+            } } }
 
             ScrollView {
                 id: workspace
-                visible: !store.hasImportedCodeplug
+                visible: !store.hasImportedCodeplug && window.currentSection !== "contacts"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
 
                 ColumnLayout {
-                    width: workspace.availableWidth - 40
+                    width: Math.max(0, workspace.availableWidth - 40)
                     x: 20
                     spacing: 20
 
@@ -364,6 +400,7 @@ ApplicationWindow {
                                 model: store.selectedSimplexFrequencies
                                 delegate: Rectangle {
                                     required property var modelData
+                                    required property int index
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: 44
                                     radius: 8
@@ -380,6 +417,11 @@ ApplicationWindow {
                                                   : modelData.mode
                                             color: "#64776c"
                                         }
+                                        ToolButton {
+                                            text: "Remove"
+                                            Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
+                                            onClicked: store.removeSimplexFromSelectedRepeater(index)
+                                        }
                                     }
                                 }
                             }
@@ -390,45 +432,120 @@ ApplicationWindow {
                 }
             }
 
-            ScrollView {
-                id: importedWorkspace
-                visible: store.hasImportedCodeplug
+            Loader {
+                active: store.hasImportedCodeplug && !window.clearingProject && window.currentSection !== "contacts"
+                visible: active
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                sourceComponent: Component { ScrollView {
+                id: importedWorkspace
                 clip: true
 
                 ColumnLayout {
                     id: importedContent
                     property var group: store.selectedImportedGroup
-                    width: importedWorkspace.availableWidth - 40
+                    width: Math.max(0, importedWorkspace.availableWidth - 40)
                     x: 20
-                    spacing: 14
+                    spacing: 20
 
                     Item { Layout.preferredHeight: 10 }
-                    Label {
-                        text: parent.group.name || "Imported codeplug"
-                        font.pixelSize: 28
-                        font.bold: true
-                        color: "#183b2d"
-                    }
-                    Label {
-                        text: parent.group.classification || ""
-                        color: "#64776c"
-                        wrapMode: Text.WordWrap
+                    ColumnLayout {
                         Layout.fillWidth: true
+                        spacing: 6
+                        Label {
+                            text: importedContent.group.name || "Imported codeplug"
+                            font.pixelSize: 30
+                            font.bold: true
+                            color: "#183b2d"
+                        }
+                        Label {
+                            text: importedContent.group.isRepeater
+                                  ? "Repeater overview"
+                                  : (importedContent.group.classification || "Zone overview")
+                            color: "#718379"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
                     }
                     Label {
                         visible: importedContent.group.isRepeater || false
-                        text: "Receive " + importedContent.group.receiveFrequency + " MHz  ·  Transmit "
-                              + importedContent.group.transmitFrequency + " MHz  ·  Color code "
-                              + importedContent.group.colorCode
-                        font.pixelSize: 16
-                        color: "#20372e"
+                        text: "ZONE · " + importedContent.group.zoneChannelCount + " / 16 channels"
+                        color: "#64776c"
+                    }
+                    Frame {
+                        visible: importedContent.group.isRepeater || false
                         Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
+                        padding: 20
+                        background: Rectangle { color: "white"; radius: 16; border.color: "#dce4df" }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 10
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
+                                Button { text: "Edit"; onClicked: editDialog.openForImported() }
+                            }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 30
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "RECEIVE"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: importedContent.group.receiveFrequency + " MHz"; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "TRANSMIT"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: importedContent.group.transmitFrequency + " MHz"; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "COLOR CODE"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: importedContent.group.colorCode ?? ""; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        visible: importedContent.group.isRepeater || false
+                        text: "TIME SLOTS"
+                        color: "#697c71"
+                        font.pixelSize: 11
+                        font.bold: true
+                    }
+                    RowLayout {
+                        visible: importedContent.group.isRepeater || false
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignTop
+                        spacing: 16
+                        SlotPanel {
+                            slotNumber: 1
+                            groups: importedContent.group.slot1Talkgroups || []
+                            importedChannels: true
+                            canAdd: importedContent.group.zoneChannelCount < 16
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            onAddRequested: slot => addDialog.openForSlot(slot, true)
+                        }
+                        SlotPanel {
+                            slotNumber: 2
+                            groups: importedContent.group.slot2Talkgroups || []
+                            importedChannels: true
+                            canAdd: importedContent.group.zoneChannelCount < 16
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignTop
+                            onAddRequested: slot => addDialog.openForSlot(slot, true)
+                        }
+                    }
+                    Button {
+                        visible: importedContent.group.isRepeater || false
+                        text: "Order channels"
+                        enabled: false
+                        ToolTip.visible: hovered
+                        ToolTip.text: "Channel ordering is planned for a later step."
                     }
                     Repeater {
-                        model: parent.group.zones || []
+                        model: importedContent.group.isRepeater ? [] : (parent.group.zones || [])
                         delegate: Frame {
                             required property var modelData
                             Layout.fillWidth: true
@@ -488,12 +605,13 @@ ApplicationWindow {
                                 }
                                 Button {
                                     text: "+ Add simplex"
+                                    enabled: importedContent.group.zoneChannelCount < 16
                                     onClicked: simplexDialog.openForCurrent(true)
                                 }
                             }
                             Label {
                                 visible: (importedContent.group.simplexChannels || []).length === 0
-                                text: "No additional simplex frequencies in these zones."
+                                text: "No additional simplex frequencies."
                                 color: "#64776c"
                             }
                             Repeater {
@@ -501,7 +619,7 @@ ApplicationWindow {
                                 delegate: Rectangle {
                                     required property var modelData
                                     Layout.fillWidth: true
-                                    Layout.preferredHeight: 48
+                                    Layout.preferredHeight: 44
                                     radius: 8
                                     color: "#f5f8f5"
                                     RowLayout {
@@ -516,7 +634,12 @@ ApplicationWindow {
                                                   : modelData.mode
                                             color: "#64776c"
                                         }
-                                        Label { text: modelData.zoneName; color: "#64776c" }
+                                        ToolButton {
+                                            text: "Remove"
+                                            Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
+                                            onClicked: store.removeSimplexFromSelectedImportedRepeater(
+                                                           modelData.zoneInGroup, modelData.zonePosition)
+                                        }
                                     }
                                 }
                             }
@@ -524,6 +647,14 @@ ApplicationWindow {
                     }
                     Item { Layout.preferredHeight: 10 }
                 }
+            } } }
+
+            Loader {
+                active: window.currentSection === "contacts" && !window.clearingProject
+                visible: active
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceComponent: ContactsView { contacts: store.contacts }
             }
         }
     }
@@ -531,9 +662,11 @@ ApplicationWindow {
     Dialog {
         id: editDialog
         property bool creating: false
+        property bool forImported: false
 
         function openForCurrent() {
             creating = false
+            forImported = false
             repeaterNameField.text = store.selectedName
             rxField.text = store.rxFrequency
             txField.text = store.txFrequency
@@ -544,6 +677,7 @@ ApplicationWindow {
 
         function openForNew() {
             creating = true
+            forImported = false
             repeaterNameField.text = ""
             rxField.text = ""
             txField.text = ""
@@ -551,6 +685,18 @@ ApplicationWindow {
             editError.text = ""
             open()
             repeaterNameField.forceActiveFocus()
+        }
+
+        function openForImported() {
+            creating = false
+            forImported = true
+            const group = store.selectedImportedGroup
+            repeaterNameField.text = group.name
+            rxField.text = group.receiveFrequency
+            txField.text = group.transmitFrequency
+            colorCodeField.value = group.colorCode
+            editError.text = ""
+            open()
         }
 
         x: Math.round((window.width - width) / 2)
@@ -565,7 +711,7 @@ ApplicationWindow {
             spacing: 10
 
             Label { text: "Name" }
-            TextField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: 32 }
+            TextField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
             Label { text: "Receive frequency (MHz)" }
             TextField { id: rxField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
             Label { text: "Transmit frequency (MHz)" }
@@ -592,12 +738,17 @@ ApplicationWindow {
                         const saved = editDialog.creating
                                       ? store.addRepeater(repeaterNameField.text, rxField.text,
                                                           txField.text, colorCodeField.value)
-                                      : store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
-                                                                     txField.text, colorCodeField.value)
+                                      : editDialog.forImported
+                                        ? store.updateSelectedImportedRepeater(repeaterNameField.text, rxField.text,
+                                                                              txField.text, colorCodeField.value)
+                                        : store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
+                                                                       txField.text, colorCodeField.value)
                         if (saved) {
                             editDialog.close()
                         } else {
-                            editError.text = "Enter a name and valid MHz frequencies. Color code must be 0–15."
+                            editError.text = editDialog.forImported
+                                             ? "Enter a zone name of up to 16 characters, different valid RX/TX frequencies, and a color code from 0–15."
+                                             : "Enter a name and valid MHz frequencies. Color code must be 0–15."
                         }
                     }
                 }
@@ -649,10 +800,10 @@ ApplicationWindow {
                 Label { text: "Time slot" }
                 SpinBox { id: simplexTimeSlot; from: 1; to: 2 }
             }
-            Label { visible: simplexDialog.forImported; text: "Add to zone" }
+            Label { visible: simplexDialog.forImported && simplexZone.count > 1; text: "Add to zone" }
             ComboBox {
                 id: simplexZone
-                visible: simplexDialog.forImported
+                visible: simplexDialog.forImported && count > 1
                 Layout.fillWidth: true
                 model: (store.selectedImportedGroup.zones || []).map(zone => zone.name)
             }
@@ -691,20 +842,39 @@ ApplicationWindow {
 
     Dialog {
         id: addDialog
+        objectName: "addTalkgroupDialog"
         property int targetSlot: 1
+        property bool importedMode: false
+        property bool creatingTalkgroup: false
+        property bool channelNameCustomized: false
+        property var selectedTalkgroup: null
+        property var matchingTalkgroups: {
+            const query = talkgroupSearch.text.trim().toLocaleLowerCase()
+            return store.contacts.filter(contact => contact.groupCall
+                                         && (query.length === 0
+                                             || contact.name.toLocaleLowerCase().includes(query)
+                                             || String(contact.id).includes(query)))
+                                 .sort((a, b) => a.name.localeCompare(b.name))
+        }
 
-        function openForSlot(slot) {
+        function openForSlot(slot, imported = false) {
             targetSlot = slot
-            nameField.text = ""
-            idField.text = ""
+            importedMode = imported
+            creatingTalkgroup = false
+            channelNameCustomized = false
+            selectedTalkgroup = null
+            talkgroupSearch.text = ""
+            newTalkgroupName.text = ""
+            newTalkgroupId.text = ""
+            channelNameField.text = ""
             errorLabel.text = ""
             open()
-            nameField.forceActiveFocus()
+            talkgroupSearch.forceActiveFocus()
         }
 
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
-        width: 360
+        width: 460
         modal: true
         title: "Add talkgroup to Time Slot " + targetSlot
         standardButtons: Dialog.NoButton
@@ -713,21 +883,130 @@ ApplicationWindow {
             anchors.fill: parent
             spacing: 12
 
-            Label { text: "Name" }
-            TextField {
-                id: nameField
-                Layout.fillWidth: true
-                placeholderText: "For example, Local"
-                maximumLength: 32
+            Label {
+                text: "Talkgroup"
+                font.bold: true
             }
-
-            Label { text: "Talkgroup ID" }
             TextField {
-                id: idField
+                id: talkgroupSearch
+                objectName: "talkgroupSearch"
+                Layout.fillWidth: true
+                visible: !addDialog.creatingTalkgroup
+                placeholderText: "Search by name or ID"
+                Accessible.name: "Find a talkgroup"
+                onTextChanged: {
+                    if (addDialog.selectedTalkgroup && text !== addDialog.selectedTalkgroup.name)
+                        addDialog.selectedTalkgroup = null
+                }
+            }
+            ListView {
+                id: talkgroupChoices
+                objectName: "talkgroupChoices"
+                visible: !addDialog.creatingTalkgroup
+                Layout.fillWidth: true
+                Layout.preferredHeight: 172
+                clip: true
+                model: addDialog.matchingTalkgroups
+                delegate: ItemDelegate {
+                    objectName: "talkgroupChoice"
+                    required property var modelData
+                    width: ListView.view.width
+                    text: modelData.name + "  ·  ID " + modelData.id
+                    highlighted: addDialog.selectedTalkgroup !== null
+                                 && addDialog.selectedTalkgroup.index === modelData.index
+                    onClicked: {
+                        addDialog.selectedTalkgroup = modelData
+                        talkgroupSearch.text = modelData.name
+                        if (!addDialog.channelNameCustomized)
+                            channelNameField.text = modelData.name
+                        errorLabel.text = ""
+                    }
+                }
+            }
+            Label {
+                visible: !addDialog.creatingTalkgroup && addDialog.matchingTalkgroups.length === 0
+                text: "No matching talkgroups. Create one below."
+                color: "#66776d"
+            }
+            Label {
+                visible: !addDialog.creatingTalkgroup && addDialog.selectedTalkgroup !== null
+                text: addDialog.selectedTalkgroup
+                      ? "Selected: " + addDialog.selectedTalkgroup.name + " · ID " + addDialog.selectedTalkgroup.id
+                      : ""
+                color: "#52695d"
+                Layout.fillWidth: true
+                elide: Text.ElideRight
+            }
+            Button {
+                objectName: "createTalkgroupButton"
+                text: addDialog.creatingTalkgroup ? "Choose an existing talkgroup" : "+ Create new talkgroup"
+                onClicked: {
+                    if (addDialog.creatingTalkgroup) {
+                        addDialog.creatingTalkgroup = false
+                        addDialog.selectedTalkgroup = null
+                        talkgroupSearch.forceActiveFocus()
+                    } else {
+                        const query = talkgroupSearch.text.trim()
+                        addDialog.creatingTalkgroup = true
+                        addDialog.selectedTalkgroup = null
+                        newTalkgroupName.text = /^\d+$/.test(query) ? "" : query
+                        newTalkgroupId.text = /^\d+$/.test(query) ? query : ""
+                        if (!addDialog.channelNameCustomized)
+                            channelNameField.text = newTalkgroupName.text
+                        newTalkgroupName.forceActiveFocus()
+                    }
+                    errorLabel.text = ""
+                }
+            }
+            Label { visible: addDialog.creatingTalkgroup; text: "Talkgroup display name" }
+            TextField {
+                id: newTalkgroupName
+                objectName: "newTalkgroupName"
+                visible: addDialog.creatingTalkgroup
+                Layout.fillWidth: true
+                maximumLength: addDialog.importedMode ? 11 : 32
+                placeholderText: "For example, CT Statewide"
+                Accessible.name: "New talkgroup display name"
+                onTextChanged: {
+                    if (addDialog.creatingTalkgroup && !addDialog.channelNameCustomized)
+                        channelNameField.text = text
+                }
+            }
+            Label { visible: addDialog.creatingTalkgroup; text: "Talkgroup ID" }
+            TextField {
+                id: newTalkgroupId
+                objectName: "newTalkgroupId"
+                visible: addDialog.creatingTalkgroup
                 Layout.fillWidth: true
                 placeholderText: "1–16777215"
                 inputMethodHints: Qt.ImhDigitsOnly
                 validator: IntValidator { bottom: 1; top: 16777215 }
+                Accessible.name: "New talkgroup ID"
+            }
+            Label {
+                text: "Channel name"
+                font.bold: true
+            }
+            TextField {
+                id: channelNameField
+                objectName: "channelNameField"
+                Layout.fillWidth: true
+                maximumLength: addDialog.importedMode ? 16 : 32
+                placeholderText: "Shown on the radio when idle"
+                Accessible.name: "Channel name"
+                onTextEdited: addDialog.channelNameCustomized = true
+            }
+            Label {
+                text: "The radio shows the talkgroup name while receiving or transmitting."
+                color: "#66776d"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                text: "Uses this repeater's frequencies, color code, and Time Slot " + addDialog.targetSlot + "."
+                color: "#66776d"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
             }
 
             Label {
@@ -743,14 +1022,25 @@ ApplicationWindow {
                 Item { Layout.fillWidth: true }
                 Button { text: "Cancel"; onClicked: addDialog.close() }
                 Button {
+                    objectName: "confirmAddTalkgroup"
                     text: "Add"
                     highlighted: true
                     onClicked: {
-                        const id = Number(idField.text)
-                        if (!nameField.text.trim() || !idField.acceptableInput) {
-                            errorLabel.text = "Enter a name and a valid talkgroup ID."
-                        } else if (!store.addTalkgroup(addDialog.targetSlot, nameField.text, id)) {
-                            errorLabel.text = "That talkgroup ID is already in this time slot."
+                        const contact = addDialog.creatingTalkgroup
+                            ? {name: newTalkgroupName.text.trim(), id: Number(newTalkgroupId.text)}
+                            : addDialog.selectedTalkgroup
+                        if (!contact || !contact.name || !Number.isInteger(contact.id)
+                            || contact.id < 1 || contact.id > 16777215
+                            || (addDialog.creatingTalkgroup && !newTalkgroupId.acceptableInput)) {
+                            errorLabel.text = "Choose a talkgroup or enter its name and valid ID."
+                        } else if (!channelNameField.text.trim()) {
+                            errorLabel.text = "Enter a channel name."
+                        } else if (!(addDialog.importedMode
+                                     ? store.addImportedTalkgroup(addDialog.targetSlot, contact.name, contact.id, channelNameField.text)
+                                     : store.addTalkgroup(addDialog.targetSlot, contact.name, contact.id, channelNameField.text))) {
+                            errorLabel.text = addDialog.importedMode
+                                    ? "Could not add this channel. Check zone capacity and whether the ID is already in use."
+                                    : "Could not add this channel. Check whether the ID is already in this slot or used by a person."
                         } else {
                             addDialog.close()
                         }

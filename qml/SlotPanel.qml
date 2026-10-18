@@ -7,7 +7,24 @@ Frame {
 
     required property int slotNumber
     required property var groups
+    property bool importedChannels: false
+    property bool canAdd: true
     property bool expanded: true
+    readonly property var channelCards: {
+        const cards = []
+        for (const group of groups) {
+            for (const channel of (group.channels || [])) {
+                cards.push({
+                    channelName: channel.name,
+                    talkgroupName: group.name,
+                    id: group.id,
+                    groupCall: group.groupCall,
+                    contactIndex: group.contactIndex
+                })
+            }
+        }
+        return cards
+    }
     signal addRequested(int slotNumber)
 
     padding: 18
@@ -48,7 +65,8 @@ Frame {
             }
 
             Label {
-                text: panel.groups.length + " talkgroup" + (panel.groups.length === 1 ? "" : "s")
+                text: panel.channelCards.length + " talkgroup"
+                      + (panel.channelCards.length === 1 ? "" : "s")
                 color: "#64776c"
                 font.pixelSize: 12
             }
@@ -66,57 +84,78 @@ Frame {
             spacing: 8
 
             Repeater {
-                model: panel.groups
+                model: panel.channelCards
 
                 delegate: Rectangle {
+                    id: groupRow
                     required property var modelData
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 58
+                    Layout.preferredHeight: 68
                     radius: 10
                     color: "#f5f8f5"
                     border.color: "#e1e9e2"
 
-                    RowLayout {
+                    ColumnLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 14
                         anchors.rightMargin: 8
-
-                        ColumnLayout {
+                        spacing: 2
+                        RowLayout {
                             Layout.fillWidth: true
-                            spacing: 1
-
-                            Label {
-                                text: modelData.name
-                                font.bold: true
-                                color: "#23372c"
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 1
+                                Label {
+                                    text: modelData.channelName
+                                    font.bold: true
+                                    color: "#23372c"
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: modelData.talkgroupName
+                                    color: "#405b4b"
+                                    font.pixelSize: 13
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                Label {
+                                    text: panel.importedChannels && modelData.id === 0
+                                          ? "No contact reference"
+                                          : (panel.importedChannels && !modelData.groupCall ? "Private ID " : "TG ") + modelData.id
+                                    color: "#66776d"
+                                    font.pixelSize: 12
+                                }
                             }
 
-                            Label {
-                                text: "TG " + modelData.id
-                                color: "#66776d"
-                                font.pixelSize: 12
+                            ToolButton {
+                                visible: !panel.importedChannels || modelData.contactIndex > 0
+                                text: "Remove"
+                                Accessible.name: "Remove " + modelData.channelName + " from time slot " + panel.slotNumber
+                                onClicked: {
+                                    if (panel.importedChannels)
+                                        store.removeImportedTalkgroup(panel.slotNumber, modelData.contactIndex)
+                                    else
+                                        store.removeTalkgroup(panel.slotNumber, modelData.id)
+                                }
                             }
-                        }
-
-                        ToolButton {
-                            text: "Remove"
-                            Accessible.name: "Remove " + modelData.name + " from time slot " + panel.slotNumber
-                            onClicked: store.removeTalkgroup(panel.slotNumber, modelData.id)
                         }
                     }
                 }
             }
 
             Label {
-                visible: panel.groups.length === 0
+                visible: panel.channelCards.length === 0
                 text: "No talkgroups assigned"
                 color: "#66776d"
                 Layout.fillWidth: true
             }
 
             Button {
+                objectName: "addTalkgroupButton"
                 text: "+ Add talkgroup"
                 Layout.fillWidth: true
+                enabled: panel.canAdd
                 onClicked: panel.addRequested(panel.slotNumber)
             }
         }

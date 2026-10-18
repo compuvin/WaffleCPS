@@ -24,9 +24,31 @@ int main(int argc, char *argv[])
     sourceFile.close();
 
     RepeaterStore original;
+    if (original.contacts().size() != 4)
+        return 11;
+    RepeaterStore collision;
+    if (!collision.addContact(QStringLiteral("Local"), 1234567, false)
+        || collision.addContact(QStringLiteral("Different name"), 1234567, true)
+        || !collision.addContact(QStringLiteral("Local"), 7654321, true)
+        || collision.updateContact(4, QStringLiteral("Other name"), 1234567)) {
+        qCritical() << "Contact DMR ID collision across tabs was not handled";
+        return 13;
+    }
+    if (!original.addContact(QStringLiteral("K1ABC Ron"), 1234567, false)
+        || !original.addContact(QStringLiteral("New group"), 4567, true)
+        || original.updateContact(0, QStringLiteral("Another name"), 4567)
+        || !original.updateContact(2, QStringLiteral("Local edited"), 10)
+        || original.slot1Talkgroups().at(0).toMap().value(QStringLiteral("id")).toInt() != 10) {
+        qCritical() << "Manual contacts could not be added or edited";
+        return 12;
+    }
     if (!original.updateSelectedRepeater(QStringLiteral("Edited Repeater"),
                                          QStringLiteral("444.123456"), QStringLiteral("449.123456"), 7)
-        || !original.addTalkgroup(2, QStringLiteral("New group"), 4567)
+        || original.addTalkgroup(1, QStringLiteral("K1ABC Ron"), 1234567, QStringLiteral("Invalid private"))
+        || !original.addTalkgroup(2, QStringLiteral("New group"), 4567,
+                                  QStringLiteral("Ridge New Group"))
+        || original.slot2Talkgroups().at(1).toMap().value(QStringLiteral("channelName")).toString()
+            != QStringLiteral("Ridge New Group")
         || !original.attachSourceCodeplugFromFile(sourcePath)
         || !original.saveProjectToFile(projectPath)) {
         qCritical() << "Could not create test project";
@@ -41,7 +63,12 @@ int main(int argc, char *argv[])
         || loaded.colorCode() != 7
         || loaded.sourceCodeplugName() != sourcePath
         || loaded.modified()
-        || loaded.slot2Talkgroups().size() != 2) {
+        || loaded.slot2Talkgroups().size() != 2
+        || loaded.contacts().size() != 6
+        || loaded.contacts().at(0).toMap().value(QStringLiteral("name")).toString() != QStringLiteral("K1ABC Ron")
+        || loaded.slot1Talkgroups().at(0).toMap().value(QStringLiteral("id")).toInt() != 10
+        || loaded.slot2Talkgroups().at(1).toMap().value(QStringLiteral("channelName")).toString()
+            != QStringLiteral("Ridge New Group")) {
         qCritical() << "Project did not round-trip";
         return 3;
     }
@@ -87,6 +114,42 @@ int main(int argc, char *argv[])
         || withSimplex.selectedSimplexFrequencies().size() != 1) {
         qCritical() << "Simplex frequency did not round-trip";
         return 10;
+    }
+    if (withSimplex.removeSimplexFromSelectedRepeater(1)
+        || !withSimplex.removeSimplexFromSelectedRepeater(0)
+        || !withSimplex.selectedSimplexFrequencies().isEmpty()
+        || !withSimplex.modified()) {
+        qCritical() << "Manual simplex frequency removal failed";
+        return 10;
+    }
+
+    RepeaterStore newContactFlow;
+    newContactFlow.newProject();
+    if (!newContactFlow.addRepeater(QStringLiteral("Test"), QStringLiteral("445.7375"),
+                                    QStringLiteral("440.7375"), 3)
+        || !newContactFlow.addTalkgroup(2, QStringLiteral("Statewide"), 3100,
+                                        QStringLiteral("Brooklyn CT Wide"))
+        || newContactFlow.contacts().size() != 1
+        || newContactFlow.slot2Talkgroups().at(0).toMap().value(QStringLiteral("name")).toString()
+            != QStringLiteral("Statewide")
+        || newContactFlow.slot2Talkgroups().at(0).toMap().value(QStringLiteral("channelName")).toString()
+            != QStringLiteral("Brooklyn CT Wide")
+        || !newContactFlow.saveProjectToFile(QStringLiteral("named-channel.waffle"))) {
+        qCritical() << "New talkgroup and separate channel name failed";
+        return 14;
+    }
+    RepeaterStore namedReloaded;
+    if (!namedReloaded.openProjectFromFile(QStringLiteral("named-channel.waffle"))
+        || namedReloaded.contacts().size() != 1
+        || namedReloaded.slot2Talkgroups().at(0).toMap().value(QStringLiteral("channelName")).toString()
+            != QStringLiteral("Brooklyn CT Wide")) {
+        qCritical() << "Separate channel name did not round-trip";
+        return 15;
+    }
+    namedReloaded.removeTalkgroup(2, 3100);
+    if (namedReloaded.contacts().size() != 1) {
+        qCritical() << "Reusable talkgroup was lost after removing its channel";
+        return 16;
     }
 
     qInfo() << "Project round-trip and corruption checks passed";

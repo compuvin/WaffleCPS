@@ -25,6 +25,7 @@ qt_add_resources(wafflecps "qml"
         assets/waffle-radio.png
         qml/Main.qml
         qml/SlotPanel.qml
+        qml/ContactsView.qml
 )
 
 target_link_libraries(wafflecps PRIVATE
@@ -74,7 +75,7 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml qml/ContactsView.qml
     )
     target_link_libraries(ui_smoke_test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets ZLIB::ZLIB)
@@ -82,4 +83,8 @@ if(BUILD_TESTING)
     set_tests_properties(ui_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_new COMMAND ui_smoke_test --new)
     set_tests_properties(ui_smoke_new PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_smoke_add_talkgroup COMMAND ui_smoke_test --demo --add-talkgroup)
+    set_tests_properties(ui_smoke_add_talkgroup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_smoke_create_talkgroup COMMAND ui_smoke_test --demo --create-talkgroup)
+    set_tests_properties(ui_smoke_create_talkgroup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
