@@ -1,12 +1,39 @@
 # WaffleCPS
 
-WaffleCPS is an early Qt 6 desktop prototype for a repeater-centered DMR codeplug editor. You can create a blank project, add repeaters and simplex frequencies, save or open a WaffleCPS project, and import a CS7000-M17 Plus codeplug made by CPS V1.02.20.00. The import shows channels, contacts, and zones. The Contacts view separates people and talkgroups into searchable tabs. Each zone with one digital repeater frequency pair and color code appears as its own repeater entry, even when it also contains simplex channels; other zones stay in the zone list. Repeater time-slot panels show both the talkgroup and each channel name. Add talkgroup searches reusable group contacts by name or ID, lets users create a contact in the same dialog, and takes a separate channel name while inheriting repeater frequencies, color code, and time slot. A channel shared with another zone stays in the channel table when removed from this zone; an unused channel is deleted. You can edit an imported repeater zone's details and add simplex channels up to the 16-channel zone limit. The original codeplug bytes are preserved in the project; the app does not export a codeplug or write a radio.
+WaffleCPS is an early desktop editor for DMR codeplugs. It organizes programming around repeaters, time slots, and talkgroups so you can see how you will use a radio without working through a traditional channel table.
 
-The evolving product direction is in [ProjectPlan.md](ProjectPlan.md). The open project container is documented in [docs/ProjectFormat.md](docs/ProjectFormat.md). Import rules and early sample-file findings are in [docs/](docs/).
+The application is under active development. It can import a tested Connect Systems CS7000 codeplug layout and save its work in an open `.waffle` project format. **It cannot export a radio codeplug or write to a radio yet.** Keep your original codeplug and use your radio's CPS for programming.
 
-## Build on Ubuntu 24.04
+## Screenshots
 
-Install CMake, a C++ compiler, zlib development headers, and the Qt 6 development and QML runtime packages:
+These views use an imported CS7000 GPS codeplug.
+
+**Repeater overview** — CT-Brooklyn Ares, with separate time-slot cards and talkgroup details.
+
+![WaffleCPS repeater overview for CT-Brooklyn Ares](docs/screenshots/repeater.png)
+
+**Add talkgroup** — choose an existing group contact and give the radio channel its own name.
+
+![Add talkgroup dialog with NY NJ Metro selected and Brooklyn Metro entered as the channel name](docs/screenshots/add-talkgroup.png)
+
+**Contacts** — people and talkgroups have separate searchable tabs.
+
+![WaffleCPS contacts view showing people from the imported codeplug](docs/screenshots/contacts.png)
+
+## What works today
+
+- Import `.rdbx` files with the **CS7000-M17 Plus / CS7000 GPS firmware layout from CPS V1.02.20.00**. The tested sample came from a CS7000 GPS radio running the same firmware as the Plus. Other models and CPS versions have not been verified.
+- Browse imported repeaters, zones, channels, and contacts. A zone with one repeater frequency pair and color code appears as a repeater, even if it also contains simplex frequencies. Separate zones remain separate entries.
+- View each repeater's frequencies, color code, time slots, and additional simplex frequencies. The channel name appears above its talkgroup name and ID, matching the radio's idle versus receive/transmit display behavior.
+- Search people and talkgroups in separate contact tabs. Add a repeater talkgroup from the group contact list or create one in the same flow, with a separate name for its radio channel.
+- Add or remove talkgroups and additional simplex frequencies. When an imported channel is shared with another zone, removing it from the selected zone leaves the shared record available to the other zone.
+- Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
+
+The editor does not yet decode every radio setting, receive group, or scan list. Manually created repeaters are project editor data; they do not yet produce exportable radio records. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
+
+## Build and run
+
+WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer, and zlib. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
 
 ```sh
 sudo apt install cmake g++ zlib1g-dev qt6-base-dev qt6-declarative-dev \
@@ -16,7 +43,7 @@ sudo apt install cmake g++ zlib1g-dev qt6-base-dev qt6-declarative-dev \
   qml6-module-qtquick-window
 ```
 
-Then build and run:
+Then build and launch the application:
 
 ```sh
 cmake -S . -B build
@@ -24,10 +51,27 @@ cmake --build build
 ./build/wafflecps
 ```
 
-You can also open a `.waffle` project or import a supported `.rdbx` file by passing its path to `wafflecps`.
+Use **Import codeplug** for a supported `.rdbx` file, or **Open** for a `.waffle` project. You can also pass either file type when launching the app:
 
-Run the project and importer checks with `ctest --test-dir build --output-on-failure`.
+```sh
+./build/wafflecps path/to/project.waffle
+./build/wafflecps path/to/codeplug.rdbx
+```
 
-Qt 6.4 or newer is required. Windows builds use the same CMake project with a Qt 6 installation and compatible compiler.
+Run the automated checks with:
 
-The app icon is stored in `assets/waffle-radio.png`. To regenerate it after editing its drawing script, install Pillow and run `python3 tools/render_icon.py`; Pillow is not needed to build or run WaffleCPS.
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+WaffleCPS uses Qt and CMake, but Windows and macOS builds have not yet been verified or packaged. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
+
+## Project documents
+
+- [Project checklist](docs/ProjectChecklist.md) — agreed scope and progress.
+- [Project plan](ProjectPlan.md) — original product direction.
+- [Project format](docs/ProjectFormat.md) — the open `.waffle` archive format.
+- [Import and data model](docs/ImportAndDataModel.md) — classification and editor design.
+- [Codeplug research](docs/CodeplugResearch.md) — findings from the tested sample.
+
+An open-source license has not been selected yet.

@@ -79,6 +79,7 @@ Item {
                 background: Rectangle { color: "#ffffff"; radius: 14; border.color: "#dce4df" }
 
                 ListView {
+                    objectName: "contactsList"
                     anchors.fill: parent
                     anchors.margins: 8
                     clip: true
@@ -86,6 +87,7 @@ Item {
                     model: root.visibleContacts
 
                     delegate: ItemDelegate {
+                        objectName: "contactChoice"
                         required property var modelData
                         width: ListView.view.width
                         height: 64

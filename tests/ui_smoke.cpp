@@ -3,6 +3,8 @@
 #include <QApplication>
 #include <QAbstractButton>
 #include <QDebug>
+#include <QDir>
+#include <QImage>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -18,6 +20,7 @@ int main(int argc, char *argv[])
     const bool openContacts = argc > 2 && QByteArray(argv[2]) == "--contacts";
     const bool exerciseAdd = argc > 2 && QByteArray(argv[2]) == "--add-talkgroup";
     const bool exerciseCreate = argc > 2 && QByteArray(argv[2]) == "--create-talkgroup";
+    const bool captureScreenshots = argc > 2 && QByteArray(argv[2]) == "--capture-screenshots";
     const bool demo = argc > 1 && QByteArray(argv[1]) == "--demo";
     RepeaterStore store;
     if (argc > 1 && QByteArray(argv[1]) == "--new")
@@ -36,6 +39,97 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (captureScreenshots) {
+        if (argc < 4 || !QDir().mkpath(QString::fromLocal8Bit(argv[3]))) {
+            qCritical() << "Could not create screenshot directory";
+            return 4;
+        }
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+        if (!window || !store.hasImportedCodeplug()) {
+            qCritical() << "Screenshots need an imported codeplug";
+            return 4;
+        }
+        window->resize(1280, 800);
+        const QString outputDirectory = QString::fromLocal8Bit(argv[3]);
+        bool saved = true;
+        auto capture = [window, outputDirectory, &saved](const QString &name) {
+            const QImage image = window->grabWindow();
+            const QString path = QDir(outputDirectory).filePath(name);
+            if (image.isNull() || !image.save(path)) {
+                qCritical() << "Could not capture" << path;
+                saved = false;
+            } else {
+                qInfo() << "Captured" << path << image.size();
+            }
+        };
+        const QStringList names = store.importedRepeaterNames();
+        const int ares = names.indexOf(QStringLiteral("CT-Brooklyn Ares"));
+        const int brooklyn = names.indexOf(QStringLiteral("CT-Brooklyn"));
+        if (ares < 0 || brooklyn < 0) {
+            qCritical() << "The selected codeplug has no Brooklyn example zones";
+            return 4;
+        }
+        QTimer::singleShot(100, &app, [&store, ares] { store.selectImportedGroup(ares); });
+        QTimer::singleShot(550, &app, [capture] { capture(QStringLiteral("repeater.png")); });
+        QTimer::singleShot(700, &app, [&store, brooklyn] { store.selectImportedGroup(brooklyn); });
+        QTimer::singleShot(900, &app, [&engine] {
+            for (QObject *object : engine.rootObjects().constFirst()->findChildren<QObject *>(QStringLiteral("addTalkgroupButton"))) {
+                auto *item = qobject_cast<QQuickItem *>(object);
+                if (item && item->isVisible() && item->isEnabled()) {
+                    QMetaObject::invokeMethod(item, "clicked");
+                    break;
+                }
+            }
+        });
+        QTimer::singleShot(1100, &app, [&engine] {
+            if (QObject *search = engine.rootObjects().constFirst()->findChild<QObject *>(QStringLiteral("talkgroupSearch")))
+                search->setProperty("text", QStringLiteral("NY NJ Metro"));
+        });
+        QTimer::singleShot(1250, &app, [&engine] {
+            QObject *root = engine.rootObjects().constFirst();
+            if (QObject *list = root->findChild<QObject *>(QStringLiteral("talkgroupChoices"))) {
+                if (auto *content = list->property("contentItem").value<QQuickItem *>()) {
+                    for (QQuickItem *item : content->childItems()) {
+                        if (item->objectName() == QStringLiteral("talkgroupChoice")
+                            && item->property("text").toString().startsWith(QStringLiteral("NY NJ Metro"))) {
+                            QMetaObject::invokeMethod(item, "clicked");
+                            break;
+                        }
+                    }
+                }
+            }
+            if (QObject *channel = root->findChild<QObject *>(QStringLiteral("channelNameField")))
+                channel->setProperty("text", QStringLiteral("Brooklyn Metro"));
+        });
+        QTimer::singleShot(1450, &app, [capture] { capture(QStringLiteral("add-talkgroup.png")); });
+        QTimer::singleShot(1600, &app, [&engine] {
+            if (QObject *dialog = engine.rootObjects().constFirst()->findChild<QObject *>(QStringLiteral("addTalkgroupDialog")))
+                QMetaObject::invokeMethod(dialog, "close");
+            for (QObject *object : engine.rootObjects().constFirst()->findChildren<QObject *>()) {
+                auto *item = qobject_cast<QQuickItem *>(object);
+                if (item && item->isVisible() && item->property("text").toString() == QStringLiteral("Contacts")) {
+                    QMetaObject::invokeMethod(item, "clicked");
+                    break;
+                }
+            }
+        });
+        QTimer::singleShot(1900, &app, [&engine] {
+            if (QObject *list = engine.rootObjects().constFirst()->findChild<QObject *>(QStringLiteral("contactsList"))) {
+                if (auto *content = list->property("contentItem").value<QQuickItem *>()) {
+                    for (QQuickItem *item : content->childItems()) {
+                        if (item->objectName() == QStringLiteral("contactChoice")) {
+                            QMetaObject::invokeMethod(item, "clicked");
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+        QTimer::singleShot(2200, &app, [capture] { capture(QStringLiteral("contacts.png")); });
+        QTimer::singleShot(2350, &app, [window] { window->close(); });
+        const int exitCode = app.exec();
+        return saved && qmlWarningCount == 0 ? exitCode : 4;
+    }
     bool newStayedOpen = true;
     bool contactsOpened = true;
     bool talkgroupAdded = true;
