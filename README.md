@@ -74,4 +74,8 @@ WaffleCPS uses Qt and CMake, but Windows and macOS builds have not yet been veri
 - [Import and data model](docs/ImportAndDataModel.md) — classification and editor design.
 - [Codeplug research](docs/CodeplugResearch.md) — findings from the tested sample.
 
-An open-source license has not been selected yet.
+## License and support
+
+WaffleCPS is licensed under the [GNU General Public License version 3](LICENSE).
+
+If you would like to support development, you can [buy the author a coffee](https://buymeacoffee.com/compuvin).

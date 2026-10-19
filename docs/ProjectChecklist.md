@@ -93,7 +93,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [ ] Verify exact model and firmware compatibility before any radio write.
 - [ ] Add radio read/write with backup, validation, and recovery safeguards.
 - [ ] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse.
-- [ ] Choose and publish an open-source license for WaffleCPS.
+- [x] Choose and publish an open-source license for WaffleCPS.
 - [ ] Linux support
   - [ ] Build and test on Linux.
   - [ ] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
