@@ -79,3 +79,5 @@ WaffleCPS uses Qt and CMake, but Windows and macOS builds have not yet been veri
 WaffleCPS is licensed under the [GNU General Public License version 3](LICENSE).
 
 If you would like to support development, you can [buy the author a coffee](https://buymeacoffee.com/compuvin).
+
+[![CodeFactor](https://www.codefactor.io/repository/github/compuvin/wafflecps/badge)](https://www.codefactor.io/repository/github/compuvin/wafflecps)
