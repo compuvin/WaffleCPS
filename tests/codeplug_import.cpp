@@ -31,7 +31,7 @@ void putName(QByteArray &bytes, int offset, const QString &name)
 void putContact(QByteArray &bytes, int index, const QString &name, int id)
 {
     const int record = 0x47d3c0 + 16 * index;
-    bytes[record + 4] = 1; // Group call.
+    bytes[record + 20] = 1; // Group call, after the packed name.
     bytes[record + 5] = char(id & 0xff);
     bytes[record + 6] = char((id >> 8) & 0xff);
     bytes[record + 7] = char((id >> 16) & 0xff);

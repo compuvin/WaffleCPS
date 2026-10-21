@@ -168,7 +168,7 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
     if (decoded.size() >= contactOffset + 2 * contactRecordLength) {
         for (int index = 1; index <= maximumContacts; ++index) {
             const qsizetype record = contactOffset + index * contactRecordLength;
-            if (record + contactRecordLength + 1 > decoded.size())
+            if (record + 21 > decoded.size())
                 break;
             const int id = uchar(decoded[record + 5])
                            | (int(uchar(decoded[record + 6])) << 8)
@@ -176,9 +176,9 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
             if (id == 0)
                 break;
             const QString name = contactName(decoded, record + 8);
-            if (name.isEmpty() || uchar(decoded[record + 4]) > 1)
+            if (name.isEmpty() || uchar(decoded[record + 20]) > 1)
                 return reject(QStringLiteral("Contact %1 has invalid details.").arg(index));
-            parsed.contacts.append({name, id, uchar(decoded[record + 4]) == 1});
+            parsed.contacts.append({name, id, uchar(decoded[record + 20]) == 1});
         }
     }
     for (const auto &channel : parsed.channels) {

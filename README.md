@@ -31,7 +31,7 @@ These views use an imported CS7000 GPS codeplug.
 - Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
 - Export a prototype CS7000 `.rdbx` file with radio identity, contacts, channels, and zones. New projects use an embedded copy of the supplied CS7000 default codeplug; imported projects use their preserved source.
 
-The editor does not yet decode every radio setting, receive group, or scan list. Export is experimental and has not been verified for writing to a radio. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
+The editor does not yet decode every radio setting, receive group, or scan list. Codeplug export is available, but it is experimental: expect bugs. Keep your original codeplug and check each export in the vendor's CPS before use. Exported files have not been verified for writing to a radio. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
 
 ## Build and run
 

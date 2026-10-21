@@ -233,6 +233,47 @@ int main(int argc, char *argv[])
         return 19;
     }
 
+    if (!exportedFile.seek(0))
+        return 22;
+    const QByteArray encoded = exportedFile.readAll();
+    const QByteArray mask = encoded.mid(0x300, 256);
+    for (int i = 0; i < exported.channels.size(); ++i) {
+        const int at = 0x2428 + 2 * i;
+        const int index = (uchar(encoded[at]) ^ uchar(mask[at % 256]))
+            | ((uchar(encoded[at + 1]) ^ uchar(mask[(at + 1) % 256])) << 8);
+        if (index != i + 1) {
+            qCritical() << "Exported channel index mismatch:" << i + 1 << index;
+            return 22;
+        }
+    }
+
+    auto decoded32 = [](const QByteArray &bytes, int at) {
+        quint32 value = 0;
+        for (int i = 0; i < 4; ++i)
+            value |= quint32(uchar(bytes[at + i])
+                ^ uchar(bytes[0x300 + (at + i) % 256])) << (8 * i);
+        return value;
+    };
+    const qint64 relocation = encoded.size() - embedded.size();
+    for (int at = 0xfc; at <= 0x248; at += 4) {
+        const quint32 original = decoded32(embedded, at);
+        const quint32 actual = decoded32(encoded, at);
+        if (actual != (original ? qint64(original) + relocation : 0)) {
+            qCritical() << "Exported section offset mismatch:" << at;
+            return 23;
+        }
+    }
+
+    const quint32 firstContactId = decoded32(encoded, 0x248);
+    for (int i = 0; i < exported.contacts.size(); ++i) {
+        const int at = int(firstContactId) + 16 * i + 15;
+        const int flag = uchar(encoded[at]) ^ uchar(mask[at % 256]);
+        if (flag != (exported.contacts.at(i).groupCall ? 1 : 0)) {
+            qCritical() << "Exported contact type mismatch:" << i + 1;
+            return 24;
+        }
+    }
+
     qInfo() << "Project round-trip and corruption checks passed";
     return 0;
 }

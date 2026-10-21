@@ -189,7 +189,20 @@ Item {
         modal: true
         anchors.centerIn: parent
         width: Math.min(420, root.width - 32)
-        standardButtons: Dialog.Save | Dialog.Cancel
+        standardButtons: Dialog.NoButton
+        footer: RowLayout {
+            spacing: 8
+            Item { Layout.fillWidth: true }
+            Button {
+                text: "Cancel"
+                onClicked: contactDialog.reject()
+            }
+            Button {
+                text: "Save"
+                highlighted: true
+                onClicked: contactDialog.accept()
+            }
+        }
         onAccepted: {
             const name = nameField.text.trim()
             const id = Number(idField.text)
