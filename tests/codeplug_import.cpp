@@ -35,7 +35,7 @@ void putContact(QByteArray &bytes, int index, const QString &name, int id)
     bytes[record + 5] = char(id & 0xff);
     bytes[record + 6] = char((id >> 8) & 0xff);
     bytes[record + 7] = char((id >> 16) & 0xff);
-    for (int character = 0; character < 11; ++character) {
+    for (int character = 0; character < 16; ++character) {
         const QChar letter = character < name.size() ? name.at(character) : QChar(' ');
         int code = 62;
         if (letter >= QChar('0') && letter <= QChar('9'))
@@ -57,6 +57,33 @@ void putContact(QByteArray &bytes, int index, const QString &name, int id)
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+    if (argc >= 4 && QByteArray(argv[1]) == "--default") {
+        QFile source(QString::fromLocal8Bit(argv[2]));
+        ImportedCodeplug parsed;
+        QString error;
+        const int expectedId = QByteArray(argv[3]).toInt();
+        if (!source.open(QIODevice::ReadOnly)
+            || !CodeplugReader::read(source.readAll(), &parsed, &error)
+            || parsed.cpsVersion != QStringLiteral("V1.02.21.00")
+            || parsed.channels.size() != 2 || parsed.zones.size() != 1
+            || parsed.contacts.size() != 1 || parsed.radioId != expectedId) {
+            qCritical() << "Default CPS V1.02.21.00 import failed:" << error;
+            return 31;
+        }
+        RepeaterStore store;
+        if (!store.importCodeplugFromFile(source.fileName())
+            || store.radioId() != expectedId
+            || !store.saveProjectToFile(QStringLiteral("default-import.waffle")))
+            return 32;
+        RepeaterStore loaded;
+        if (!loaded.openProjectFromFile(QStringLiteral("default-import.waffle"))
+            || loaded.radioId() != expectedId || loaded.radioName() != parsed.radioName
+            || loaded.importedCodeplugSummary().isEmpty())
+            return 33;
+        qInfo() << "Default CPS V1.02.21.00 import verified:" << parsed.channels.size()
+                << "channels," << parsed.zones.size() << "zone," << parsed.contacts.size() << "contact";
+        return 0;
+    }
     QByteArray bytes(0x47d500, '\0');
     bytes.replace(0x1200, 16, QByteArray("CS7000-M17 PLUS\0", 16));
     bytes.replace(0x1298, 12, QByteArray("V1.02.20.00\0", 12));
@@ -68,11 +95,13 @@ int main(int argc, char *argv[])
         put32(bytes, record, i == 2 ? 446000000 : (i == 3 ? 447200000 : 449350000));
         put32(bytes, record + 4, i == 2 ? 446000000 : (i == 3 ? 442200000 : 444350000));
         bytes[record + 16] = i == 1 ? 0x12 : 0x02;
+        bytes[record + 9] = i == 1 ? char(0x00) : char(0x80);
         bytes[record + 23] = 0x20;
         bytes[record + 24] = i == 1 ? 2 : 1;
     }
     putContact(bytes, 1, QStringLiteral("Local"), 9);
     putContact(bytes, 2, QStringLiteral("Statewide"), 3100);
+    put32(bytes, 0x52568, 4);
     int cursor = 0x52954;
     putName(bytes, cursor, QStringLiteral("Repeater zone"));
     put32(bytes, cursor + 32, 2);
@@ -99,6 +128,8 @@ int main(int argc, char *argv[])
         || parsed.zones.size() != 4 || parsed.zones.at(0).channelIndexes.at(1) != 1
         || parsed.channels.at(1).timeSlot != 2 || parsed.channels.at(1).contactIndex != 2
         || parsed.contacts.size() != 2 || parsed.contacts.at(0).name != QStringLiteral("Local")
+        || !parsed.channels.at(0).highPower.value_or(false)
+        || parsed.channels.at(1).highPower.value_or(true)
         || parsed.contacts.at(1).id != 3100) {
         qCritical() << "Synthetic codeplug import failed:" << error;
         return 1;
@@ -167,9 +198,42 @@ int main(int argc, char *argv[])
         || store.contacts().at(0).toMap().value(QStringLiteral("name")).toString() != QStringLiteral("Local")
         || store.importedZoneNames().size() != 2
         || store.selectedImportedGroup().value(QStringLiteral("zones")).toList().size() != 1
+        || store.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("Mixed")
         || store.selectedImportedGroup().value(QStringLiteral("name")).toString() != QStringLiteral("Repeater zone")) {
         qCritical() << "Separate repeater zones were not retained";
         return 2;
+    }
+    RepeaterStore powerStore;
+    if (!powerStore.importCodeplugFromBytes(bytes)
+        || !powerStore.updateSelectedImportedRepeater(QStringLiteral("Power zone"),
+             QStringLiteral("444.3500"), QStringLiteral("449.3500"), 2, -1)
+        || powerStore.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("Mixed")
+        || !powerStore.addImportedTalkgroup(1, QStringLiteral("New group"), 777,
+                                            QStringLiteral("Power Added"))
+        || powerStore.selectedImportedGroup().value(QStringLiteral("slot1Channels")).toList().last().toMap()
+            .value(QStringLiteral("power")).toString() != QStringLiteral("High")
+        || !powerStore.updateSelectedImportedRepeater(QStringLiteral("Power zone"),
+             QStringLiteral("444.3500"), QStringLiteral("449.3500"), 2, 0)
+        || powerStore.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("Low")) {
+        qCritical() << "Imported mixed power was not preserved or normalized";
+        return 25;
+    }
+    powerStore.selectImportedGroup(1);
+    if (powerStore.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("High")
+        || !powerStore.updateSelectedImportedRepeater(QStringLiteral("Mixed zone"),
+             QStringLiteral("444.3500"), QStringLiteral("449.3500"), 2, 0)
+        || powerStore.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("Low")
+        || powerStore.selectedImportedGroup().value(QStringLiteral("simplexChannels")).toList().at(0).toMap()
+            .value(QStringLiteral("power")).toString() != QStringLiteral("High")
+        || !powerStore.saveProjectToFile(QStringLiteral("power-edit.waffle"))) {
+        qCritical() << "Power edit changed another zone or its simplex channel";
+        return 26;
+    }
+    RepeaterStore powerReloaded;
+    if (!powerReloaded.openProjectFromFile(QStringLiteral("power-edit.waffle"))
+        || powerReloaded.selectedImportedGroup().value(QStringLiteral("power")).toString() != QStringLiteral("Low")) {
+        qCritical() << "Repeater power did not survive save and open";
+        return 27;
     }
     RepeaterStore contactStore;
     if (!contactStore.importCodeplugFromBytes(bytes)
@@ -274,6 +338,7 @@ int main(int argc, char *argv[])
             || parsed.contacts.at(5).name != QStringLiteral("Local")
             || parsed.contacts.at(5).id != 9 || !parsed.contacts.at(5).groupCall
             || parsed.contacts.at(1).name != QStringLiteral("NY NJ Metro")
+            || parsed.contacts.at(2).name != QStringLiteral("North America")
             || parsed.contacts.at(185).name != QStringLiteral("K1VSC   Ron")
             || parsed.contacts.at(38).groupCall) {
             qCritical() << "Private sample import failed:" << error;
@@ -295,9 +360,41 @@ int main(int argc, char *argv[])
         if (!sampleReloaded.openProjectFromFile(QStringLiteral("sample-import.waffle"))
             || sampleReloaded.importedRepeaterNames().size() != 67
             || sampleReloaded.importedZoneNames().size() != 15
+            || sampleReloaded.radioName() != QStringLiteral("KB1JDX")
+            || sampleReloaded.radioId() != 3109101
             || sampleReloaded.sourceCodeplugName() != QFileInfo(samplePath).fileName()) {
             qCritical() << "Private sample project did not round-trip";
             return 6;
+        }
+        if (!sampleReloaded.exportCodeplugToFile(QStringLiteral("sample-unchanged-export.rdbx"))) {
+            qCritical() << "Unchanged private sample did not export";
+            return 34;
+        }
+        QFile unchanged(QStringLiteral("sample-unchanged-export.rdbx"));
+        sample.seek(0);
+        if (!unchanged.open(QIODevice::ReadOnly) || unchanged.readAll() != sample.readAll()) {
+            qCritical() << "Unchanged export differs from its imported source";
+            return 35;
+        }
+        const int editBrooklyn = sampleStore.importedRepeaterNames().indexOf(QStringLiteral("CT-Brooklyn"));
+        sampleStore.selectImportedGroup(editBrooklyn);
+        if (editBrooklyn < 0
+            || !sampleStore.addImportedTalkgroup(2, QStringLiteral("WaffleTest"), 7777777,
+                                                  QStringLiteral("BKLN TEST TG"))
+            || !sampleStore.exportCodeplugToFile(QStringLiteral("sample-edited-export.rdbx"))) {
+            qCritical() << "Edited private sample did not export";
+            return 36;
+        }
+        QFile edited(QStringLiteral("sample-edited-export.rdbx"));
+        ImportedCodeplug editedParsed;
+        if (!edited.open(QIODevice::ReadOnly)
+            || !CodeplugReader::read(edited.readAll(), &editedParsed, &error)
+            || editedParsed.channels.size() != 822 || editedParsed.contacts.size() != 336
+            || editedParsed.zones.size() != 82
+            || editedParsed.channels.last().name != QStringLiteral("BKLN TEST TG")
+            || editedParsed.contacts.last().id != 7777777) {
+            qCritical() << "Edited export did not reimport its new channel and contact:" << error;
+            return 37;
         }
         QMap<QString, QByteArray> oldEntries;
         if (!ZipArchive::read(QStringLiteral("sample-import.waffle"), &oldEntries, &error)) {
@@ -311,6 +408,14 @@ int main(int argc, char *argv[])
         shortened.insert(QStringLiteral("name"), QStringLiteral("NY NJ Metr"));
         oldContacts[1] = shortened;
         oldImported.insert(QStringLiteral("contacts"), oldContacts);
+        QJsonArray oldChannels = oldImported.value(QStringLiteral("channels")).toArray();
+        for (int index = 0; index < oldChannels.size(); ++index) {
+            QJsonObject channel = oldChannels.at(index).toObject();
+            channel.remove(QStringLiteral("highPower"));
+            oldChannels[index] = channel;
+        }
+        oldImported.insert(QStringLiteral("channels"), oldChannels);
+        oldRoot.insert(QStringLiteral("schemaVersion"), 4);
         oldRoot.insert(QStringLiteral("importedCodeplug"), oldImported);
         oldEntries.insert(QStringLiteral("project.json"), QJsonDocument(oldRoot).toJson());
         if (!ZipArchive::write(QStringLiteral("old-contact-name.waffle"), oldEntries, &error)) {
@@ -320,9 +425,19 @@ int main(int argc, char *argv[])
         RepeaterStore migrated;
         if (!migrated.openProjectFromFile(QStringLiteral("old-contact-name.waffle"))
             || migrated.contacts().at(1).toMap().value(QStringLiteral("name")).toString()
-                != QStringLiteral("NY NJ Metro")) {
+                != QStringLiteral("NY NJ Metro")
+            || migrated.radioName() != QStringLiteral("KB1JDX")
+            || migrated.radioId() != 3109101) {
             qCritical() << "Old project did not recover the missing contact character";
             return 24;
+        }
+        const int migratedAres = migrated.importedRepeaterNames().indexOf(QStringLiteral("CT-Brooklyn Ares"));
+        migrated.selectImportedGroup(migratedAres);
+        if (migratedAres < 0
+            || migrated.selectedImportedGroup().value(QStringLiteral("power")).toString()
+                != QStringLiteral("Mixed")) {
+            qCritical() << "Older project did not recover channel power from its source";
+            return 28;
         }
         const int brooklyn = sampleReloaded.importedRepeaterNames().indexOf(QStringLiteral("CT-Brooklyn"));
         const int brooklynAres = sampleReloaded.importedRepeaterNames().indexOf(QStringLiteral("CT-Brooklyn Ares"));

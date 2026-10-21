@@ -8,6 +8,14 @@ Item {
     required property var contacts
     property var selectedContact: null
     property bool editingContact: false
+    Connections {
+        target: store
+        function onAboutToResetProject() {
+            contactDialog.close()
+            root.selectedContact = null
+            root.editingContact = false
+        }
+    }
     function openContactEditor(editing) {
         editingContact = editing
         nameField.text = editing && selectedContact ? selectedContact.name : ""
@@ -185,9 +193,9 @@ Item {
         onAccepted: {
             const name = nameField.text.trim()
             const id = Number(idField.text)
-            if (!name || name.length > (store.hasImportedCodeplug ? 11 : 32)
+            if (!name || name.length > 16
                 || !/^\d+$/.test(idField.text) || id < 1 || id > 16777215) {
-                formError.text = "Enter a name of up to " + (store.hasImportedCodeplug ? 11 : 32)
+                formError.text = "Enter a name of up to 16"
                                + " characters and a DMR ID from 1 to 16777215."
                 open()
                 return

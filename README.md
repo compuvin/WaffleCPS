@@ -2,7 +2,7 @@
 
 WaffleCPS is an early desktop editor for DMR codeplugs. It organizes programming around repeaters, time slots, and talkgroups so you can see how you will use a radio without working through a traditional channel table.
 
-The application is under active development. It can import a tested Connect Systems CS7000 codeplug layout and save its work in an open `.waffle` project format. **It cannot export a radio codeplug or write to a radio yet.** Keep your original codeplug and use your radio's CPS for programming.
+The application is under active development. It can import tested Connect Systems CS7000 codeplug layouts, save work in an open `.waffle` project, and export a prototype CS7000 `.rdbx` file. Keep your original codeplug. Exported files still need validation in the radio's CPS before use; WaffleCPS cannot write to a radio yet.
 
 ## Screenshots
 
@@ -22,14 +22,16 @@ These views use an imported CS7000 GPS codeplug.
 
 ## What works today
 
-- Import `.rdbx` files with the **CS7000-M17 Plus / CS7000 GPS firmware layout from CPS V1.02.20.00**. The tested sample came from a CS7000 GPS radio running the same firmware as the Plus. Other models and CPS versions have not been verified.
+- Import `.rdbx` files with the **CS7000-M17 Plus / CS7000 GPS firmware layout from CPS V1.02.20.00 or V1.02.21.00**. The populated sample came from a CS7000 GPS radio running the same firmware as the Plus; the newer CPS sample is a default codeplug. Other models and CPS versions have not been verified.
 - Browse imported repeaters, zones, channels, and contacts. A zone with one repeater frequency pair and color code appears as a repeater, even if it also contains simplex frequencies. Separate zones remain separate entries.
-- View each repeater's frequencies, color code, time slots, and additional simplex frequencies. The channel name appears above its talkgroup name and ID, matching the radio's idle versus receive/transmit display behavior.
+- View each repeater's frequencies, color code, transmit power, time slots, and additional simplex frequencies. The channel name appears above its talkgroup name and ID, matching the radio's idle versus receive/transmit display behavior.
 - Search people and talkgroups in separate contact tabs. Add a repeater talkgroup from the group contact list or create one in the same flow, with a separate name for its radio channel.
 - Add or remove talkgroups and additional simplex frequencies. When an imported channel is shared with another zone, removing it from the selected zone leaves the shared record available to the other zone.
 - Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
+- Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
+- Export a prototype CS7000 `.rdbx` file with radio identity, contacts, channels, and zones. New projects use an embedded copy of the supplied CS7000 default codeplug; imported projects use their preserved source.
 
-The editor does not yet decode every radio setting, receive group, or scan list. Manually created repeaters are project editor data; they do not yet produce exportable radio records. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
+The editor does not yet decode every radio setting, receive group, or scan list. Export is experimental and has not been verified for writing to a radio. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
 
 ## Build and run
 

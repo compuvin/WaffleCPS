@@ -7,7 +7,9 @@ constexpr qsizetype maskOffset = 0x300;
 constexpr qsizetype channelNameOffset = 0x4368;
 constexpr qsizetype channelRecordOffset = 0x23768;
 constexpr qsizetype zoneOffset = 0x52954;
-constexpr qsizetype contactOffset = 0x47d3c0;
+constexpr qsizetype zoneCountOffset = 0x52568;
+constexpr qsizetype sampleContactOffset = 0x47d3c0;
+constexpr qsizetype sampleFileSize = 13027285;
 constexpr int contactRecordLength = 16;
 constexpr int maximumContacts = 10000;
 constexpr int channelNameLength = 32;
@@ -43,10 +45,10 @@ quint16 u16(const QByteArray &bytes, qsizetype offset)
 
 QString contactName(const QByteArray &bytes, qsizetype offset)
 {
-    // Eleven six-bit characters occupy 66 bits starting at record offset 8.
-    // The last character uses the high two bits of the following record's first byte.
+    // Sixteen six-bit characters occupy 96 bits starting at record offset 8.
+    // The last four bytes overlap the following record's unused prefix.
     QString result;
-    for (int character = 0; character < 11; ++character) {
+    for (int character = 0; character < 16; ++character) {
         const int bit = character * 6;
         const int byte = bit / 8;
         const int shift = bit % 8;
@@ -90,12 +92,23 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
 
     if (decoded.mid(0x1200, 16) != QByteArray("CS7000-M17 PLUS\0", 16))
         return reject(QStringLiteral("This is not a CS7000-M17 Plus codeplug."));
-    if (decoded.mid(0x1298, 12) != QByteArray("V1.02.20.00\0", 12))
+    const QByteArray cpsVersion = decoded.mid(0x1298, 12);
+    if (cpsVersion != QByteArray("V1.02.20.00\0", 12)
+        && cpsVersion != QByteArray("V1.02.21.00\0", 12))
         return reject(QStringLiteral("This CPS version has not been verified for import."));
 
     ImportedCodeplug parsed;
     parsed.model = QStringLiteral("CS7000-M17 PLUS");
-    parsed.cpsVersion = QStringLiteral("V1.02.20.00");
+    parsed.cpsVersion = QString::fromLatin1(cpsVersion.constData());
+    parsed.radioName = utf16Name(decoded, 0x1300, 32);
+    // Both observed file sizes place the radio ID this far from the end.
+    // This is an import observation, not yet a verified export anchor.
+    constexpr qsizetype radioIdFromEnd = 0xc10c93;
+    if (decoded.size() >= radioIdFromEnd + 4) {
+        const quint32 candidate = u32(decoded, decoded.size() - radioIdFromEnd);
+        if (candidate >= 1 && candidate <= 0xffffff)
+            parsed.radioId = int(candidate);
+    }
     for (int index = 0; index < maximumChannels; ++index) {
         const qsizetype nameAt = channelNameOffset + index * channelNameLength;
         const qsizetype recordAt = channelRecordOffset + index * channelRecordLength;
@@ -111,23 +124,27 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
             return reject(QStringLiteral("Channel %1 has invalid frequencies.").arg(index + 1));
         const uchar modeMarker = static_cast<uchar>(decoded[recordAt + 23]);
         const uchar digitalSettings = static_cast<uchar>(decoded[recordAt + 16]);
+        const bool highPower = (uchar(decoded[recordAt + 9]) & 0x80) != 0;
         const bool digital = modeMarker == 0x20 || modeMarker == 0x41;
         const int contactIndex = digital ? u16(decoded, recordAt + 24) : 0;
         parsed.channels.append({name, frequencyA, frequencyB, digital,
                                 digital ? int(digitalSettings & 0x0f) : 0,
                                 digital ? (digitalSettings & 0x10 ? 2 : 1) : 0,
-                                contactIndex});
+                                contactIndex, highPower});
     }
     if (parsed.channels.isEmpty())
         return reject(QStringLiteral("No channels were found at the expected location."));
 
+    const quint32 zoneCount = u32(decoded, zoneCountOffset);
+    if (zoneCount == 0 || zoneCount > maximumZones)
+        return reject(QStringLiteral("The zone count is invalid."));
     qsizetype cursor = zoneOffset;
-    for (int index = 0; index < maximumZones; ++index) {
+    for (quint32 index = 0; index < zoneCount; ++index) {
         if (cursor + zoneNameLength + 4 > decoded.size())
             return reject(QStringLiteral("Zone table is truncated."));
         const QString name = utf16Name(decoded, cursor, zoneNameLength);
         if (name.isEmpty())
-            break;
+            return reject(QStringLiteral("Zone %1 has no name.").arg(index + 1));
         const quint32 count = u32(decoded, cursor + zoneNameLength);
         if (count > 16 || cursor + 36 + 2 * count > decoded.size())
             return reject(QStringLiteral("Zone %1 has an invalid member count.").arg(index + 1));
@@ -144,6 +161,10 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
     }
     if (parsed.zones.isEmpty())
         return reject(QStringLiteral("No zones were found at the expected location."));
+    // The contact table moves with the variable-length region preceding it.
+    // The two observed full-size files place it at the same offset from EOF.
+    const qsizetype contactOffset = decoded.size() >= sampleFileSize - sampleContactOffset
+        ? decoded.size() - (sampleFileSize - sampleContactOffset) : sampleContactOffset;
     if (decoded.size() >= contactOffset + 2 * contactRecordLength) {
         for (int index = 1; index <= maximumContacts; ++index) {
             const qsizetype record = contactOffset + index * contactRecordLength;

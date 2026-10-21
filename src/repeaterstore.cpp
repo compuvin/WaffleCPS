@@ -1,4 +1,6 @@
 #include "repeaterstore.h"
+#include "codeplugwriter.h"
+#include "cs7000default.h"
 #include "ziparchive.h"
 
 #include <QCryptographicHash>
@@ -13,6 +15,8 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QSet>
+#include <QSaveFile>
+#include <QTimer>
 #include <QVariantMap>
 #include <algorithm>
 #include <cmath>
@@ -34,17 +38,44 @@ bool integerValue(const QJsonValue &value, qint64 minimum, qint64 maximum, qint6
     return true;
 }
 
+void makeExportChannelNamesUnique(ImportedCodeplug *codeplug)
+{
+    QSet<QString> reserved;
+    QSet<QString> used;
+    for (const auto &channel : codeplug->channels)
+        reserved.insert(channel.name.toCaseFolded());
+    for (auto &channel : codeplug->channels) {
+        const QString key = channel.name.toCaseFolded();
+        if (!used.contains(key)) {
+            used.insert(key);
+            continue;
+        }
+        for (int number = 2; ; ++number) {
+            const QString suffix = QStringLiteral(" %1").arg(number);
+            const QString candidate = channel.name.left(16 - suffix.size()) + suffix;
+            const QString candidateKey = candidate.toCaseFolded();
+            if (!reserved.contains(candidateKey) && !used.contains(candidateKey)) {
+                channel.name = candidate;
+                used.insert(candidateKey);
+                break;
+            }
+        }
+    }
+}
+
 } // namespace
 
 RepeaterStore::RepeaterStore(QObject *parent)
     : QObject(parent)
     , m_repeaters{
           {QStringLiteral("North Ridge"), 444500000, 449500000, 1,
-           {{QStringLiteral("Local"), 9}, {QStringLiteral("Statewide"), 123}},
-           {{QStringLiteral("Regional"), 3100}}},
+           {{QStringLiteral("Local"), 9, QStringLiteral("North Local")},
+            {QStringLiteral("Statewide"), 123, QStringLiteral("North Statewide")}},
+           {{QStringLiteral("Regional"), 3100, QStringLiteral("North Regional")}}},
           {QStringLiteral("Riverbend"), 442125000, 447125000, 3,
-           {{QStringLiteral("Local"), 9}},
-           {{QStringLiteral("Worldwide"), 91}, {QStringLiteral("Regional"), 3100}}}}
+           {{QStringLiteral("Local"), 9, QStringLiteral("Riverbend Local")}},
+           {{QStringLiteral("Worldwide"), 91, QStringLiteral("Riverbend Worldw")},
+            {QStringLiteral("Regional"), 3100, QStringLiteral("Riverbend Regio")}}}}
 {
 }
 
@@ -61,6 +92,75 @@ QString RepeaterStore::selectedName() const { return m_repeaters.empty() ? QStri
 QString RepeaterStore::rxFrequency() const { return m_repeaters.empty() ? QString() : formatFrequency(selected().rxHz); }
 QString RepeaterStore::txFrequency() const { return m_repeaters.empty() ? QString() : formatFrequency(selected().txHz); }
 int RepeaterStore::colorCode() const { return m_repeaters.empty() ? 0 : selected().colorCode; }
+QString RepeaterStore::selectedPower() const
+{
+    return m_repeaters.empty() ? QString() : (selected().highPower ? QStringLiteral("High") : QStringLiteral("Low"));
+}
+QString RepeaterStore::radioName() const { return m_radioName; }
+int RepeaterStore::radioId() const { return m_radioId; }
+QString RepeaterStore::radioModel() const { return m_importedCodeplug.model; }
+QString RepeaterStore::radioCpsVersion() const { return m_importedCodeplug.cpsVersion; }
+
+QString RepeaterStore::availableChannelName(const QString &channelName) const
+{
+    const QString base = channelName.trimmed().left(16);
+    if (base.isEmpty())
+        return {};
+    QSet<QString> names;
+    if (hasImportedCodeplug()) {
+        for (const auto &channel : m_importedCodeplug.channels)
+            names.insert(channel.name.toCaseFolded());
+    } else {
+        for (const auto &repeater : m_repeaters) {
+            for (const auto &group : repeater.slot1)
+                names.insert((group.channelName.isEmpty() ? group.name : group.channelName).toCaseFolded());
+            for (const auto &group : repeater.slot2)
+                names.insert((group.channelName.isEmpty() ? group.name : group.channelName).toCaseFolded());
+            for (const auto &simplex : repeater.simplexFrequencies)
+                names.insert(simplex.name.toCaseFolded());
+        }
+    }
+    if (!names.contains(base.toCaseFolded()))
+        return base;
+    for (int number = 2; ; ++number) {
+        const QString suffix = QStringLiteral(" %1").arg(number);
+        const QString candidate = base.left(16 - suffix.size()) + suffix;
+        if (!names.contains(candidate.toCaseFolded()))
+            return candidate;
+    }
+}
+
+QString RepeaterStore::suggestedChannelName(const QString &talkgroupName) const
+{
+    const QString repeaterName = hasImportedCodeplug()
+        ? selectedImportedGroup().value(QStringLiteral("name")).toString() : selectedName();
+    QString firstWord = repeaterName.trimmed().split(QRegularExpression(QStringLiteral("\\s+")),
+                                                    Qt::SkipEmptyParts).value(0);
+    if (firstWord.size() > 14)
+        firstWord = firstWord.left(8);
+    const QString name = firstWord.isEmpty() ? talkgroupName.trimmed()
+                                             : firstWord + QLatin1Char(' ') + talkgroupName.trimmed();
+    return availableChannelName(name);
+}
+
+bool RepeaterStore::updateRadioSettings(const QString &name, const QString &idText)
+{
+    const QString cleanName = name.trimmed();
+    const QString cleanId = idText.trimmed();
+    bool validId = false;
+    const int id = cleanId.toInt(&validId);
+    if (cleanName.isEmpty() || cleanName.size() > 16)
+        return fail(QStringLiteral("Radio name or call sign must be 1–16 characters."));
+    if (!validId || id < 1 || id > 16777215 || cleanId != QString::number(id))
+        return fail(QStringLiteral("Radio ID must be a number from 1 to 16777215."));
+    if (m_radioName == cleanName && m_radioId == id)
+        return true;
+    m_radioName = cleanName;
+    m_radioId = id;
+    emit radioSettingsChanged();
+    setModified(true);
+    return true;
+}
 QString RepeaterStore::projectDisplayName() const
 {
     return m_projectPath.isEmpty() ? QStringLiteral("Untitled project") : QFileInfo(m_projectPath).fileName();
@@ -110,6 +210,11 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
     QVariantList slot1Talkgroups;
     QVariantList slot2Talkgroups;
     int zoneChannelCount = 0;
+    std::optional<bool> repeaterPower;
+    bool mixedPower = false;
+    bool unknownPower = false;
+    int highPowerChannels = 0;
+    int lowPowerChannels = 0;
     for (int zoneInGroup = 0; zoneInGroup < group.zoneIndexes.size(); ++zoneInGroup) {
         const int zoneIndex = group.zoneIndexes.at(zoneInGroup);
         const auto &zone = m_importedCodeplug.zones.at(zoneIndex);
@@ -128,7 +233,10 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
                 {QStringLiteral("transmitFrequency"), formatFrequency(channel.frequencyAHz)},
                 {QStringLiteral("mode"), channel.digital ? QStringLiteral("Digital") : QStringLiteral("Analog / other")},
                 {QStringLiteral("colorCode"), channel.digital ? QVariant(channel.colorCode) : QVariant()},
-                {QStringLiteral("timeSlot"), channel.digital ? QVariant(channel.timeSlot) : QVariant()}};
+                {QStringLiteral("timeSlot"), channel.digital ? QVariant(channel.timeSlot) : QVariant()},
+                {QStringLiteral("power"), channel.highPower.has_value()
+                     ? (*channel.highPower ? QStringLiteral("High") : QStringLiteral("Low"))
+                     : QStringLiteral("Unknown")}};
             if (channel.digital && channel.contactIndex > 0
                 && channel.contactIndex <= m_importedCodeplug.contacts.size()) {
                 const auto &contact = m_importedCodeplug.contacts.at(channel.contactIndex - 1);
@@ -143,6 +251,20 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
                 additionalSimplex.append(item);
             } else {
                 repeaterChannels.append(item);
+                if (group.repeater) {
+                    if (!channel.highPower.has_value())
+                        unknownPower = true;
+                    else {
+                        if (*channel.highPower)
+                            ++highPowerChannels;
+                        else
+                            ++lowPowerChannels;
+                        if (repeaterPower.has_value() && repeaterPower != channel.highPower)
+                            mixedPower = true;
+                        else
+                            repeaterPower = channel.highPower;
+                    }
+                }
                 if (group.repeater && channel.timeSlot == 1)
                     slot1Channels.append(item);
                 else if (group.repeater && channel.timeSlot == 2)
@@ -188,6 +310,11 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
             {QStringLiteral("receiveFrequency"), group.repeater ? formatFrequency(group.frequencyBHz) : QString()},
             {QStringLiteral("transmitFrequency"), group.repeater ? formatFrequency(group.frequencyAHz) : QString()},
             {QStringLiteral("colorCode"), group.colorCode},
+            {QStringLiteral("power"), mixedPower ? QStringLiteral("Mixed")
+                 : unknownPower ? QStringLiteral("Unknown")
+                 : repeaterPower.value_or(true) ? QStringLiteral("High") : QStringLiteral("Low")},
+            {QStringLiteral("newChannelPower"), highPowerChannels >= lowPowerChannels
+                 ? QStringLiteral("High") : QStringLiteral("Low")},
             {QStringLiteral("simplexChannels"), additionalSimplex},
             {QStringLiteral("slot1Channels"), slot1Channels},
             {QStringLiteral("slot2Channels"), slot2Channels},
@@ -206,7 +333,8 @@ void RepeaterStore::selectImportedGroup(int index)
 }
 
 bool RepeaterStore::updateSelectedImportedRepeater(const QString &name, const QString &rxFrequency,
-                                                   const QString &txFrequency, int colorCode)
+                                                   const QString &txFrequency, int colorCode,
+                                                   int powerChoice)
 {
     if (m_selectedImportedIndex < 0 || m_selectedImportedIndex >= m_importedGroups.size())
         return false;
@@ -216,19 +344,25 @@ bool RepeaterStore::updateSelectedImportedRepeater(const QString &name, const QS
     if (!group.repeater || group.zoneIndexes.size() != 1 || cleanName.isEmpty() || cleanName.size() > 16
         || !parseFrequency(rxFrequency, &rxHz) || !parseFrequency(txFrequency, &txHz)
         || rxHz < 100000000 || txHz < 100000000 || rxHz == txHz
-        || colorCode < 0 || colorCode > 15)
+        || colorCode < 0 || colorCode > 15 || powerChoice < -1 || powerChoice > 1)
         return false;
     const int zoneIndex = group.zoneIndexes.constFirst();
     auto &zone = m_importedCodeplug.zones[zoneIndex];
-    const bool changeChannels = group.frequencyAHz != txHz || group.frequencyBHz != rxHz
-                                || group.colorCode != colorCode;
+    auto needsChange = [txHz, rxHz, colorCode, powerChoice](const ImportedChannel &channel) {
+        return channel.frequencyAHz != channel.frequencyBHz
+            && (channel.frequencyAHz != txHz || channel.frequencyBHz != rxHz
+                || channel.colorCode != colorCode
+                || (powerChoice >= 0 && channel.highPower != std::optional<bool>(powerChoice == 1)));
+    };
+    const bool changeChannels = std::any_of(zone.channelIndexes.cbegin(), zone.channelIndexes.cend(),
+        [this, &needsChange](int index) { return needsChange(m_importedCodeplug.channels.at(index)); });
     if (!changeChannels && zone.name == cleanName)
         return true;
     if (changeChannels) {
         QSet<int> sharedChannels;
         for (int channelIndex : zone.channelIndexes) {
             const auto &channel = m_importedCodeplug.channels.at(channelIndex);
-            if (channel.frequencyAHz == channel.frequencyBHz || sharedChannels.contains(channelIndex))
+            if (!needsChange(channel) || sharedChannels.contains(channelIndex))
                 continue;
             for (int otherZone = 0; otherZone < m_importedCodeplug.zones.size(); ++otherZone)
                 if (otherZone != zoneIndex
@@ -242,8 +376,8 @@ bool RepeaterStore::updateSelectedImportedRepeater(const QString &name, const QS
     }
     QMap<int, int> clones;
     for (int &channelIndex : zone.channelIndexes) {
-        const auto &channel = m_importedCodeplug.channels.at(channelIndex);
-        if (!changeChannels || channel.frequencyAHz == channel.frequencyBHz)
+        const ImportedChannel channel = m_importedCodeplug.channels.at(channelIndex);
+        if (!needsChange(channel))
             continue;
         if (clones.contains(channelIndex)) {
             channelIndex = clones.value(channelIndex);
@@ -265,6 +399,8 @@ bool RepeaterStore::updateSelectedImportedRepeater(const QString &name, const QS
         editable.frequencyAHz = static_cast<quint32>(txHz);
         editable.frequencyBHz = static_cast<quint32>(rxHz);
         editable.colorCode = colorCode;
+        if (powerChoice >= 0)
+            editable.highPower = powerChoice == 1;
     }
     zone.name = cleanName;
     rebuildImportedGroups();
@@ -291,9 +427,14 @@ bool RepeaterStore::addImportedTalkgroup(int timeSlot, const QString &name, int 
     auto &zone = m_importedCodeplug.zones[zoneIndex];
     const QString cleanName = name.trimmed();
     const QString cleanChannelName = channelName.trimmed().isEmpty() ? cleanName : channelName.trimmed();
-    if (zone.channelIndexes.size() >= 16 || cleanName.isEmpty() || cleanName.size() > 11
-        || cleanChannelName.isEmpty() || cleanChannelName.size() > 16)
+    if (zone.channelIndexes.size() >= 16 || cleanName.isEmpty() || cleanName.size() > 16
+        || cleanChannelName.isEmpty() || cleanChannelName.size() > 16
+        || availableChannelName(cleanChannelName) != cleanChannelName)
         return false;
+    const QVariantMap powerSummary = selectedImportedGroup();
+    if (powerSummary.value(QStringLiteral("power")).toString() == QStringLiteral("Unknown"))
+        return false;
+    const bool highPower = powerSummary.value(QStringLiteral("newChannelPower")).toString() == QStringLiteral("High");
     int contactIndex = 0;
     for (int index = 0; index < m_importedCodeplug.contacts.size(); ++index) {
         const auto &contact = m_importedCodeplug.contacts.at(index);
@@ -319,7 +460,7 @@ bool RepeaterStore::addImportedTalkgroup(int timeSlot, const QString &name, int 
         contactIndex = m_importedCodeplug.contacts.size();
     }
     m_importedCodeplug.channels.append({cleanChannelName, group.frequencyAHz, group.frequencyBHz,
-                                       true, group.colorCode, timeSlot, contactIndex});
+                                       true, group.colorCode, timeSlot, contactIndex, highPower});
     zone.channelIndexes.append(m_importedCodeplug.channels.size() - 1);
     rebuildImportedGroups();
     emit contactsChanged();
@@ -580,7 +721,7 @@ QVariantList RepeaterStore::contacts() const
 bool RepeaterStore::addContact(const QString &name, int id, bool groupCall)
 {
     const QString cleanName = name.trimmed();
-    const int nameLimit = hasImportedCodeplug() ? 11 : 32;
+    const int nameLimit = 16;
     if (cleanName.isEmpty() || cleanName.size() > nameLimit || id < 1 || id > 16777215)
         return fail(tr("Enter a name of at most %1 characters and a DMR ID from 1 to 16777215.").arg(nameLimit));
     const QVariantList existing = contacts();
@@ -605,7 +746,7 @@ bool RepeaterStore::updateContact(int index, const QString &name, int id)
         return fail(tr("Select a contact to edit."));
     const QVariantMap old = existing.at(index).toMap();
     const QString cleanName = name.trimmed();
-    const int nameLimit = hasImportedCodeplug() ? 11 : 32;
+    const int nameLimit = 16;
     if (cleanName.isEmpty() || cleanName.size() > nameLimit || id < 1 || id > 16777215)
         return fail(tr("Enter a name of at most %1 characters and a DMR ID from 1 to 16777215.").arg(nameLimit));
     for (int i = 0; i < existing.size(); ++i) {
@@ -671,6 +812,8 @@ void RepeaterStore::newProject()
     m_sourceCodeplug.clear();
     m_importedCodeplug = {};
     m_manualContacts.clear();
+    m_radioName.clear();
+    m_radioId = 0;
     m_importedGroups.clear();
     m_selectedImportedIndex = 0;
     m_modified = false;
@@ -679,6 +822,7 @@ void RepeaterStore::newProject()
     emit talkgroupsChanged();
     emit simplexFrequenciesChanged();
     emit contactsChanged();
+    emit radioSettingsChanged();
     emit importedCodeplugChanged();
     emit importedSelectionChanged();
     emit projectChanged();
@@ -690,11 +834,12 @@ void RepeaterStore::newProjectDialog()
                                              tr("Creating a new project will discard your unsaved changes."))
                           != QMessageBox::Yes)
         return;
-    newProject();
+    emit aboutToResetProject();
+    QTimer::singleShot(100, this, [this] { newProject(); });
 }
 
 bool RepeaterStore::addRepeater(const QString &name, const QString &rxFrequency,
-                                const QString &txFrequency, int colorCode)
+                                const QString &txFrequency, int colorCode, bool highPower)
 {
     const QString cleanName = name.trimmed();
     qint64 rxHz = 0, txHz = 0;
@@ -702,7 +847,7 @@ bool RepeaterStore::addRepeater(const QString &name, const QString &rxFrequency,
         || !parseFrequency(rxFrequency, &rxHz) || !parseFrequency(txFrequency, &txHz)
         || colorCode < 0 || colorCode > 15)
         return false;
-    m_repeaters.push_back({cleanName, rxHz, txHz, colorCode, {}, {}});
+    m_repeaters.push_back({cleanName, rxHz, txHz, colorCode, {}, {}, {}, highPower});
     m_selectedIndex = static_cast<int>(m_repeaters.size()) - 1;
     emit repeatersChanged();
     emit selectedRepeaterChanged();
@@ -751,7 +896,8 @@ bool RepeaterStore::removeSimplexFromSelectedRepeater(int index)
 }
 
 bool RepeaterStore::updateSelectedRepeater(const QString &name, const QString &rxFrequency,
-                                            const QString &txFrequency, int colorCode)
+                                            const QString &txFrequency, int colorCode,
+                                            bool highPower)
 {
     const QString cleanName = name.trimmed();
     qint64 rxHz = 0;
@@ -762,12 +908,13 @@ bool RepeaterStore::updateSelectedRepeater(const QString &name, const QString &r
 
     auto &repeater = selected();
     if (repeater.name == cleanName && repeater.rxHz == rxHz && repeater.txHz == txHz
-        && repeater.colorCode == colorCode)
+        && repeater.colorCode == colorCode && repeater.highPower == highPower)
         return true;
     repeater.name = cleanName;
     repeater.rxHz = rxHz;
     repeater.txHz = txHz;
     repeater.colorCode = colorCode;
+    repeater.highPower = highPower;
     emit repeatersChanged();
     emit selectedRepeaterChanged();
     setModified(true);
@@ -781,7 +928,8 @@ bool RepeaterStore::addTalkgroup(int timeSlot, const QString &name, int id,
     const QString cleanChannelName = channelName.trimmed().isEmpty() ? cleanName : channelName.trimmed();
     if (hasImportedCodeplug() || m_repeaters.empty() || (timeSlot != 1 && timeSlot != 2)
         || cleanName.isEmpty() || cleanName.size() > 32 || cleanChannelName.isEmpty()
-        || cleanChannelName.size() > 32 || id < 1 || id > 16777215)
+        || cleanChannelName.size() > 16 || id < 1 || id > 16777215
+        || availableChannelName(cleanChannelName) != cleanChannelName)
         return false;
 
     auto &items = talkgroups(timeSlot);
@@ -826,16 +974,13 @@ void RepeaterStore::removeTalkgroup(int timeSlot, int id)
 bool RepeaterStore::saveProjectToFile(const QString &path)
 {
     QJsonArray repeaters;
-    bool hasEditableSimplex = false;
-    bool hasNamedChannels = false;
     for (const auto &repeater : m_repeaters) {
-        auto convert = [&hasNamedChannels](const std::vector<Talkgroup> &groups) {
+        auto convert = [](const std::vector<Talkgroup> &groups) {
             QJsonArray result;
             for (const auto &group : groups) {
                 QJsonObject item{{QStringLiteral("name"), group.name},
                                  {QStringLiteral("id"), group.id}};
                 if (!group.channelName.isEmpty()) {
-                    hasNamedChannels = true;
                     item.insert(QStringLiteral("channelName"), group.channelName);
                 }
                 result.append(item);
@@ -847,10 +992,10 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
             {QStringLiteral("rxHz"), repeater.rxHz},
             {QStringLiteral("txHz"), repeater.txHz},
             {QStringLiteral("colorCode"), repeater.colorCode},
+            {QStringLiteral("highPower"), repeater.highPower},
             {QStringLiteral("slots"), QJsonObject{{QStringLiteral("1"), convert(repeater.slot1)},
                                                    {QStringLiteral("2"), convert(repeater.slot2)}}}};
         if (!repeater.simplexFrequencies.empty()) {
-            hasEditableSimplex = true;
             QJsonArray simplex;
             for (const auto &frequency : repeater.simplexFrequencies)
                 simplex.append(QJsonObject{{QStringLiteral("name"), frequency.name},
@@ -864,8 +1009,11 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), (!m_manualContacts.isEmpty() || hasNamedChannels) ? 4 : ((hasEditableSimplex || m_repeaters.empty() || hasImportedCodeplug()) ? 3 : 1)},
+                     {QStringLiteral("schemaVersion"), 6},
                      {QStringLiteral("repeaters"), repeaters}};
+    root.insert(QStringLiteral("radioSettings"),
+                QJsonObject{{QStringLiteral("name"), m_radioName},
+                            {QStringLiteral("id"), m_radioId}});
     if (!m_manualContacts.isEmpty()) {
         QJsonArray library;
         for (const auto &contact : m_manualContacts)
@@ -883,7 +1031,9 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                         {QStringLiteral("digital"), channel.digital},
                                         {QStringLiteral("colorCode"), channel.colorCode},
                                         {QStringLiteral("timeSlot"), channel.timeSlot},
-                                        {QStringLiteral("contactIndex"), channel.contactIndex}});
+                                        {QStringLiteral("contactIndex"), channel.contactIndex},
+                                        {QStringLiteral("highPower"), channel.highPower.has_value()
+                                             ? QJsonValue(*channel.highPower) : QJsonValue(QJsonValue::Null)}});
         QJsonArray contacts;
         for (const auto &contact : m_importedCodeplug.contacts)
             contacts.append(QJsonObject{{QStringLiteral("name"), contact.name},
@@ -941,7 +1091,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 4, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 6, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
@@ -963,6 +1113,11 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
             || !integerValue(item.value(QStringLiteral("colorCode")), 0, 15, &colorCode))
             return fail(QStringLiteral("A repeater has invalid details."));
         repeater.colorCode = static_cast<int>(colorCode);
+        if (version >= 5) {
+            if (!item.value(QStringLiteral("highPower")).isBool())
+                return fail(QStringLiteral("A repeater has invalid transmit power."));
+            repeater.highPower = item.value(QStringLiteral("highPower")).toBool();
+        }
 
         const QJsonValue slotsValue = item.value(QStringLiteral("slots"));
         if (!slotsValue.isObject())
@@ -1059,7 +1214,8 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         const QJsonValue channelsValue = data.value(QStringLiteral("channels"));
         const QJsonValue zonesValue = data.value(QStringLiteral("zones"));
         if (imported.model != QStringLiteral("CS7000-M17 PLUS")
-            || imported.cpsVersion != QStringLiteral("V1.02.20.00")
+            || (imported.cpsVersion != QStringLiteral("V1.02.20.00")
+                && imported.cpsVersion != QStringLiteral("V1.02.21.00"))
             || !channelsValue.isArray() || channelsValue.toArray().isEmpty()
             || channelsValue.toArray().size() > 3000 || !zonesValue.isArray()
             || zonesValue.toArray().isEmpty() || zonesValue.toArray().size() > 500)
@@ -1075,7 +1231,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
                 ImportedContact contact;
                 contact.name = item.value(QStringLiteral("name")).toString();
                 qint64 id = 0;
-                if (contact.name.isEmpty() || contact.name.size() > 11
+                if (contact.name.isEmpty() || contact.name.size() > 16
                     || !integerValue(item.value(QStringLiteral("id")), 1, 16777215, &id)
                     || !item.value(QStringLiteral("groupCall")).isBool())
                     return fail(QStringLiteral("An imported contact has invalid details."));
@@ -1090,6 +1246,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
             const QJsonObject item = value.toObject();
             ImportedChannel channel;
             channel.name = item.value(QStringLiteral("name")).toString();
+            const QJsonValue powerValue = item.value(QStringLiteral("highPower"));
             qint64 frequencyA = 0, frequencyB = 0, colorCode = 0, timeSlot = 0, contactIndex = 0;
             if (channel.name.isEmpty() || channel.name.size() > 16
                 || !integerValue(item.value(QStringLiteral("frequencyAHz")), 100000000, 999999999, &frequencyA)
@@ -1098,7 +1255,8 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
                 || !integerValue(item.value(QStringLiteral("colorCode")), 0, 15, &colorCode)
                 || !integerValue(item.value(QStringLiteral("timeSlot")), 0, 2, &timeSlot)
                 || (!item.value(QStringLiteral("contactIndex")).isUndefined()
-                    && !integerValue(item.value(QStringLiteral("contactIndex")), 0, imported.contacts.size(), &contactIndex)))
+                    && !integerValue(item.value(QStringLiteral("contactIndex")), 0, imported.contacts.size(), &contactIndex))
+                || (version >= 5 && !powerValue.isBool() && !powerValue.isNull()))
                 return fail(QStringLiteral("An imported channel has invalid details."));
             channel.frequencyAHz = frequencyA;
             channel.frequencyBHz = frequencyB;
@@ -1106,6 +1264,8 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
             channel.colorCode = colorCode;
             channel.timeSlot = timeSlot;
             channel.contactIndex = contactIndex;
+            if (powerValue.isBool())
+                channel.highPower = powerValue.toBool();
             imported.channels.append(channel);
         }
         for (const QJsonValue &value : zonesValue.toArray()) {
@@ -1151,25 +1311,67 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     if (entries.size() != (sourceName.isEmpty() ? 1 : 2))
         return fail(QStringLiteral("Project contains unsupported archive entries."));
 
-    // Recover missing contacts in version 2 projects and the eleventh contact-name
-    // character omitted by earlier version 3 imports, using the untouched source.
+    QString loadedRadioName;
+    int loadedRadioId = 0;
+    if (version >= 6) {
+        const QJsonValue settingsValue = root.value(QStringLiteral("radioSettings"));
+        if (!settingsValue.isObject())
+            return fail(QStringLiteral("Radio settings are invalid."));
+        const QJsonObject settings = settingsValue.toObject();
+        loadedRadioName = settings.value(QStringLiteral("name")).toString();
+        qint64 id = 0;
+        if (!settings.value(QStringLiteral("name")).isString()
+            || loadedRadioName.size() > 16
+            || !integerValue(settings.value(QStringLiteral("id")), 0, 16777215, &id)
+            || (loadedRadioName.isEmpty() != (id == 0)))
+            return fail(QStringLiteral("Radio settings are invalid."));
+        loadedRadioId = int(id);
+    } else if (!sourceBytes.isEmpty()) {
+        ImportedCodeplug sourceParsed;
+        QString sourceError;
+        if (CodeplugReader::read(sourceBytes, &sourceParsed, &sourceError)) {
+            loadedRadioName = sourceParsed.radioName;
+            loadedRadioId = sourceParsed.radioId;
+        }
+    }
+
+    // Recover older project details from the untouched source when available.
     if (!imported.channels.isEmpty() && !sourceBytes.isEmpty()) {
         ImportedCodeplug sourceParsed;
         QString sourceError;
-        if (CodeplugReader::read(sourceBytes, &sourceParsed, &sourceError)
-            && sourceParsed.channels.size() <= imported.channels.size()) {
-            if (imported.contacts.isEmpty()) {
-                imported.contacts = sourceParsed.contacts;
-                for (int index = 0; index < sourceParsed.channels.size(); ++index)
-                    imported.channels[index].contactIndex = sourceParsed.channels.at(index).contactIndex;
-            } else {
-                const int count = std::min(imported.contacts.size(), sourceParsed.contacts.size());
-                for (int index = 0; index < count; ++index) {
-                    auto &saved = imported.contacts[index];
-                    const auto &original = sourceParsed.contacts.at(index);
-                    if (saved.id == original.id && saved.groupCall == original.groupCall
-                        && saved.name == original.name.left(10).trimmed())
-                        saved.name = original.name;
+        if (CodeplugReader::read(sourceBytes, &sourceParsed, &sourceError)) {
+            QMap<QString, int> sourceByName;
+            for (int index = 0; index < sourceParsed.channels.size(); ++index) {
+                const QString &name = sourceParsed.channels.at(index).name;
+                if (sourceByName.contains(name))
+                    sourceByName[name] = -1;
+                else
+                    sourceByName.insert(name, index);
+            }
+            for (int index = 0; index < imported.channels.size(); ++index) {
+                auto &channel = imported.channels[index];
+                if (channel.highPower.has_value())
+                    continue;
+                int sourceIndex = index < sourceParsed.channels.size()
+                                      && sourceParsed.channels.at(index).name == channel.name
+                    ? index : sourceByName.value(channel.name, -1);
+                if (sourceIndex >= 0)
+                    channel.highPower = sourceParsed.channels.at(sourceIndex).highPower;
+            }
+            if (sourceParsed.channels.size() <= imported.channels.size()) {
+                if (imported.contacts.isEmpty()) {
+                    imported.contacts = sourceParsed.contacts;
+                    for (int index = 0; index < sourceParsed.channels.size(); ++index)
+                        imported.channels[index].contactIndex = sourceParsed.channels.at(index).contactIndex;
+                } else {
+                    const int count = std::min(imported.contacts.size(), sourceParsed.contacts.size());
+                    for (int index = 0; index < count; ++index) {
+                        auto &saved = imported.contacts[index];
+                        const auto &original = sourceParsed.contacts.at(index);
+                        if (saved.id == original.id && saved.groupCall == original.groupCall
+                            && saved.name == original.name.left(11).trimmed())
+                            saved.name = original.name;
+                    }
                 }
             }
         }
@@ -1182,6 +1384,8 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     m_sourceCodeplug = sourceBytes;
     m_importedCodeplug = std::move(imported);
     m_manualContacts = std::move(manualContacts);
+    m_radioName = loadedRadioName;
+    m_radioId = loadedRadioId;
     rebuildImportedGroups();
     m_modified = false;
     emit repeatersChanged();
@@ -1189,6 +1393,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     emit talkgroupsChanged();
     emit simplexFrequenciesChanged();
     emit contactsChanged();
+    emit radioSettingsChanged();
     emit projectChanged();
     return true;
 }
@@ -1217,8 +1422,11 @@ bool RepeaterStore::importCodeplugFromBytes(const QByteArray &bytes)
     if (!CodeplugReader::read(bytes, &imported, &error))
         return fail(QStringLiteral("Could not import codeplug: %1").arg(error));
     m_importedCodeplug = std::move(imported);
+    m_radioName = m_importedCodeplug.radioName;
+    m_radioId = m_importedCodeplug.radioId;
     rebuildImportedGroups();
     emit contactsChanged();
+    emit radioSettingsChanged();
     setModified(true);
     return true;
 }
@@ -1288,6 +1496,105 @@ void RepeaterStore::saveProjectDialog(bool saveAs)
             path += QStringLiteral(".waffle");
     }
     saveProjectToFile(path);
+}
+
+bool RepeaterStore::exportCodeplugToFile(const QString &path)
+{
+    if (!m_sourceCodeplugName.isEmpty()
+        && QFileInfo(path).fileName().compare(m_sourceCodeplugName, Qt::CaseInsensitive) == 0)
+        return fail(QStringLiteral("Choose a different filename so the original codeplug stays untouched."));
+    const QByteArray source = hasImportedCodeplug() ? m_sourceCodeplug : cs7000DefaultCodeplug();
+    if (source.isEmpty())
+        return fail(QStringLiteral("The CS7000 export base is unavailable."));
+    ImportedCodeplug target;
+    if (hasImportedCodeplug()) {
+        target = m_importedCodeplug;
+    } else {
+        QString readError;
+        if (!CodeplugReader::read(source, &target, &readError))
+            return fail(QStringLiteral("Could not read the embedded CS7000 default: %1").arg(readError));
+        if (!m_repeaters.empty()) {
+            target.channels.clear();
+            target.contacts = m_manualContacts;
+            target.zones.clear();
+            QMap<int, int> contactById;
+            for (int i = 0; i < target.contacts.size(); ++i)
+                contactById.insert(target.contacts.at(i).id, i + 1);
+            auto contactFor = [&](const Talkgroup &group) {
+                const int existing = contactById.value(group.id, 0);
+                if (existing)
+                    return target.contacts.at(existing - 1).groupCall ? existing : 0;
+                target.contacts.append({group.name, group.id, true});
+                const int index = target.contacts.size();
+                contactById.insert(group.id, index);
+                return index;
+            };
+            for (const Repeater &repeater : m_repeaters) {
+                ImportedZone zone;
+                zone.name = repeater.name;
+                auto addGroup = [&](const Talkgroup &group, int timeSlot) {
+                    const int contact = contactFor(group);
+                    if (contact == 0)
+                        return false;
+                    ImportedChannel channel;
+                    channel.name = group.channelName.isEmpty() ? group.name : group.channelName;
+                    channel.frequencyAHz = quint32(repeater.txHz);
+                    channel.frequencyBHz = quint32(repeater.rxHz);
+                    channel.digital = true;
+                    channel.colorCode = repeater.colorCode;
+                    channel.timeSlot = timeSlot;
+                    channel.contactIndex = contact;
+                    channel.highPower = repeater.highPower;
+                    zone.channelIndexes.append(target.channels.size());
+                    target.channels.append(channel);
+                    return true;
+                };
+                // New manual zones default to TS2 first, then TS1.
+                for (const Talkgroup &group : repeater.slot2)
+                    if (!addGroup(group, 2))
+                        return fail(QStringLiteral("A talkgroup ID conflicts with a person contact."));
+                for (const Talkgroup &group : repeater.slot1)
+                    if (!addGroup(group, 1))
+                        return fail(QStringLiteral("A talkgroup ID conflicts with a person contact."));
+                for (const auto &simplex : repeater.simplexFrequencies) {
+                    ImportedChannel channel;
+                    channel.name = simplex.name;
+                    channel.frequencyAHz = quint32(simplex.hz);
+                    channel.frequencyBHz = quint32(simplex.hz);
+                    channel.digital = simplex.digital;
+                    channel.colorCode = simplex.digital ? simplex.colorCode : 0;
+                    channel.timeSlot = simplex.digital ? simplex.timeSlot : 0;
+                    channel.highPower = true;
+                    zone.channelIndexes.append(target.channels.size());
+                    target.channels.append(channel);
+                }
+                target.zones.append(std::move(zone));
+            }
+        } else if (!m_manualContacts.isEmpty()) {
+            target.contacts += m_manualContacts;
+        }
+        makeExportChannelNamesUnique(&target);
+    }
+    QByteArray bytes;
+    QString writeError;
+    if (!CodeplugWriter::write(source, target, m_radioName, m_radioId, &bytes, &writeError))
+        return fail(QStringLiteral("Could not export codeplug: %1").arg(writeError));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
+        return fail(QStringLiteral("Could not write codeplug: %1").arg(file.errorString()));
+    return true;
+}
+
+void RepeaterStore::exportCodeplugDialog()
+{
+    QString path = QFileDialog::getSaveFileName(nullptr, tr("Export CS7000 codeplug"),
+                                                 QStringLiteral("wafflecps-export.rdbx"),
+                                                 tr("CS7000 codeplugs (*.rdbx)"));
+    if (path.isEmpty())
+        return;
+    if (!path.endsWith(QStringLiteral(".rdbx"), Qt::CaseInsensitive))
+        path += QStringLiteral(".rdbx");
+    exportCodeplugToFile(path);
 }
 
 void RepeaterStore::attachSourceDialog()

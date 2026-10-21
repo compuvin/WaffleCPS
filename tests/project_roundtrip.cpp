@@ -1,10 +1,13 @@
 #include "../src/repeaterstore.h"
+#include "../src/codeplugreader.h"
+#include "../src/cs7000default.h"
 
 #include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDebug>
+#include <QCryptographicHash>
 
 int main(int argc, char *argv[])
 {
@@ -43,7 +46,8 @@ int main(int argc, char *argv[])
         return 12;
     }
     if (!original.updateSelectedRepeater(QStringLiteral("Edited Repeater"),
-                                         QStringLiteral("444.123456"), QStringLiteral("449.123456"), 7)
+                                         QStringLiteral("444.123456"), QStringLiteral("449.123456"), 7, false)
+        || !original.updateRadioSettings(QStringLiteral("K1ABC"), QStringLiteral("3109101"))
         || original.addTalkgroup(1, QStringLiteral("K1ABC Ron"), 1234567, QStringLiteral("Invalid private"))
         || !original.addTalkgroup(2, QStringLiteral("New group"), 4567,
                                   QStringLiteral("Ridge New Group"))
@@ -61,6 +65,9 @@ int main(int argc, char *argv[])
         || loaded.rxFrequency() != QStringLiteral("444.123456")
         || loaded.txFrequency() != QStringLiteral("449.123456")
         || loaded.colorCode() != 7
+        || loaded.selectedPower() != QStringLiteral("Low")
+        || loaded.radioName() != QStringLiteral("K1ABC")
+        || loaded.radioId() != 3109101
         || loaded.sourceCodeplugName() != sourcePath
         || loaded.modified()
         || loaded.slot2Talkgroups().size() != 2
@@ -93,6 +100,7 @@ int main(int argc, char *argv[])
 
     loaded.newProject();
     if (!loaded.repeaterNames().isEmpty() || !loaded.sourceCodeplugName().isEmpty()
+        || !loaded.radioName().isEmpty() || loaded.radioId() != 0
         || loaded.modified() || !loaded.saveProjectToFile(QStringLiteral("empty.waffle"))) {
         qCritical() << "New project was not empty or could not be saved";
         return 8;
@@ -150,6 +158,79 @@ int main(int argc, char *argv[])
     if (namedReloaded.contacts().size() != 1) {
         qCritical() << "Reusable talkgroup was lost after removing its channel";
         return 16;
+    }
+
+    const QByteArray embedded = cs7000DefaultCodeplug();
+    if (QCryptographicHash::hash(embedded, QCryptographicHash::Sha256).toHex()
+        != QByteArray("d03808a76436d5878b52bae81a04cd43e50b6454e3ab9b4fc5078b0658d30e4c")) {
+        qCritical() << "Embedded default does not match the supplied file";
+        return 17;
+    }
+    RepeaterStore identityProject;
+    identityProject.newProject();
+    if (!identityProject.updateRadioSettings(QStringLiteral("KB1JDX"), QStringLiteral("3109101"))
+        || !identityProject.exportCodeplugToFile(QStringLiteral("identity-export.rdbx"))) {
+        qCritical() << "Could not export the default with a radio identity";
+        return 20;
+    }
+    QFile cpsSavedIdentity(QStringLiteral("../Codeplugs/CS7000 Default plus RID.rdbx"));
+    if (cpsSavedIdentity.exists()) {
+        QFile identityExport(QStringLiteral("identity-export.rdbx"));
+        if (!cpsSavedIdentity.open(QIODevice::ReadOnly)
+            || !identityExport.open(QIODevice::ReadOnly)
+            || cpsSavedIdentity.readAll() != identityExport.readAll()) {
+            qCritical() << "Radio identity export differs from the CPS-saved control";
+            return 21;
+        }
+    }
+    RepeaterStore exportProject;
+    QString exportFailure;
+    QObject::connect(&exportProject, &RepeaterStore::errorOccurred, &app,
+                     [&exportFailure](const QString &message) { exportFailure = message; });
+    exportProject.newProject();
+    if (!exportProject.updateRadioSettings(QStringLiteral("KB1JDX"), QStringLiteral("3109101"))
+        || !exportProject.addRepeater(QStringLiteral("Brooklyn"), QStringLiteral("445.7375"),
+                                      QStringLiteral("440.7375"), 3, false)
+        || !exportProject.addTalkgroup(2, QStringLiteral("Statewide"), 3100,
+                                       QStringLiteral("Brooklyn CT Wide"))
+        || !exportProject.addContact(QStringLiteral("K1ABC Ron"), 1234567, false)
+        || !exportProject.addSimplexToSelectedRepeater(QStringLiteral("SIMPLEX"),
+                                                         QStringLiteral("446.000"), false, 0, 0)
+        || !exportProject.addRepeater(QStringLiteral("Hartford"), QStringLiteral("443.000"),
+                                      QStringLiteral("448.000"), 2)
+        || !exportProject.addTalkgroup(1, QStringLiteral("Local"), 9,
+                                       QStringLiteral("Hartford Local"))
+        || exportProject.addTalkgroup(2, QStringLiteral("Statewide"), 3100,
+                                      QStringLiteral("Brooklyn CT Wide"))
+        || exportProject.availableChannelName(QStringLiteral("Brooklyn CT Wide"))
+            != QStringLiteral("Brooklyn CT Wi 2")
+        || !exportProject.addTalkgroup(2, QStringLiteral("Statewide"), 3100,
+                                       QStringLiteral("Brooklyn CT Wi 2"))
+        || !exportProject.exportCodeplugToFile(QStringLiteral("test-export.rdbx"))) {
+        qCritical() << "Could not export a new CS7000 project:" << exportFailure;
+        return 18;
+    }
+    QFile exportedFile(QStringLiteral("test-export.rdbx"));
+    ImportedCodeplug exported;
+    QString exportError;
+    if (!exportedFile.open(QIODevice::ReadOnly)
+        || !CodeplugReader::read(exportedFile.readAll(), &exported, &exportError)
+        || exported.radioName != QStringLiteral("KB1JDX") || exported.radioId != 3109101
+        || exported.channels.size() != 4 || exported.contacts.size() != 3
+        || exported.zones.size() != 2 || exported.zones.at(0).name != QStringLiteral("Brooklyn")
+        || exported.zones.at(0).channelIndexes.size() != 2
+        || exported.zones.at(1).name != QStringLiteral("Hartford")
+        || exported.zones.at(1).channelIndexes.size() != 2
+        || exported.channels.at(0).name != QStringLiteral("Brooklyn CT Wide")
+        || exported.channels.at(0).frequencyAHz != 440737500
+        || exported.channels.at(0).frequencyBHz != 445737500
+        || exported.channels.at(0).contactIndex != 1
+        || exported.channels.at(0).highPower.value_or(true)
+        || exported.channels.at(1).name != QStringLiteral("SIMPLEX")
+        || exported.channels.at(2).name != QStringLiteral("Brooklyn CT Wi 2")
+        || exported.channels.at(3).name != QStringLiteral("Hartford Local")) {
+        qCritical() << "Export did not reimport with its channels, contacts, and zone:" << exportError;
+        return 19;
     }
 
     qInfo() << "Project round-trip and corruption checks passed";

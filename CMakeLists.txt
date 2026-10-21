@@ -15,6 +15,10 @@ qt_add_executable(wafflecps
     src/repeaterstore.h
     src/codeplugreader.cpp
     src/codeplugreader.h
+    src/codeplugwriter.cpp
+    src/codeplugwriter.h
+    src/cs7000default.cpp
+    src/cs7000default.h
     src/ziparchive.cpp
     src/ziparchive.h
 )
@@ -46,6 +50,10 @@ if(BUILD_TESTING)
         src/repeaterstore.h
         src/codeplugreader.cpp
         src/codeplugreader.h
+        src/codeplugwriter.cpp
+        src/codeplugwriter.h
+        src/cs7000default.cpp
+        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
@@ -58,6 +66,10 @@ if(BUILD_TESTING)
         src/repeaterstore.h
         src/codeplugreader.cpp
         src/codeplugreader.h
+        src/codeplugwriter.cpp
+        src/codeplugwriter.h
+        src/cs7000default.cpp
+        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
@@ -70,6 +82,10 @@ if(BUILD_TESTING)
         src/repeaterstore.h
         src/codeplugreader.cpp
         src/codeplugreader.h
+        src/codeplugwriter.cpp
+        src/codeplugwriter.h
+        src/cs7000default.cpp
+        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
@@ -83,8 +99,14 @@ if(BUILD_TESTING)
     set_tests_properties(ui_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_new COMMAND ui_smoke_test --new)
     set_tests_properties(ui_smoke_new PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_smoke_new_imported COMMAND ui_smoke_test --embedded --click-new)
+    set_tests_properties(ui_smoke_new_imported PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_add_talkgroup COMMAND ui_smoke_test --demo --add-talkgroup)
     set_tests_properties(ui_smoke_add_talkgroup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_create_talkgroup COMMAND ui_smoke_test --demo --create-talkgroup)
     set_tests_properties(ui_smoke_create_talkgroup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_smoke_power COMMAND ui_smoke_test --demo --power)
+    set_tests_properties(ui_smoke_power PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_smoke_settings COMMAND ui_smoke_test --demo --settings)
+    set_tests_properties(ui_smoke_settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

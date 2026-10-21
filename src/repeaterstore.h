@@ -17,6 +17,11 @@ class RepeaterStore : public QObject
     Q_PROPERTY(QString rxFrequency READ rxFrequency NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QString txFrequency READ txFrequency NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(int colorCode READ colorCode NOTIFY selectedRepeaterChanged)
+    Q_PROPERTY(QString selectedPower READ selectedPower NOTIFY selectedRepeaterChanged)
+    Q_PROPERTY(QString radioName READ radioName NOTIFY radioSettingsChanged)
+    Q_PROPERTY(int radioId READ radioId NOTIFY radioSettingsChanged)
+    Q_PROPERTY(QString radioModel READ radioModel NOTIFY radioSettingsChanged)
+    Q_PROPERTY(QString radioCpsVersion READ radioCpsVersion NOTIFY radioSettingsChanged)
     Q_PROPERTY(QVariantList slot1Talkgroups READ slot1Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList slot2Talkgroups READ slot2Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList selectedSimplexFrequencies READ selectedSimplexFrequencies NOTIFY simplexFrequenciesChanged)
@@ -40,6 +45,11 @@ public:
     QString rxFrequency() const;
     QString txFrequency() const;
     int colorCode() const;
+    QString selectedPower() const;
+    QString radioName() const;
+    int radioId() const;
+    QString radioModel() const;
+    QString radioCpsVersion() const;
     QVariantList slot1Talkgroups() const;
     QVariantList slot2Talkgroups() const;
     QVariantList selectedSimplexFrequencies() const;
@@ -56,11 +66,14 @@ public:
 
     Q_INVOKABLE void selectRepeater(int index);
     Q_INVOKABLE bool addRepeater(const QString &name, const QString &rxFrequency,
-                                const QString &txFrequency, int colorCode);
+                                const QString &txFrequency, int colorCode, bool highPower = true);
     Q_INVOKABLE bool updateSelectedRepeater(const QString &name, const QString &rxFrequency,
-                                            const QString &txFrequency, int colorCode);
+                                            const QString &txFrequency, int colorCode,
+                                            bool highPower = true);
     Q_INVOKABLE bool addTalkgroup(int timeSlot, const QString &name, int id,
                                  const QString &channelName = QString());
+    Q_INVOKABLE QString suggestedChannelName(const QString &talkgroupName) const;
+    Q_INVOKABLE QString availableChannelName(const QString &channelName) const;
     Q_INVOKABLE bool addContact(const QString &name, int id, bool groupCall);
     Q_INVOKABLE bool updateContact(int index, const QString &name, int id);
     Q_INVOKABLE void removeTalkgroup(int timeSlot, int id);
@@ -74,7 +87,8 @@ public:
     Q_INVOKABLE void importAttachedCodeplug();
     Q_INVOKABLE void selectImportedGroup(int index);
     Q_INVOKABLE bool updateSelectedImportedRepeater(const QString &name, const QString &rxFrequency,
-                                                    const QString &txFrequency, int colorCode);
+                                                    const QString &txFrequency, int colorCode,
+                                                    int powerChoice = -1);
     Q_INVOKABLE bool addImportedTalkgroup(int timeSlot, const QString &name, int id,
                                          const QString &channelName = QString());
     Q_INVOKABLE bool removeImportedTalkgroup(int timeSlot, int contactIndex);
@@ -84,12 +98,15 @@ public:
     Q_INVOKABLE bool removeSimplexFromSelectedImportedRepeater(int zoneInGroup, int zonePosition);
     Q_INVOKABLE void newProject();
     Q_INVOKABLE void newProjectDialog();
+    Q_INVOKABLE bool updateRadioSettings(const QString &name, const QString &idText);
+    Q_INVOKABLE void exportCodeplugDialog();
 
     bool openProjectFromFile(const QString &path);
     bool saveProjectToFile(const QString &path);
     bool attachSourceCodeplugFromFile(const QString &path);
     bool importCodeplugFromFile(const QString &path);
     bool importCodeplugFromBytes(const QByteArray &bytes);
+    bool exportCodeplugToFile(const QString &path);
 
 signals:
     void aboutToResetProject();
@@ -102,6 +119,7 @@ signals:
     void importedSelectionChanged();
     void simplexFrequenciesChanged();
     void contactsChanged();
+    void radioSettingsChanged();
 
 private:
     struct Talkgroup {
@@ -125,6 +143,7 @@ private:
             int timeSlot;
         };
         std::vector<SimplexFrequency> simplexFrequencies;
+        bool highPower = true;
     };
 
     const Repeater &selected() const;
@@ -156,6 +175,8 @@ private:
     bool m_modified = false;
     ImportedCodeplug m_importedCodeplug;
     QVector<ImportedContact> m_manualContacts;
+    QString m_radioName;
+    int m_radioId = 0;
     QVector<ImportedGroup> m_importedGroups;
     int m_selectedImportedIndex = 0;
 };

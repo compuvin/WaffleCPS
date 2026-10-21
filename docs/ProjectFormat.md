@@ -1,6 +1,6 @@
 # WaffleCPS Project Format
 
-A `.waffle` file is a standard ZIP archive. It is an open working-project format, separate from any radio manufacturer's codeplug format. Version 1 stores repeater editor data and can keep an original codeplug as an untouched attachment. Version 2 adds imported channel and zone records. Version 3 supports empty projects, simplex frequencies on manually created repeaters, and imported contact records. All three versions remain readable.
+A `.waffle` file is a standard ZIP archive. It is an open working-project format, separate from any radio manufacturer's codeplug format. Version 1 stores repeater editor data and can keep an original codeplug as an untouched attachment. Version 2 adds imported channel and zone records. Version 3 supports empty projects, simplex frequencies on manually created repeaters, and imported contact records. Version 4 adds a contact library and separate channel names. Version 5 adds transmit power. Version 6 adds radio name and DMR radio ID. Earlier versions remain readable.
 
 ## Archive entries
 
@@ -88,3 +88,13 @@ An imported codeplug can also appear in a version 3 project if manually created 
 Projects with contacts added or edited outside an imported codeplug use `schemaVersion: 4` and a `contactLibrary` array. Each record has `name`, `id`, and `groupCall` fields. `groupCall: false` represents a person (private call), and `true` represents a talkgroup. The library stores contacts independently of repeater channels. Editing a talkgroup shown from a manual repeater also updates its matching channel entries and saves the contact in this library. Imported codeplug contacts continue to live in `importedCodeplug.contacts`, with channels referring to them by contact index.
 
 Version 4 also permits a separate `channelName` on a manually created repeater slot entry. Its `name` and `id` identify the reusable talkgroup; `channelName` is the label shown for that particular radio channel. Older projects without this field display the talkgroup name as the channel name. Imported codeplugs already keep channel names separately in `importedCodeplug.channels[].name`.
+
+## Version 5 transmit power
+
+New projects use `schemaVersion: 5`. Each manually created repeater stores `highPower: true` or `false` on its repeater object. Each imported channel stores its own `highPower` value. For the tested CS7000 CPS layout, this comes from bit `0x80` at channel-record offset 9. `null` means the power is unknown, which can occur in an older project when its source codeplug cannot supply the value. WaffleCPS tries to recover missing values from the untouched source attachment when opening older projects.
+
+The repeater view summarizes only its non-simplex channels as High, Low, Mixed, or Unknown. Selecting High or Low in an imported repeater's details applies that power to all repeater channels in that zone, copying shared channel records before changing them. Saving other repeater details while power is Mixed or Unknown preserves those per-channel values. A new talkgroup channel in a Mixed zone uses the most common known repeater-channel power, with High winning a tie. Additional simplex channels retain their own power values.
+
+## Version 6 radio settings
+
+New projects use `schemaVersion: 6` and contain `"radioSettings": {"name": "K1ABC", "id": 3109101}`. An empty new project stores an empty name and ID zero until the user enters both. The settings page labels the name as a radio name or call sign; the ID is the radio's own DMR ID, separate from contact IDs. Imports from the observed CS7000 CPS `V1.02.20.00` and `V1.02.21.00` layouts populate both fields. Older `.waffle` files recover them from an attached verified source when possible. Prototype `.rdbx` export writes these settings along with contacts, channels, and zones using the embedded CS7000 default or an imported source as its base. The `.waffle` project and attached original source remain unchanged.

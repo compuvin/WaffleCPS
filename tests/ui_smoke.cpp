@@ -1,4 +1,5 @@
 #include "../src/repeaterstore.h"
+#include "../src/cs7000default.h"
 
 #include <QApplication>
 #include <QAbstractButton>
@@ -20,11 +21,17 @@ int main(int argc, char *argv[])
     const bool openContacts = argc > 2 && QByteArray(argv[2]) == "--contacts";
     const bool exerciseAdd = argc > 2 && QByteArray(argv[2]) == "--add-talkgroup";
     const bool exerciseCreate = argc > 2 && QByteArray(argv[2]) == "--create-talkgroup";
+    const bool exercisePower = argc > 2 && QByteArray(argv[2]) == "--power";
+    const bool exerciseSettings = argc > 2 && QByteArray(argv[2]) == "--settings";
     const bool captureScreenshots = argc > 2 && QByteArray(argv[2]) == "--capture-screenshots";
     const bool demo = argc > 1 && QByteArray(argv[1]) == "--demo";
     RepeaterStore store;
     if (argc > 1 && QByteArray(argv[1]) == "--new")
         store.newProject();
+    else if (argc > 1 && QByteArray(argv[1]) == "--embedded") {
+        if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug()))
+            return 1;
+    }
     else if (argc > 1 && !demo && !store.importCodeplugFromFile(QString::fromLocal8Bit(argv[1]))) {
         qCritical() << "Could not import sample for UI test";
         return 1;
@@ -133,6 +140,64 @@ int main(int argc, char *argv[])
     bool newStayedOpen = true;
     bool contactsOpened = true;
     bool talkgroupAdded = true;
+    bool powerEdited = true;
+    bool settingsEdited = true;
+    if (exerciseSettings) {
+        QTimer::singleShot(100, &app, [&engine, &settingsEdited] {
+            QObject *root = engine.rootObjects().constFirst();
+            QObject *button = root->findChild<QObject *>(QStringLiteral("radioSettingsNav"));
+            settingsEdited = button && QMetaObject::invokeMethod(button, "clicked");
+        });
+        QTimer::singleShot(300, &app, [&engine, &settingsEdited] {
+            QObject *root = engine.rootObjects().constFirst();
+            QObject *name = root->findChild<QObject *>(QStringLiteral("radioNameField"));
+            QObject *id = root->findChild<QObject *>(QStringLiteral("radioIdField"));
+            QObject *button = root->findChild<QObject *>(QStringLiteral("saveRadioSettingsButton"));
+            settingsEdited = settingsEdited && name && id && button;
+            if (!settingsEdited)
+                return;
+            name->setProperty("text", QStringLiteral("K1ABC"));
+            id->setProperty("text", QStringLiteral("3208609"));
+            settingsEdited = QMetaObject::invokeMethod(button, "clicked");
+        });
+        QTimer::singleShot(550, &app, [&store, &settingsEdited] {
+            settingsEdited = settingsEdited && store.radioName() == QStringLiteral("K1ABC")
+                && store.radioId() == 3208609;
+            if (!settingsEdited)
+                qCritical() << "Radio Settings page did not save the entered values";
+        });
+    }
+    if (exercisePower) {
+        QTimer::singleShot(100, &app, [&engine, &powerEdited] {
+            bool opened = false;
+            for (QObject *object : engine.rootObjects().constFirst()->findChildren<QObject *>()) {
+                auto *item = qobject_cast<QQuickItem *>(object);
+                if (item && item->isVisible() && item->property("text").toString() == QStringLiteral("Edit")) {
+                    opened = QMetaObject::invokeMethod(item, "clicked");
+                    break;
+                }
+            }
+            powerEdited = opened;
+        });
+        QTimer::singleShot(250, &app, [&engine, &powerEdited] {
+            QObject *field = engine.rootObjects().constFirst()->findChild<QObject *>(QStringLiteral("repeaterPowerField"));
+            powerEdited = powerEdited && field && field->property("currentIndex").toInt() == 0;
+            if (field)
+                field->setProperty("currentIndex", 1);
+            for (QObject *object : engine.rootObjects().constFirst()->findChildren<QObject *>()) {
+                auto *item = qobject_cast<QQuickItem *>(object);
+                if (item && item->isVisible() && item->property("text").toString() == QStringLiteral("Save changes")) {
+                    powerEdited = powerEdited && QMetaObject::invokeMethod(item, "clicked");
+                    break;
+                }
+            }
+        });
+        QTimer::singleShot(550, &app, [&store, &powerEdited] {
+            powerEdited = powerEdited && store.selectedPower() == QStringLiteral("Low");
+            if (!powerEdited)
+                qCritical() << "Repeater power editor did not save Low power";
+        });
+    }
     if (exerciseAdd) {
         QTimer::singleShot(100, &app, [&engine] {
             bool opened = false;
@@ -172,8 +237,6 @@ int main(int argc, char *argv[])
         });
         QTimer::singleShot(450, &app, [&engine] {
             QObject *root = engine.rootObjects().constFirst();
-            if (QObject *channel = root->findChild<QObject *>(QStringLiteral("channelNameField")))
-                channel->setProperty("text", QStringLiteral("North Regional"));
             if (QObject *button = root->findChild<QObject *>(QStringLiteral("confirmAddTalkgroup")))
                 QMetaObject::invokeMethod(button, "clicked");
         });
@@ -181,7 +244,7 @@ int main(int argc, char *argv[])
             const QVariantList channels = store.slot1Talkgroups();
             talkgroupAdded = talkgroupAdded && channels.size() == 3
                 && channels.last().toMap().value(QStringLiteral("channelName")).toString()
-                    == QStringLiteral("North Regional");
+                    == QStringLiteral("North Regional 2");
             if (!talkgroupAdded)
                 qCritical() << "Talkgroup picker did not add the chosen contact with its channel name"
                             << "channels" << channels.size();
@@ -270,10 +333,11 @@ int main(int argc, char *argv[])
                             << "repeaters" << store.repeaterNames().size();
         });
     }
-    QTimer::singleShot(exerciseAdd || exerciseCreate ? 850 : 700, &app, [&engine] {
+    QTimer::singleShot(exerciseAdd || exerciseCreate || exercisePower || exerciseSettings ? 850 : 700, &app, [&engine] {
         if (auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst()))
             window->close();
     });
     const int exitCode = app.exec();
-    return qmlWarningCount == 0 && newStayedOpen && contactsOpened && talkgroupAdded ? exitCode : 3;
+    return qmlWarningCount == 0 && newStayedOpen && contactsOpened && talkgroupAdded && powerEdited
+        && settingsEdited ? exitCode : 3;
 }

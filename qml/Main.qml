@@ -10,7 +10,11 @@ ApplicationWindow {
         target: store
         function onAboutToResetProject() {
             window.clearingProject = true
-            Qt.callLater(() => window.clearingProject = false)
+            window.currentSection = "repeaters"
+        }
+        function onProjectChanged() {
+            if (window.clearingProject && !store.hasImportedCodeplug)
+                Qt.callLater(() => window.clearingProject = false)
         }
     }
     width: 1080
@@ -73,6 +77,12 @@ ApplicationWindow {
                 Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
                 Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
                 Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
+                Button {
+                    text: "Export"
+                    ToolTip.text: "Export CS7000 codeplug"
+                    ToolTip.visible: hovered
+                    onClicked: store.exportCodeplugDialog()
+                }
             }
         }
 
@@ -81,10 +91,12 @@ ApplicationWindow {
             Layout.fillHeight: true
             spacing: 0
 
-            Rectangle {
-                visible: !store.hasImportedCodeplug
+            Loader {
+                active: !store.hasImportedCodeplug && !window.clearingProject
+                visible: active
                 Layout.preferredWidth: 242
                 Layout.fillHeight: true
+                sourceComponent: Component { Rectangle {
                 color: "#ffffff"
                 border.color: "#e0e8e0"
 
@@ -98,6 +110,14 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
                         onClicked: window.currentSection = "contacts"
+                    }
+
+                    Button {
+                        objectName: "radioSettingsNav"
+                        text: "Radio Settings"
+                        Layout.fillWidth: true
+                        highlighted: window.currentSection === "settings"
+                        onClicked: window.currentSection = "settings"
                     }
 
                     Label {
@@ -191,6 +211,8 @@ ApplicationWindow {
                 }
             }
 
+            } }
+
             Loader {
                 active: store.hasImportedCodeplug && !window.clearingProject
                 visible: active
@@ -210,6 +232,13 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
                         onClicked: window.currentSection = "contacts"
+                    }
+                    Button {
+                        objectName: "radioSettingsNav"
+                        text: "Radio Settings"
+                        Layout.fillWidth: true
+                        highlighted: window.currentSection === "settings"
+                        onClicked: window.currentSection = "settings"
                     }
                     Label { text: "REPEATERS"; color: "#697c71"; font.bold: true; font.pixelSize: 11 }
                     ScrollView {
@@ -260,11 +289,13 @@ ApplicationWindow {
                 }
             } } }
 
-            ScrollView {
-                id: workspace
-                visible: !store.hasImportedCodeplug && window.currentSection !== "contacts"
+            Loader {
+                active: !store.hasImportedCodeplug && !window.clearingProject
+                visible: active && window.currentSection === "repeaters"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                sourceComponent: Component { ScrollView {
+                id: workspace
                 clip: true
 
                 ColumnLayout {
@@ -336,6 +367,11 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     Label { text: "COLOR CODE"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
                                     Label { text: store.colorCode; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "TRANSMIT POWER"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: store.selectedPower; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
                                 }
                             }
                         }
@@ -432,13 +468,17 @@ ApplicationWindow {
                 }
             }
 
+            } }
+
             Loader {
-                active: store.hasImportedCodeplug && !window.clearingProject && window.currentSection !== "contacts"
-                visible: active
+                active: store.hasImportedCodeplug && !window.clearingProject
+                visible: active && window.currentSection === "repeaters"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                sourceComponent: Component { ScrollView {
+                sourceComponent: Component { Item {
+                ScrollView {
                 id: importedWorkspace
+                anchors.fill: parent
                 clip: true
 
                 ColumnLayout {
@@ -503,6 +543,11 @@ ApplicationWindow {
                                     Label { text: "COLOR CODE"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
                                     Label { text: importedContent.group.colorCode ?? ""; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
                                 }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Label { text: "TRANSMIT POWER"; color: "#6f8175"; font.pixelSize: 11; font.bold: true }
+                                    Label { text: importedContent.group.power || ""; color: "#1e3c2d"; font.pixelSize: 19; font.bold: true }
+                                }
                             }
                         }
                     }
@@ -523,6 +568,7 @@ ApplicationWindow {
                             groups: importedContent.group.slot1Talkgroups || []
                             importedChannels: true
                             canAdd: importedContent.group.zoneChannelCount < 16
+                                    && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             onAddRequested: slot => addDialog.openForSlot(slot, true)
@@ -532,10 +578,20 @@ ApplicationWindow {
                             groups: importedContent.group.slot2Talkgroups || []
                             importedChannels: true
                             canAdd: importedContent.group.zoneChannelCount < 16
+                                    && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             onAddRequested: slot => addDialog.openForSlot(slot, true)
                         }
+                    }
+                    Label {
+                        visible: Boolean(importedContent.group.isRepeater)
+                                 && importedContent.group.zoneChannelCount < 16
+                                 && importedContent.group.power === "Unknown"
+                        text: "Choose High or Low transmit power in Repeater details before adding a talkgroup."
+                        color: "#64776c"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                     Button {
                         visible: importedContent.group.isRepeater || false
@@ -545,7 +601,7 @@ ApplicationWindow {
                         ToolTip.text: "Channel ordering is planned for a later step."
                     }
                     Repeater {
-                        model: importedContent.group.isRepeater ? [] : (parent.group.zones || [])
+                        model: importedContent.group.isRepeater ? [] : (importedContent.group.zones || [])
                         delegate: Frame {
                             required property var modelData
                             Layout.fillWidth: true
@@ -647,14 +703,70 @@ ApplicationWindow {
                     }
                     Item { Layout.preferredHeight: 10 }
                 }
+                }
             } } }
 
             Loader {
-                active: window.currentSection === "contacts" && !window.clearingProject
-                visible: active
+                visible: !window.clearingProject && window.currentSection === "contacts"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 sourceComponent: ContactsView { contacts: store.contacts }
+            }
+
+            Loader {
+                active: !window.clearingProject
+                visible: active && window.currentSection === "settings"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                sourceComponent: ScrollView {
+                    clip: true
+                    ColumnLayout {
+                        width: Math.max(0, parent.width - 48)
+                        x: 24
+                        spacing: 16
+                        Item { Layout.preferredHeight: 12 }
+                        Label { text: "Radio Settings"; font.pixelSize: 26; font.bold: true }
+                        Label {
+                            text: "Set the radio identity for this project. These fields are saved in the WaffleCPS project."
+                            color: "#64776c"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        Label {
+                            text: store.hasImportedCodeplug
+                                  ? "Imported radio: " + store.radioModel + " · CPS " + store.radioCpsVersion
+                                  : "Radio model: not selected"
+                            color: "#64776c"
+                            Layout.fillWidth: true
+                        }
+                        Label { text: "Radio name / call sign" }
+                        TextField {
+                            id: radioNameField
+                            objectName: "radioNameField"
+                            Layout.fillWidth: true
+                            maximumLength: 16
+                            text: store.radioName
+                            placeholderText: "Enter your call sign"
+                            Accessible.name: "Radio name or call sign"
+                        }
+                        Label { text: "DMR radio ID" }
+                        TextField {
+                            id: radioIdField
+                            objectName: "radioIdField"
+                            Layout.fillWidth: true
+                            text: store.radioId > 0 ? String(store.radioId) : ""
+                            placeholderText: "Enter your DMR radio ID"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            Accessible.name: "DMR radio ID"
+                        }
+                        Button {
+                            objectName: "saveRadioSettingsButton"
+                            text: "Save radio settings"
+                            onClicked: store.updateRadioSettings(radioNameField.text, radioIdField.text)
+                        }
+                        Item { Layout.fillHeight: true }
+                    }
+                }
             }
         }
     }
@@ -671,6 +783,7 @@ ApplicationWindow {
             rxField.text = store.rxFrequency
             txField.text = store.txFrequency
             colorCodeField.value = store.colorCode
+            powerField.currentIndex = store.selectedPower === "Low" ? 1 : 0
             editError.text = ""
             open()
         }
@@ -682,6 +795,7 @@ ApplicationWindow {
             rxField.text = ""
             txField.text = ""
             colorCodeField.value = 1
+            powerField.currentIndex = 0
             editError.text = ""
             open()
             repeaterNameField.forceActiveFocus()
@@ -695,6 +809,8 @@ ApplicationWindow {
             rxField.text = group.receiveFrequency
             txField.text = group.transmitFrequency
             colorCodeField.value = group.colorCode
+            powerField.currentIndex = group.power === "High" ? 0
+                                      : group.power === "Low" ? 1 : -1
             editError.text = ""
             open()
         }
@@ -718,6 +834,22 @@ ApplicationWindow {
             TextField { id: txField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
             Label { text: "Color code" }
             SpinBox { id: colorCodeField; from: 0; to: 15 }
+            Label { text: "Transmit power" }
+            ComboBox {
+                id: powerField
+                objectName: "repeaterPowerField"
+                Layout.fillWidth: true
+                model: ["High", "Low"]
+                displayText: currentIndex < 0
+                             ? (store.selectedImportedGroup.power || "Unknown") + " (unchanged)"
+                             : currentText
+            }
+            Label {
+                text: "Applies to this zone's repeater channels. Additional simplex frequencies are unchanged."
+                color: "#64776c"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
 
             Label {
                 id: editError
@@ -737,12 +869,16 @@ ApplicationWindow {
                     onClicked: {
                         const saved = editDialog.creating
                                       ? store.addRepeater(repeaterNameField.text, rxField.text,
-                                                          txField.text, colorCodeField.value)
+                                                          txField.text, colorCodeField.value,
+                                                          powerField.currentIndex === 0)
                                       : editDialog.forImported
                                         ? store.updateSelectedImportedRepeater(repeaterNameField.text, rxField.text,
-                                                                              txField.text, colorCodeField.value)
+                                                                              txField.text, colorCodeField.value,
+                                                                              powerField.currentIndex < 0 ? -1
+                                                                                : powerField.currentIndex === 0 ? 1 : 0)
                                         : store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
-                                                                       txField.text, colorCodeField.value)
+                                                                       txField.text, colorCodeField.value,
+                                                                       powerField.currentIndex === 0)
                         if (saved) {
                             editDialog.close()
                         } else {
@@ -856,6 +992,18 @@ ApplicationWindow {
                                              || String(contact.id).includes(query)))
                                  .sort((a, b) => a.name.localeCompare(b.name))
         }
+        function checkChannelName() {
+            const available = store.availableChannelName(channelNameField.text)
+            if (available && available !== channelNameField.text.trim()) {
+                if (!duplicateChannelDialog.visible) {
+                    duplicateChannelDialog.requestedName = channelNameField.text.trim()
+                    duplicateChannelDialog.suggestion = available
+                    duplicateChannelDialog.open()
+                }
+                return false
+            }
+            return true
+        }
 
         function openForSlot(slot, imported = false) {
             targetSlot = slot
@@ -867,6 +1015,7 @@ ApplicationWindow {
             newTalkgroupName.text = ""
             newTalkgroupId.text = ""
             channelNameField.text = ""
+            channelNameTimer.stop()
             errorLabel.text = ""
             open()
             talkgroupSearch.forceActiveFocus()
@@ -878,6 +1027,11 @@ ApplicationWindow {
         modal: true
         title: "Add talkgroup to Time Slot " + targetSlot
         standardButtons: Dialog.NoButton
+        Timer {
+            id: channelNameTimer
+            interval: 500
+            onTriggered: addDialog.checkChannelName()
+        }
 
         ColumnLayout {
             anchors.fill: parent
@@ -918,7 +1072,7 @@ ApplicationWindow {
                         addDialog.selectedTalkgroup = modelData
                         talkgroupSearch.text = modelData.name
                         if (!addDialog.channelNameCustomized)
-                            channelNameField.text = modelData.name
+                            channelNameField.text = store.suggestedChannelName(modelData.name)
                         errorLabel.text = ""
                     }
                 }
@@ -952,7 +1106,7 @@ ApplicationWindow {
                         newTalkgroupName.text = /^\d+$/.test(query) ? "" : query
                         newTalkgroupId.text = /^\d+$/.test(query) ? query : ""
                         if (!addDialog.channelNameCustomized)
-                            channelNameField.text = newTalkgroupName.text
+                            channelNameField.text = store.suggestedChannelName(newTalkgroupName.text)
                         newTalkgroupName.forceActiveFocus()
                     }
                     errorLabel.text = ""
@@ -964,12 +1118,12 @@ ApplicationWindow {
                 objectName: "newTalkgroupName"
                 visible: addDialog.creatingTalkgroup
                 Layout.fillWidth: true
-                maximumLength: addDialog.importedMode ? 11 : 32
+                maximumLength: 16
                 placeholderText: "For example, CT Statewide"
                 Accessible.name: "New talkgroup display name"
                 onTextChanged: {
                     if (addDialog.creatingTalkgroup && !addDialog.channelNameCustomized)
-                        channelNameField.text = text
+                        channelNameField.text = store.suggestedChannelName(text)
                 }
             }
             Label { visible: addDialog.creatingTalkgroup; text: "Talkgroup ID" }
@@ -991,10 +1145,14 @@ ApplicationWindow {
                 id: channelNameField
                 objectName: "channelNameField"
                 Layout.fillWidth: true
-                maximumLength: addDialog.importedMode ? 16 : 32
+                maximumLength: 16
                 placeholderText: "Shown on the radio when idle"
                 Accessible.name: "Channel name"
-                onTextEdited: addDialog.channelNameCustomized = true
+                onTextEdited: {
+                    addDialog.channelNameCustomized = true
+                    channelNameTimer.restart()
+                }
+                onEditingFinished: addDialog.checkChannelName()
             }
             Label {
                 text: "The radio shows the talkgroup name while receiving or transmitting."
@@ -1004,6 +1162,14 @@ ApplicationWindow {
             }
             Label {
                 text: "Uses this repeater's frequencies, color code, and Time Slot " + addDialog.targetSlot + "."
+                color: "#66776d"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                visible: addDialog.importedMode && store.selectedImportedGroup.power === "Mixed"
+                text: "This repeater has mixed power. New talkgroups use "
+                      + store.selectedImportedGroup.newChannelPower + ", the most common setting."
                 color: "#66776d"
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
@@ -1035,6 +1201,9 @@ ApplicationWindow {
                             errorLabel.text = "Choose a talkgroup or enter its name and valid ID."
                         } else if (!channelNameField.text.trim()) {
                             errorLabel.text = "Enter a channel name."
+                        } else if (store.availableChannelName(channelNameField.text)
+                                   !== channelNameField.text.trim()) {
+                            addDialog.checkChannelName()
                         } else if (!(addDialog.importedMode
                                      ? store.addImportedTalkgroup(addDialog.targetSlot, contact.name, contact.id, channelNameField.text)
                                      : store.addTalkgroup(addDialog.targetSlot, contact.name, contact.id, channelNameField.text))) {
@@ -1044,6 +1213,53 @@ ApplicationWindow {
                         } else {
                             addDialog.close()
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: duplicateChannelDialog
+        property string requestedName: ""
+        property string suggestion: ""
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        width: 400
+        modal: true
+        title: "Channel name already used"
+        standardButtons: Dialog.NoButton
+        ColumnLayout {
+            width: 350
+            spacing: 14
+            Label {
+                text: "A channel named “" + duplicateChannelDialog.requestedName
+                      + "” is already in this codeplug. Each channel needs a different name so you can tell them apart on the radio."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                text: "Suggested name: " + duplicateChannelDialog.suggestion
+                font.bold: true
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button {
+                    text: "Edit name"
+                    onClicked: {
+                        duplicateChannelDialog.close()
+                        channelNameField.forceActiveFocus()
+                    }
+                }
+                Button {
+                    text: "Use suggested name"
+                    highlighted: true
+                    onClicked: {
+                        channelNameField.text = duplicateChannelDialog.suggestion
+                        addDialog.channelNameCustomized = true
+                        duplicateChannelDialog.close()
                     }
                 }
             }
