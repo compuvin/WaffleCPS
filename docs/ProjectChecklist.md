@@ -18,12 +18,12 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
   - [x] Inherit the repeater frequencies, color code, and selected time slot automatically.
 - [ ] Make the existing Order channels button open one ordered list for the selected repeater zone.
   - [ ] Let users interleave channels from Time Slot 1, Time Slot 2, and Additional simplex frequencies in any order.
-  - [ ] Preserve an imported zone's original channel order until the user changes it.
-  - [ ] Default newly generated repeater zones to Time Slot 2 channels, then Time Slot 1 channels, then Additional simplex frequencies.
-  - [ ] Keep repeater frequencies and color code on the repeater, rather than repeating them in channel editing controls.
+  - [x] Preserve an imported zone's original channel order until the user changes it.
+  - [x] Default newly generated repeater zones to Time Slot 2 channels, then Time Slot 1 channels, then Additional simplex frequencies.
+  - [x] Keep repeater frequencies and color code on the repeater, rather than repeating them in channel editing controls.
 - [ ] Duplicate a repeater.
   - [ ] Ask whether to copy only its frequencies and color code or the entire repeater entry, including time slots, talkgroups, and additional simplex frequencies.
-- [ ] Generate contacts, channels, and a default zone for a newly created repeater. Today manual repeaters are project-editor data only.
+- [x] Generate contacts, channels, and a default zone for a newly created repeater. Today manual repeaters are project-editor data only.
 - [ ] Validate capacity using the selected radio model and firmware's limits, including channels per zone.
   - [ ] When a zone would exceed its limit, offer to split it into another zone or remove the extra channel or channels.
   - [ ] Preserve channel assignments and order when splitting a zone, and show the resulting zones for review.
@@ -39,8 +39,8 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 
 ## Contacts
 
-- [ ] Add Contacts to the left navigation, opening a contact list in the main workspace.
-  - [ ] Make group and private contacts searchable by name or ID and show each contact's type.
+- [x] Add Contacts to the left navigation, opening a contact list in the main workspace.
+  - [x] Make group and private contacts searchable by name or ID and show each contact's type.
   - [x] Use the same contact list when adding a talkgroup to a repeater, showing group contacts there.
 
 ## Imported codeplugs and zones
@@ -74,7 +74,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [ ] Add a separate visual Radio settings area that shows the supported radio model.
   - [ ] Let users select a pictured radio button to assign its supported function.
   - [ ] Let users select the pictured display to adjust supported display settings, such as brightness and startup messages.
-  - [ ] Provide clear controls for call sign, DMR ID, and power settings.
+  - [x] Provide clear controls for call sign, DMR ID, and power settings.
   - [ ] Use dropdowns and checkboxes for settings that do not benefit from a visual control.
   - [ ] Add other radio-specific settings as their formats and behavior are understood.
 - [ ] Optional: consider a live display preview after the settings page works, if it can accurately reflect the selected radio's behavior.
@@ -95,7 +95,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [ ] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse.
 - [x] Choose and publish an open-source license for WaffleCPS.
 - [ ] Linux support
-  - [ ] Build and test on Linux.
+  - [x] Build and test on Linux.
   - [ ] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
 - [ ] Windows support
   - [ ] Build and test on Windows.
@@ -104,7 +104,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
   - [ ] Build and test on macOS.
   - [ ] Provide a macOS app bundle and decide on signing and distribution.
 - [ ] Document USB drivers or device permissions on each supported platform when radio communication arrives.
-- [ ] Keep the app usable offline, without accounts or subscriptions.
+- [x] Keep the app usable offline, without accounts or subscriptions.
 - [ ] Support additional radios only after the shared model and first adapter are proven.
 
 ## Radio models to support
