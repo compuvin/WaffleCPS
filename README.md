@@ -35,10 +35,10 @@ The editor does not yet decode every radio setting, receive group, or scan list.
 
 ## Build and run
 
-WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer, and zlib. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
+WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer, zlib, and libusb. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
 
 ```sh
-sudo apt install cmake g++ zlib1g-dev qt6-base-dev qt6-declarative-dev \
+sudo apt install cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev \
   qml6-module-qtqml qml6-module-qtqml-workerscript \
   qml6-module-qtquick qml6-module-qtquick-controls \
   qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -59,6 +59,8 @@ Use **Import codeplug** for a supported `.rdbx` file, or **Open** for a `.waffle
 ./build/wafflecps path/to/project.waffle
 ./build/wafflecps path/to/codeplug.rdbx
 ```
+
+**Read from radio** downloads the complete codeplug over USB and preserves it as the project's original source. See [radio reading](docs/RadioReading.md) for Linux USB permissions, cancellation, and standalone diagnostics.
 
 Run the automated checks with:
 

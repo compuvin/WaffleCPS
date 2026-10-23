@@ -1450,6 +1450,35 @@ bool RepeaterStore::importCodeplugFromFile(const QString &path)
     return true;
 }
 
+bool RepeaterStore::importRadioCodeplug(const QByteArray &bytes)
+{
+    // Validate before replacing any part of the currently open project.
+    ImportedCodeplug imported;
+    QString error;
+    if (!CodeplugReader::read(bytes, &imported, &error))
+        return fail(tr("Could not import radio codeplug: %1").arg(error));
+    emit aboutToResetProject();
+    m_repeaters.clear();
+    m_manualContacts.clear();
+    m_selectedIndex = 0;
+    m_projectPath.clear();
+    m_sourceCodeplug = bytes;
+    m_sourceCodeplugName = QStringLiteral("radio-read.rdbx");
+    m_importedCodeplug = std::move(imported);
+    m_radioName = m_importedCodeplug.radioName;
+    m_radioId = m_importedCodeplug.radioId;
+    rebuildImportedGroups();
+    setModified(true);
+    emit repeatersChanged();
+    emit selectedRepeaterChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    emit contactsChanged();
+    emit radioSettingsChanged();
+    emit projectChanged();
+    return true;
+}
+
 void RepeaterStore::importAttachedCodeplug()
 {
     if (m_sourceCodeplug.isEmpty()) {

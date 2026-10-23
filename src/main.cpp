@@ -1,4 +1,5 @@
 #include "repeaterstore.h"
+#include "radioreader.h"
 
 #include <QApplication>
 #include <QIcon>
@@ -15,6 +16,9 @@ int main(int argc, char *argv[])
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/waffle-radio.png")));
 
     RepeaterStore store;
+    RadioReader radioReader;
+    QObject::connect(&radioReader, &RadioReader::completed,
+                     &store, &RepeaterStore::importRadioCodeplug);
     if (argc == 2) {
         const QString path = QString::fromLocal8Bit(argv[1]);
         const bool imported = QFileInfo(path).suffix().compare(QStringLiteral("rdbx"), Qt::CaseInsensitive) == 0;
@@ -25,6 +29,7 @@ int main(int argc, char *argv[])
     }
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("store"), &store);
+    engine.rootContext()->setContextProperty(QStringLiteral("radioReader"), &radioReader);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 1;

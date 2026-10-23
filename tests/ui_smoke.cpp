@@ -1,5 +1,6 @@
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
+#include "../src/radioreader.h"
 
 #include <QApplication>
 #include <QAbstractButton>
@@ -13,6 +14,8 @@
 #include <QQuickItem>
 #include <QTimer>
 #include <QUrl>
+#include <QThread>
+#include <stdexcept>
 
 int main(int argc, char *argv[])
 {
@@ -25,7 +28,28 @@ int main(int argc, char *argv[])
     const bool exerciseSettings = argc > 2 && QByteArray(argv[2]) == "--settings";
     const bool captureScreenshots = argc > 2 && QByteArray(argv[2]) == "--capture-screenshots";
     const bool demo = argc > 1 && QByteArray(argv[1]) == "--demo";
+    const QByteArray radioMode = argc > 2 ? QByteArray(argv[2]) : QByteArray();
+    const bool exerciseRadio = radioMode == "--radio-success" || radioMode == "--radio-cancel"
+                               || radioMode == "--radio-failure";
     RepeaterStore store;
+    RadioReader::ReadOperation read = Cs7000Usb::read;
+    if (exerciseRadio) {
+        read = [radioMode](const auto &progress, const auto &cancelled) {
+            for (int i = 1; i <= 100; ++i) {
+                if (cancelled.load()) throw Cs7000Usb::Cancelled();
+                progress("main", uint32_t(i), 100);
+                QThread::msleep(5);
+            }
+            if (radioMode == "--radio-failure") throw std::runtime_error("Simulated USB disconnect");
+            auto bytes = cs7000DefaultCodeplug();
+            const auto mask = bytes.mid(0x300, 256);
+            for (qsizetype i = 0; i < bytes.size(); ++i) bytes[i] = bytes[i] ^ mask[i % 256];
+            return Cs7000Usb::Bytes(bytes.begin(), bytes.end());
+        };
+    }
+    RadioReader radioReader(nullptr, std::move(read));
+    QObject::connect(&radioReader, &RadioReader::completed,
+                     &store, &RepeaterStore::importRadioCodeplug);
     if (argc > 1 && QByteArray(argv[1]) == "--new")
         store.newProject();
     else if (argc > 1 && QByteArray(argv[1]) == "--embedded") {
@@ -43,9 +67,75 @@ int main(int argc, char *argv[])
                          qmlWarningCount += warnings.size();
                      });
     engine.rootContext()->setContextProperty(QStringLiteral("store"), &store);
+    engine.rootContext()->setContextProperty(QStringLiteral("radioReader"), &radioReader);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (exerciseRadio) {
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+        window->resize(800, 720);
+        QObject *root = engine.rootObjects().constFirst();
+        auto *button = root->findChild<QQuickItem *>(QStringLiteral("readRadioButton"));
+        QObject *dialog = root->findChild<QObject *>(QStringLiteral("radioReadProgress"));
+        QObject *confirmation = root->findChild<QObject *>(QStringLiteral("radioReadConfirmation"));
+        QObject *cancel = root->findChild<QObject *>(QStringLiteral("cancelRadioReadButton"));
+        if (!button || !dialog || !confirmation || !cancel) return 10;
+        int heartbeats = 0;
+        bool readStarted = false;
+        QTimer heartbeat;
+        QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++heartbeats; });
+        heartbeat.start(10);
+        QTimer::singleShot(50, &app, [&] {
+            const QPointF position = button->mapToScene(QPointF(0, 0));
+            if (position.x() < 0 || position.x() + button->width() > window->width()) {
+                qCritical() << "Radio button overflows toolbar at minimum window width";
+                app.exit(11);
+                return;
+            }
+            store.addContact(QStringLiteral("Pending contact"), 1234567, false);
+            QMetaObject::invokeMethod(button, "clicked");
+            if (!confirmation->property("visible").toBool() || radioReader.busy()) {
+                qCritical() << "Unsaved project was not confirmed before reading";
+                app.exit(12);
+                return;
+            }
+            QMetaObject::invokeMethod(confirmation, "close");
+            store.newProject();
+            QMetaObject::invokeMethod(button, "clicked");
+            readStarted = true;
+        });
+        QTimer::singleShot(200, &app, [&] {
+            if (!radioReader.busy() || !dialog->property("visible").toBool() || button->isEnabled()) {
+                qCritical() << "Read did not show modal progress and block project editing";
+                app.exit(13);
+                return;
+            }
+            if (radioMode == "--radio-cancel") QMetaObject::invokeMethod(cancel, "clicked");
+        });
+        QTimer completionPoll;
+        QObject::connect(&completionPoll, &QTimer::timeout, &app, [&] {
+            if (!readStarted || radioReader.busy() || root->property("clearingProject").toBool()) return;
+            const bool success = radioMode == "--radio-success";
+            if (radioReader.busy() || dialog->property("visible").toBool() || !button->isEnabled()
+                || store.hasImportedCodeplug() != success || heartbeats < 10
+                || root->property("clearingProject").toBool() || qmlWarningCount) {
+                qCritical() << "Radio UI flow failed" << radioMode << "warnings" << qmlWarningCount
+                            << "busy" << radioReader.busy() << "dialog" << dialog->property("visible")
+                            << "button enabled" << button->isEnabled() << "imported" << store.hasImportedCodeplug()
+                            << "heartbeats" << heartbeats << "clearing" << root->property("clearingProject");
+                app.exit(14);
+                return;
+            }
+            qInfo() << "Radio UI flow verified:" << radioMode;
+            app.quit();
+        });
+        completionPoll.start(20);
+        QTimer::singleShot(15000, &app, [&] {
+            qCritical() << "Radio UI flow timed out" << radioMode;
+            app.exit(15);
+        });
+        return app.exec();
+    }
     if (captureScreenshots) {
         if (argc < 4 || !QDir().mkpath(QString::fromLocal8Bit(argv[3]))) {
             qCritical() << "Could not create screenshot directory";

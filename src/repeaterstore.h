@@ -106,6 +106,7 @@ public:
     bool attachSourceCodeplugFromFile(const QString &path);
     bool importCodeplugFromFile(const QString &path);
     bool importCodeplugFromBytes(const QByteArray &bytes);
+    bool importRadioCodeplug(const QByteArray &bytes);
     bool exportCodeplugToFile(const QString &path);
 
 signals:

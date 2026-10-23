@@ -1,0 +1,2 @@
+# CS7000 normal programming interface. Grant access to the active local desktop user.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0483", ATTR{idProduct}=="5720", TAG+="uaccess"

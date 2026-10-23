@@ -6,6 +6,12 @@ ApplicationWindow {
     id: window
     property bool clearingProject: false
     property string currentSection: "repeaters"
+    onClosing: function(event) {
+        if (radioReader.busy) {
+            event.accepted = false
+            radioReader.cancel()
+        }
+    }
     Connections {
         target: store
         function onAboutToResetProject() {
@@ -13,7 +19,7 @@ ApplicationWindow {
             window.currentSection = "repeaters"
         }
         function onProjectChanged() {
-            if (window.clearingProject && !store.hasImportedCodeplug)
+            if (window.clearingProject)
                 Qt.callLater(() => window.clearingProject = false)
         }
     }
@@ -28,10 +34,11 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+        enabled: !radioReader.busy
 
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: 66
+            Layout.preferredHeight: Math.max(66, headerActions.implicitHeight + 24)
             color: "#173d30"
 
             RowLayout {
@@ -70,18 +77,33 @@ ApplicationWindow {
                     }
                 }
 
-                Item { Layout.fillWidth: true }
-
-                Button { text: "New"; onClicked: store.newProjectDialog() }
-                Button { text: "Open"; onClicked: store.openProjectDialog() }
-                Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
-                Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
-                Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
-                Button {
-                    text: "Export"
-                    ToolTip.text: "Export CS7000 codeplug"
-                    ToolTip.visible: hovered
-                    onClicked: store.exportCodeplugDialog()
+                Flow {
+                    id: headerActions
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    Layout.preferredHeight: implicitHeight
+                    spacing: 6
+                    Button { text: "New"; onClicked: store.newProjectDialog() }
+                    Button { text: "Open"; onClicked: store.openProjectDialog() }
+                    Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
+                    Button {
+                        objectName: "readRadioButton"
+                        text: "Read from radio"
+                        onClicked: {
+                            if (store.modified)
+                                radioReadConfirmation.open()
+                            else
+                                radioReader.start()
+                        }
+                    }
+                    Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
+                    Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
+                    Button {
+                        text: "Export"
+                        ToolTip.text: "Export CS7000 codeplug"
+                        ToolTip.visible: hovered
+                        onClicked: store.exportCodeplugDialog()
+                    }
                 }
             }
         }
@@ -1267,15 +1289,82 @@ ApplicationWindow {
     }
 
     Dialog {
+        id: radioReadConfirmation
+        objectName: "radioReadConfirmation"
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        modal: true
+        title: "Discard unsaved changes?"
+        standardButtons: Dialog.NoButton
+        ColumnLayout {
+            width: 360
+            Label {
+                text: "A successful radio read will replace this project and discard unsaved changes."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button { text: "Cancel"; onClicked: radioReadConfirmation.close() }
+                Button {
+                    text: "Read from radio"
+                    onClicked: {
+                        radioReadConfirmation.close()
+                        radioReader.start()
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: radioReadProgress
+        objectName: "radioReadProgress"
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Reading radio"
+        width: Math.min(420, window.width - 32)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: radioReader.busy
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            Label {
+                text: radioReader.status
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            ProgressBar {
+                Layout.fillWidth: true
+                value: radioReader.progress
+            }
+            Button {
+                objectName: "cancelRadioReadButton"
+                text: "Cancel"
+                Layout.alignment: Qt.AlignRight
+                onClicked: radioReader.cancel()
+            }
+        }
+    }
+
+    Connections {
+        target: radioReader
+        function onFailed(message) {
+            operationError.message = message
+            Qt.callLater(() => operationError.open())
+        }
+    }
+
+    Dialog {
         id: operationError
+        width: Math.min(420, window.width - 32)
         property string message: ""
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
         modal: true
         title: "Project error"
         standardButtons: Dialog.NoButton
-        ColumnLayout {
-            width: 320
+        contentItem: ColumnLayout {
             Label {
                 text: operationError.message
                 wrapMode: Text.WordWrap
