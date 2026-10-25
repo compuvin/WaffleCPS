@@ -1,3 +1,4 @@
+#include "radiowriter.h"
 #include "repeaterstore.h"
 #include "radioreader.h"
 
@@ -27,9 +28,11 @@ int main(int argc, char *argv[])
             return 1;
         }
     }
+    RadioWriter radioWriter;
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("store"), &store);
     engine.rootContext()->setContextProperty(QStringLiteral("radioReader"), &radioReader);
+    engine.rootContext()->setContextProperty(QStringLiteral("radioWriter"), &radioWriter);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 1;

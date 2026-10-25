@@ -1,3 +1,4 @@
+#include "../src/radiowriter.h"
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
 #include "../src/radioreader.h"
@@ -190,6 +191,26 @@ int main(int argc, char *argv[])
         qCritical() << "Could not import sample for UI test";
         return 1;
     }
+    const bool exerciseWrite = radioMode == "--write-success" || radioMode == "--write-failure";
+    if (exerciseWrite) {
+        QString error;
+        const auto fixture = channelOrderFixture(&error);
+        if (fixture.isEmpty() || !store.importRadioCodeplug(fixture)) return 19;
+    }
+    bool writeStarted = false, writeCompleted = false, writeFailed = false;
+    RadioWriter::WriteOperation write = Cs7000Usb::write;
+    if (exerciseWrite) write = [&](const auto &image, const auto &progress) {
+        Cs7000Usb::planWrite(image);
+        for (int i = 1; i <= 50; ++i) {
+            progress("main", uint32_t(i), 50);
+            QThread::msleep(10);
+        }
+        if (radioMode == "--write-failure") throw std::runtime_error("Simulated write disconnect");
+        progress("contacts", 1, 1);
+    };
+    RadioWriter radioWriter(nullptr, std::move(write));
+    QObject::connect(&radioWriter, &RadioWriter::completed, &app, [&] { writeCompleted = true; });
+    QObject::connect(&radioWriter, &RadioWriter::failed, &app, [&](const QString &) { writeFailed = true; });
     QQmlApplicationEngine engine;
     int qmlWarningCount = 0;
     QObject::connect(&engine, &QQmlEngine::warnings, &app,
@@ -198,9 +219,67 @@ int main(int argc, char *argv[])
                      });
     engine.rootContext()->setContextProperty(QStringLiteral("store"), &store);
     engine.rootContext()->setContextProperty(QStringLiteral("radioReader"), &radioReader);
+    engine.rootContext()->setContextProperty(QStringLiteral("radioWriter"), &radioWriter);
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (radioMode == "--contact-import-counts") {
+        QString error;
+        const auto first = channelOrderFixture(&error);
+        ImportedCodeplug expanded;
+        if (first.isEmpty() || !CodeplugReader::read(first, &expanded, &error)) return 70;
+        expanded.contacts.append({"Person", 1234567, false});
+        expanded.contacts.append({"Charlie", 123, true});
+        QByteArray second;
+        if (!CodeplugWriter::write(first, expanded, "TEST RADIO", 3109101, &second, &error)) return 70;
+        QTemporaryDir directory;
+        if (!directory.isValid()) return 70;
+        const QString firstPath = directory.filePath("first.rdbx");
+        const QString secondPath = directory.filePath("second.rdbx");
+        for (const auto &entry : {qMakePair(firstPath, first), qMakePair(secondPath, second)}) {
+            QFile file(entry.first);
+            if (!file.open(QIODevice::WriteOnly) || file.write(entry.second) != entry.second.size()) return 70;
+        }
+        QObject *root = engine.rootObjects().constFirst();
+        root->setProperty("currentSection", "contacts");
+        int step = 0;
+        QTimer timer;
+        QObject::connect(&timer, &QTimer::timeout, &app, [&] {
+            if (step > 0) {
+                const bool expanded = step == 2;
+                const int people = expanded ? 1 : 0, groups = expanded ? 3 : 2;
+                bool foundPeople = false, foundGroups = false;
+                for (auto *object : root->findChildren<QObject *>()) {
+                    const auto text = object->property("text").toString();
+                    if (text.startsWith("People (") || text.startsWith("Talkgroups (")) {
+                        const bool personTab = text.startsWith("People (");
+                        const QString expected = personTab ? QString("People (%1)").arg(people)
+                                                           : QString("Talkgroups (%1)").arg(groups);
+                        if (personTab) foundPeople = true; else foundGroups = true;
+                        if (text != expected) {
+                            qCritical() << "Stale contact count after import" << step << text << "expected" << expected;
+                            app.exit(71); return;
+                        }
+                    }
+                }
+                if (!foundPeople || !foundGroups || store.contacts().size() != people + groups
+                    || root->property("clearingProject").toBool() || qmlWarningCount) {
+                    qCritical() << "Import did not refresh contact view" << step;
+                    app.exit(72); return;
+                }
+                if (step == 3) {
+                    qInfo() << "Contact counts refreshed across three consecutive file imports";
+                    app.quit(); return;
+                }
+            }
+            if (!store.importCodeplugFromFile(step == 1 ? secondPath : firstPath)) { app.exit(73); return; }
+            root->setProperty("currentSection", "contacts");
+            ++step;
+        });
+        timer.start(400);
+        QTimer::singleShot(15000, &app, [&] { app.exit(74); });
+        return app.exec();
+    }
     if (exerciseSwitching) {
         QObject *root = engine.rootObjects().constFirst();
         const QStringList expectedNames{"North Ridge", "Riverbend", "Mixed test", "Empty test"};
@@ -604,6 +683,55 @@ int main(int argc, char *argv[])
             qInfo() << "Ordering dialog Cancel/Save and filtered slot-card order verified";
             app.quit();
         });
+        return app.exec();
+    }
+    if (exerciseWrite) {
+        QObject *root = engine.rootObjects().constFirst();
+        auto *button = root->findChild<QQuickItem *>("writeRadioButton");
+        auto *confirm = root->findChild<QObject *>("radioWriteConfirmation");
+        auto *accept = root->findChild<QObject *>("confirmRadioWriteButton");
+        auto *dialog = root->findChild<QObject *>("radioWriteProgress");
+        auto *complete = root->findChild<QObject *>("radioWriteComplete");
+        auto *readButton = root->findChild<QQuickItem *>("readRadioButton");
+        if (!button || !confirm || !accept || !dialog || !complete || !readButton) return 20;
+        const auto before = store.exportCodeplugBytes();
+        if (before.isEmpty()) return 19;
+        const bool modified = store.modified();
+        int beats = 0;
+        QTimer timer;
+        QObject::connect(&timer, &QTimer::timeout, &app, [&] { ++beats; });
+        timer.start(10);
+        QTimer::singleShot(50, &app, [&] {
+            QMetaObject::invokeMethod(button, "clicked");
+            if (!confirm->property("visible").toBool() || radioWriter.busy()) { app.exit(21); return; }
+            QMetaObject::invokeMethod(accept, "clicked");
+            writeStarted = true;
+        });
+        QTimer::singleShot(250, &app, [&] {
+            if (!radioWriter.busy() || !dialog->property("visible").toBool()
+                || button->isEnabled() || readButton->isEnabled()) app.exit(22);
+        });
+        QTimer poll;
+        QObject::connect(&poll, &QTimer::timeout, &app, [&] {
+            if (!writeStarted || radioWriter.busy()) return;
+            const bool success = radioMode == "--write-success";
+            if (writeCompleted != success || writeFailed == success || beats < 10
+                || dialog->property("visible").toBool() || !button->isEnabled()
+                || complete->property("visible").toBool() != success
+                || store.modified() != modified || store.exportCodeplugBytes() != before || qmlWarningCount) {
+                qCritical() << "Write UI flow failed" << radioMode << qmlWarningCount
+                            << "completed" << writeCompleted << "failed" << writeFailed << "beats" << beats
+                            << "progress" << dialog->property("visible") << "button" << button->isEnabled()
+                            << "complete dialog" << complete->property("visible")
+                            << "modified" << store.modified() << modified
+                            << "same export" << (store.exportCodeplugBytes() == before);
+                app.exit(23); return;
+            }
+            qInfo() << "Write UI flow verified" << radioMode;
+            app.quit();
+        });
+        poll.start(30);
+        QTimer::singleShot(15000, &app, [&] { app.exit(24); });
         return app.exec();
     }
     if (exerciseRadio) {

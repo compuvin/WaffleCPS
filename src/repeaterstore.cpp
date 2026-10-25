@@ -79,10 +79,14 @@ RepeaterStore::RepeaterStore(QObject *parent)
             {QStringLiteral("Regional"), 3100, QStringLiteral("Riverbend Regio")}}}}
 {
     connect(this, &RepeaterStore::importedSelectionChanged, this, [this] { m_zoneChoicesCached = false; });
-    connect(this, &RepeaterStore::contactsChanged, this, [this] {
-        m_zoneChoicesCached = false;
-        m_contactsCached = false;
-    });
+}
+
+void RepeaterStore::notifyContactsChanged()
+{
+    // QML may reevaluate bindings before ordinary signal handlers run.
+    m_contactsCached = false;
+    m_zoneChoicesCached = false;
+    emit contactsChanged();
 }
 
 QStringList RepeaterStore::repeaterNames() const
@@ -435,7 +439,7 @@ bool RepeaterStore::ensureZoneRecords(int reservedZones)
     m_selectedIndex = 0;
     rebuildImportedGroups();
     emit repeatersChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     emit radioSettingsChanged();
     setModified(true);
     emit projectChanged();
@@ -779,7 +783,7 @@ bool RepeaterStore::addImportedTalkgroup(int timeSlot, const QString &name, int 
                                        true, group.colorCode, timeSlot, contactIndex, highPower});
     zone.channelIndexes.append(m_importedCodeplug.channels.size() - 1);
     rebuildImportedGroups();
-    emit contactsChanged();
+    notifyContactsChanged();
     for (int index = 0; index < m_importedGroups.size(); ++index)
         if (m_importedGroups.at(index).zoneIndexes.contains(zoneIndex)) {
             m_selectedImportedIndex = index;
@@ -1184,7 +1188,7 @@ bool RepeaterStore::addContact(const QString &name, int id, bool groupCall)
     if (items.size() >= 10000)
         return fail(tr("The contact list is full."));
     items.append({cleanName, id, groupCall});
-    emit contactsChanged();
+    notifyContactsChanged();
     setModified(true);
     return true;
 }
@@ -1247,7 +1251,7 @@ bool RepeaterStore::updateContact(int index, const QString &name, int id)
             m_manualContacts.append({cleanName, id, groupCall});
         }
     }
-    emit contactsChanged();
+    notifyContactsChanged();
     setModified(true);
     return true;
 }
@@ -1274,7 +1278,7 @@ void RepeaterStore::newProject()
     emit selectedRepeaterChanged();
     emit talkgroupsChanged();
     emit simplexFrequenciesChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     emit radioSettingsChanged();
     emit importedCodeplugChanged();
     emit importedSelectionChanged();
@@ -1434,7 +1438,7 @@ bool RepeaterStore::addTalkgroup(int timeSlot, const QString &name, int id,
     }
     items.push_back({cleanName, id, cleanChannelName, nextZoneOrder(selected())});
     emit talkgroupsChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     setModified(true);
     return true;
 }
@@ -1450,7 +1454,7 @@ void RepeaterStore::removeTalkgroup(int timeSlot, int id)
         return;
     items.erase(firstRemoved, items.end());
     emit talkgroupsChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     setModified(true);
 }
 
@@ -1917,7 +1921,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     emit selectedRepeaterChanged();
     emit talkgroupsChanged();
     emit simplexFrequenciesChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     emit radioSettingsChanged();
     emit projectChanged();
     return true;
@@ -1954,7 +1958,7 @@ bool RepeaterStore::importCodeplugFromBytes(const QByteArray &bytes)
     m_radioName = m_importedCodeplug.radioName;
     m_radioId = m_importedCodeplug.radioId;
     rebuildImportedGroups();
-    emit contactsChanged();
+    notifyContactsChanged();
     emit radioSettingsChanged();
     setModified(true);
     emit projectChanged();
@@ -2009,7 +2013,7 @@ bool RepeaterStore::importRadioCodeplug(const QByteArray &bytes)
     emit selectedRepeaterChanged();
     emit talkgroupsChanged();
     emit simplexFrequenciesChanged();
-    emit contactsChanged();
+    notifyContactsChanged();
     emit radioSettingsChanged();
     emit projectChanged();
     return true;
@@ -2151,23 +2155,34 @@ bool RepeaterStore::exportCodeplugToFile(const QString &path)
     if (!m_sourceCodeplugName.isEmpty()
         && QFileInfo(path).fileName().compare(m_sourceCodeplugName, Qt::CaseInsensitive) == 0)
         return fail(QStringLiteral("Choose a different filename so the original codeplug stays untouched."));
-    const QByteArray source = hasImportedCodeplug() && !m_generatedCodeplug ? m_sourceCodeplug : cs7000DefaultCodeplug();
-    if (source.isEmpty())
-        return fail(QStringLiteral("The CS7000 export base is unavailable."));
-    ImportedCodeplug target;
-    if (hasImportedCodeplug()) {
-        target = m_importedCodeplug;
-    } else {
-        if (!buildManualCodeplug(&target)) return false;
-    }
-    QByteArray bytes;
-    QString writeError;
-    if (!CodeplugWriter::write(source, target, m_radioName, m_radioId, &bytes, &writeError))
-        return fail(QStringLiteral("Could not export codeplug: %1").arg(writeError));
+    const QByteArray bytes = exportCodeplugBytes();
+    if (bytes.isEmpty()) return false;
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit())
         return fail(QStringLiteral("Could not write codeplug: %1").arg(file.errorString()));
     return true;
+}
+
+QByteArray RepeaterStore::exportCodeplugBytes()
+{
+    const QByteArray source = hasImportedCodeplug() && !m_generatedCodeplug ? m_sourceCodeplug : cs7000DefaultCodeplug();
+    if (source.isEmpty()) {
+        fail(QStringLiteral("The CS7000 export base is unavailable."));
+        return {};
+    }
+    ImportedCodeplug target;
+    if (hasImportedCodeplug()) {
+        target = m_importedCodeplug;
+    } else {
+        if (!buildManualCodeplug(&target)) return {};
+    }
+    QByteArray bytes;
+    QString writeError;
+    if (!CodeplugWriter::write(source, target, m_radioName, m_radioId, &bytes, &writeError)) {
+        fail(QStringLiteral("Could not export codeplug: %1").arg(writeError));
+        return {};
+    }
+    return bytes;
 }
 
 void RepeaterStore::exportCodeplugDialog()

@@ -7,7 +7,9 @@ ApplicationWindow {
     property bool clearingProject: false
     property string currentSection: "repeaters"
     onClosing: function(event) {
-        if (radioReader.busy) {
+        if (radioWriter.busy) {
+            event.accepted = false
+        } else if (radioReader.busy) {
             event.accepted = false
             radioReader.cancel()
         }
@@ -36,7 +38,7 @@ ApplicationWindow {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
-        enabled: !radioReader.busy
+        enabled: !radioReader.busy && !radioWriter.busy
 
         Rectangle {
             Layout.fillWidth: true
@@ -97,6 +99,11 @@ ApplicationWindow {
                             else
                                 radioReader.start()
                         }
+                    }
+                    Button {
+                        objectName: "writeRadioButton"
+                        text: "Write to radio"
+                        onClicked: radioWriteConfirmation.open()
                     }
                     Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
                     Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
@@ -1371,6 +1378,73 @@ ApplicationWindow {
             operationError.message = message
             Qt.callLater(() => operationError.open())
         }
+    }
+
+    Dialog {
+        id: radioWriteConfirmation
+        objectName: "radioWriteConfirmation"
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        width: Math.min(420, window.width - 32)
+        modal: true
+        title: "Write to radio?"
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            Label {
+                text: "Replace the connected CS7000-M17 Plus codeplug with this project's settings? Keep the radio connected and powered on until writing finishes. Writing cannot be cancelled once started."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button { text: "Cancel"; onClicked: radioWriteConfirmation.close() }
+                Button {
+                    objectName: "confirmRadioWriteButton"
+                    text: "Write to radio"
+                    onClicked: {
+                        radioWriteConfirmation.close()
+                        radioWriter.start(store.exportCodeplugBytes())
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: radioWriteProgress
+        objectName: "radioWriteProgress"
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Writing radio"
+        width: Math.min(420, window.width - 32)
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: radioWriter.busy
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            Label { text: radioWriter.status; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            ProgressBar { Layout.fillWidth: true; value: radioWriter.progress }
+        }
+    }
+
+    Connections {
+        target: radioWriter
+        function onFailed(message) {
+            operationError.message = message
+            Qt.callLater(() => operationError.open())
+        }
+        function onCompleted() { Qt.callLater(() => radioWriteComplete.open()) }
+    }
+
+    Dialog {
+        id: radioWriteComplete
+        objectName: "radioWriteComplete"
+        modal: true
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Write complete"
+        standardButtons: Dialog.Ok
+        Label { text: "The radio acknowledged every codeplug block." }
     }
 
     Dialog {

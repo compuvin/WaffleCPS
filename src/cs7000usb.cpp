@@ -13,6 +13,7 @@
 #include <iostream>
 #include <iterator>
 #include <sstream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -388,7 +389,7 @@ public:
                     "and its programming cable is connected.");
             require(matches == 1,
                     "Multiple matching USB devices found. Connect only the radio "
-                    "you want to read.");
+                    "you want to program.");
             require(r != LIBUSB_ERROR_ACCESS,
                     "USB access denied. Install the Linux USB permission rule described in "
                     "docs/RadioReading.md, then reconnect the radio.");
@@ -435,7 +436,7 @@ public:
 
     Bytes command(uint8_t opcode, const Bytes &request, uint32_t length)
     {
-        require(length > 0 && length <= 2063, "Transport length outside read plan");
+        require(length > 0 && length <= (opcode == 0x2a ? 2064u : 2063u), "Transport length outside supported plan");
         Transaction t{0, nextTag++, length, uint8_t(opcode == 0x28 ? 0x80 : 0), vendorCdb(opcode), {}};
         Bytes cbw(31, 0);
         put32(cbw, 0, 0x43425355); put32(cbw, 4, t.tag); put32(cbw, 8, length);
@@ -614,4 +615,112 @@ Cs7000Usb::Bytes Cs7000Usb::read(const Progress &progress, const std::atomic_boo
             "Incomplete radio image");
     if (cancelled.load()) throw Cancelled();
     return image;
+}
+
+namespace {
+Bytes writeFrame(uint8_t command, const Bytes &payload)
+{
+    require((command == 0x14 && payload.empty()) ||
+            ((command == 0x11 || command == 0x2d) && payload.size() == 2056),
+            "Command outside captured write sequence");
+    uint16_t sum = 0;
+    for (auto value : payload) sum = uint16_t(sum + value);
+    Bytes frame{0xa1, 5, command, uint8_t(payload.size() >> 8), uint8_t(payload.size())};
+    frame.insert(frame.end(), payload.begin(), payload.end());
+    frame.insert(frame.end(), {uint8_t(sum >> 8), uint8_t(sum), 0xa4});
+    return frame;
+}
+}
+
+std::vector<Cs7000Usb::WriteBlock> Cs7000Usb::planWrite(const Bytes &image)
+{
+    require(image.size() >= 0x12a4 && image.size() <= 64u * 1024 * 1024, "Invalid image size");
+    const std::string model("CS7000-M17 PLUS\0", 16);
+    require(std::equal(model.begin(), model.end(), image.begin() + 0x1200), "Unsupported codeplug model");
+    const std::string version(image.begin() + 0x1298, image.begin() + 0x12a4);
+    require(version == std::string("V1.02.20.00\0", 12) || version == std::string("V1.02.21.00\0", 12),
+            "Unsupported codeplug CPS version");
+    const uint32_t main = le32(image, 0x1264);
+    require(main >= 0x12a4 && main <= 0x4000u * 2048 && main == le32(image, 0x240), "Invalid main extent");
+    const uint32_t count = le32(image, main), size = le32(image, size_t(main) + 4);
+    require(size >= 8 && size <= 0x4000u * 2048 && uint64_t(main) + size == image.size(), "Invalid contact extent");
+    require(count <= 10000, "Contact count exceeds radio capacity");
+    const uint32_t directoryEnd = 8 + count * 4;
+    require(directoryEnd <= size && directoryEnd <= 0x3f7a03, "Contact directory exceeds region");
+    for (uint32_t at = 8; at < directoryEnd; at += 4) {
+        const auto ref = le32(image, size_t(main) + at);
+        require(ref >= 1 && ref <= count, "Invalid contact reference");
+    }
+    const uint32_t recordsEnd = count ? 0x3f7a03 + (count - 1) * 16 + 21 : 0;
+    const uint32_t extent = std::max(directoryEnd, recordsEnd);
+    require(extent <= size, "Contact records exceed region");
+    std::set<uint32_t> contacts;
+    for (uint32_t i = 0; i < (directoryEnd + 2047) / 2048; ++i) contacts.insert(i);
+    if (count) for (uint32_t i = 0x3f7a03 / 2048; i < (recordsEnd + 2047) / 2048; ++i) contacts.insert(i);
+    std::vector<WriteBlock> blocks;
+    auto append = [&](uint8_t command, uint32_t index, uint32_t base, uint32_t length, bool final) {
+        const uint16_t selector = uint16_t(final ? index | 0x4000 : index ? index | 0xc000 : 0);
+        const size_t offset = size_t(base) + size_t(index) * 2048;
+        require(offset <= image.size() && image.size() - offset >= 2048, "Incomplete source block");
+        Bytes payload{uint8_t(selector >> 8), uint8_t(selector), uint8_t(length >> 24),
+                      uint8_t(length >> 16), uint8_t(length >> 8), uint8_t(length), 8, 0};
+        payload.insert(payload.end(), image.begin() + offset, image.begin() + offset + 2048);
+        blocks.push_back({command, selector, length, writeFrame(command, payload)});
+    };
+    for (uint32_t i = 0; i < (main + 2047) / 2048; ++i) append(0x11, i, 0, main, false);
+    for (auto i : contacts) append(0x2d, i, main, extent, i == *contacts.rbegin());
+    return blocks;
+}
+
+void Cs7000Usb::executeWrite(const Bytes &image, const Command &command, const Progress &progress)
+{
+    const auto blocks = planWrite(image); // Validate everything before the first USB command.
+    Bytes previousAck;
+    auto exchange = [&](const Bytes &request, uint32_t responseSize, bool expectResponse) {
+        command(0x2a, request, uint32_t(request.size()));
+        for (unsigned poll = 0; poll < (expectResponse ? 30u : 10u); ++poll) {
+            const auto response = command(0x28, {}, responseSize);
+            if (zero(response)) continue;
+            require(expectResponse, "Unexpected identification response");
+            // The vendor capture contains one repeated acknowledgement.
+            if (!previousAck.empty() && response == previousAck) continue;
+            validateResponse(request, response);
+            return response;
+        }
+        require(!expectResponse, "Timed out waiting for radio acknowledgement");
+        return Bytes{};
+    };
+    for (uint8_t deviceClass : {2, 2, 3, 3, 5})
+        exchange(makeRequest(deviceClass, 6, {}), 265, deviceClass == 5);
+    const auto setup = exchange(writeFrame(0x14, {}), 10, true);
+    require(setup == Bytes({0xa1, 0x85, 0x14, 0, 2, 1, 0, 0, 1, 0xa4}), "Unexpected write setup acknowledgement");
+    uint32_t mainTotal = 0, contactTotal = 0, mainDone = 0, contactDone = 0;
+    for (const auto &block : blocks) (block.command == 0x11 ? mainTotal : contactTotal)++;
+    for (const auto &block : blocks) {
+        try {
+            const auto ack = exchange(block.request, 11, true);
+            require(ack.size() == 11 && be16(ack, 3) == 3 &&
+                    be16(ack, 6) == (block.selector & 0x3fff), "Write acknowledgement index mismatch");
+            previousAck = ack;
+        } catch (const std::exception &error) {
+            throw std::runtime_error(std::string(block.command == 0x11 ? "Settings" : "Contacts") +
+                " block " + std::to_string(block.selector & 0x3fff) + ": " + error.what() +
+                ". The radio may contain a partial codeplug. Retry the complete write before using it.");
+        }
+        const bool main = block.command == 0x11;
+        if (progress) progress(main ? "main" : "contacts", main ? ++mainDone : ++contactDone,
+                               main ? mainTotal : contactTotal);
+    }
+}
+
+void Cs7000Usb::write(const Bytes &image, const Progress &progress)
+{
+    planWrite(image);
+    NullBuffer buffer;
+    std::ostream log(&buffer);
+    Usb usb(log);
+    executeWrite(image, [&](uint8_t opcode, const Bytes &request, uint32_t length) {
+        if (opcode == 0x28) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        return usb.command(opcode, request, length);
+    }, progress);
 }

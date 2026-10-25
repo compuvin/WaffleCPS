@@ -19,6 +19,7 @@ target_link_libraries(cs7000-read PRIVATE cs7000usb)
 
 add_library(radioreader STATIC
     src/radioreader.cpp src/radioreader.h
+    src/radiowriter.cpp src/radiowriter.h
     src/radiocodeplug.cpp src/radiocodeplug.h)
 target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb)
 
@@ -59,6 +60,9 @@ target_link_libraries(wafflecps PRIVATE
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(radio_write_protocol_test tests/radio_write_protocol.cpp)
+    target_link_libraries(radio_write_protocol_test PRIVATE cs7000usb)
+    add_test(NAME radio_write_protocol COMMAND radio_write_protocol_test)
     qt_add_executable(zone_editor_test
         tests/zone_editor.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
@@ -183,6 +187,14 @@ if(BUILD_TESTING)
     set_tests_properties(ui_manual_channel_order PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_channel_order COMMAND ui_smoke_test --demo --order)
     set_tests_properties(ui_channel_order PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    add_test(NAME ui_contact_import_counts COMMAND ui_smoke_test --demo --contact-import-counts)
+    set_tests_properties(ui_contact_import_counts PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    foreach(flow success failure)
+        add_test(NAME ui_write_${flow} COMMAND ui_smoke_test --demo --write-${flow})
+        set_tests_properties(ui_write_${flow} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endforeach()
 
     foreach(flow success cancel failure)
         add_test(NAME ui_radio_${flow} COMMAND ui_smoke_test --demo --radio-${flow})

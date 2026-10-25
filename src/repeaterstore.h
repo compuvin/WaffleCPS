@@ -129,6 +129,7 @@ public:
     bool importCodeplugFromFile(const QString &path);
     bool importCodeplugFromBytes(const QByteArray &bytes);
     bool importRadioCodeplug(const QByteArray &bytes);
+    Q_INVOKABLE QByteArray exportCodeplugBytes();
     bool exportCodeplugToFile(const QString &path);
 
 signals:
@@ -182,6 +183,7 @@ private:
     static bool parseFrequency(const QString &text, qint64 *hz);
     void setModified(bool modified);
     bool fail(const QString &message);
+    void notifyContactsChanged();
     void rebuildImportedGroups();
     bool buildManualCodeplug(ImportedCodeplug *result);
     bool ensureZoneRecords(int reservedZones = 0);
