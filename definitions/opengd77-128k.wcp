@@ -1,0 +1,114 @@
+{
+  "definition_type": "codeplug",
+  "definition_version": 1,
+  "id": "opengd77-128k",
+  "notation": {
+    "numbers": "JSON integers are decimal; strings beginning with 0x are hexadecimal integers. All addresses and lengths are bytes, starting at zero.",
+    "image": "Addresses refer to the decoded saved file, not EEPROM or flash addresses inside a particular radio. This definition describes a 131072-byte saved .g77 layout. Its GD-77 marker does not identify the physical radio model.",
+    "expressions": {
+      "integer": "An integer literal evaluates to itself.",
+      "image_size": "The object {\"image_size\": true} returns the decoded image length.",
+      "field": "The object {\"field\": name} resolves a global field before enum mapping or scaling. Resolve dependencies before their users; JSON object order is not significant.",
+      "record_field": "The object {\"record_field\": name} resolves a field of the current record after mask/shift, before enum mapping or scaling.",
+      "add": "The object {\"add\": [a, b, ...]} sums recursively evaluated operands.",
+      "subtract": "The object {\"subtract\": [a, b]} evaluates a minus b.",
+      "multiply": "The object {\"multiply\": [a, b, ...]} multiplies recursively evaluated operands.",
+      "max": "The object {\"max\": [a, b, ...]} returns the largest recursively evaluated operand."
+    },
+    "fields": "Global at is an absolute file address. Record offset is relative to the current record start. bytes is the full storage extent. A field with value evaluates its expression instead of reading bytes.",
+    "integers": "Apply (stored_value AND mask) shifted right by shift; omitted mask selects all bits and omitted shift is zero. minimum and maximum constrain the unscaled extracted integer inclusively. enum maps extracted integer values, using decimal string keys, to display values. Unmapped values remain numeric. A numeric scale multiplies the display value only; it does not change raw values or references.",
+    "conditions": "only_if interprets a field only when its evaluated value occurs in its in array; otherwise retain its bytes without interpreting them.",
+    "text": "For ASCII, terminators lists individual terminating byte values. The earliest matching byte ends the display string. If omitted, only 0x00 terminates text. Full-width text is allowed unless require_terminator is true. Preserve the terminator and remaining storage without decoding or normalizing it.",
+    "tables": "A table's count is its total physical slot capacity, not its enabled count. For an ordinary table, slot i begins at at + i * stride_bytes. For a segmented table, visit segments in listed order; each segment has at, count and stride_bytes. Its local slot i begins at segment.at + i * segment.stride_bytes. Add the counts of preceding segments to obtain the global zero-based storage index. Segment counts must sum to the table count.",
+    "validity": {
+      "bitmap": "For {\"bitmap_at\": address, \"bit_order\": \"lsb_first\"}, local slot i is selected if byte[address + floor(i/8)] AND (1 shifted left by (i modulo 8)) is nonzero. With msb_first, shift by 7 minus (i modulo 8). Indexing restarts at zero for each segment.",
+      "probe": "For {\"offset\": n, \"bytes\": size, \"not_hex\": patterns}, read size bytes at record_start + n. Select the record if these bytes match none of the listed hexadecimal byte strings. All patterns must have exactly size bytes. This selects stored records, not necessarily radio activation state.",
+      "unselected": "Keep original bytes and physical slot numbering. Do not decode unselected record bodies, compact the table, or renumber later references."
+    },
+    "arrays": "A record field with count and stride_bytes is an array. Its element i starts at record_start + offset + i * stride_bytes. count may depend on record_field expressions.",
+    "references": "A stored reference n selects zero-based physical target slot n minus index_base. A declared null_value has no target. A reference must be in range and, when the target has a selection rule, must identify a selected target slot. Preserve array order.",
+    "bounds": "Evaluate address arithmetic without wraparound. All bitmap, probe, scalar, record and array reads must fit inside the image. Do not infer missing bytes or reinterpret a failed read as zero.",
+    "recognition": "model_field/model_value compare the file's format marker, not hardware identity. Each required_fields entry compares a named decoded global field to its supplied value. optional_decoded_marker compares exact bytes and is mandatory when required is true. A version requirement exists only when version_field or cps_version_field is present.",
+    "types": {
+      "u8": "Unsigned integer in one byte.",
+      "u16le": "Unsigned integer in two bytes, least-significant byte first.",
+      "ascii": "One ASCII character per byte, terminated as specified by terminators.",
+      "bcdle": "Packed decimal digits in bytes least-significant first. Reverse byte order, then read each byte's high nibble followed by its low nibble. Each nibble must be 0..9. Accumulate the decimal integer without dropping positions.",
+      "bcdbe": "Packed decimal digits in bytes most-significant first. Read each byte's high nibble followed by its low nibble. Each nibble must be 0..9. Accumulate the decimal integer without dropping positions."
+    }
+  },
+  "representations": [
+    {"name": "g77_saved_file", "extension": ".g77", "decode": {"operation": "identity", "rule": "Decoded image equals input bytes."}}
+  ],
+  "recognition": {
+    "model_field": "format_model_marker",
+    "model_value": "GD-77",
+    "required_fields": {"opengd77_marker": "OpenGD77"},
+    "optional_decoded_marker": {"at": 0, "hex": "4D 44 2D 37 36 30 50", "required": true},
+    "rule": "Require the base file signature, the format's GD-77 label, the OpenGD77 extension marker and the 128 KiB layout check. These do not identify the hardware that produced the file. Other saved-file versions and raw radio memory layouts are not defined here."
+  },
+  "fields": {
+    "format_model_marker": {"at": "0x90", "type": "ascii", "bytes": 16, "terminators": ["0x00", "0xFF"], "require_terminator": true},
+    "opengd77_marker": {"at": "0x1EE60", "type": "ascii", "bytes": 8},
+    "radio_name": {"at": "0xE0", "type": "ascii", "bytes": 8, "terminators": ["0x00", "0xFF"]},
+    "radio_id": {"at": "0xE8", "type": "bcdbe", "bytes": 4, "minimum": 1}
+  },
+  "layout_checks": {
+    "relationships": [{"left": {"image_size": true}, "right": "0x20000"}],
+    "relationship_operation": "Each left expression must equal its right expression."
+  },
+  "tables": {
+    "channels": {
+      "count": 1024,
+      "segments": [
+        {"at": "0x3790", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0x3780", "bit_order": "lsb_first"}},
+        {"at": "0xB1C0", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0xB1B0", "bit_order": "lsb_first"}},
+        {"at": "0xCDD0", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0xCDC0", "bit_order": "lsb_first"}},
+        {"at": "0xE9E0", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0xE9D0", "bit_order": "lsb_first"}},
+        {"at": "0x105F0", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0x105E0", "bit_order": "lsb_first"}},
+        {"at": "0x12200", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0x121F0", "bit_order": "lsb_first"}},
+        {"at": "0x13E10", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0x13E00", "bit_order": "lsb_first"}},
+        {"at": "0x15A20", "count": 128, "stride_bytes": 56, "validity": {"bitmap_at": "0x15A10", "bit_order": "lsb_first"}}
+      ],
+      "fields": {
+        "name": {"offset": 0, "type": "ascii", "bytes": 16, "terminators": ["0x00", "0xFF"]},
+        "receive_frequency": {"offset": 16, "type": "bcdle", "bytes": 4, "scale": 10, "unit": "Hz"},
+        "transmit_frequency": {"offset": 20, "type": "bcdle", "bytes": 4, "scale": 10, "unit": "Hz"},
+        "mode": {"offset": 24, "type": "u8", "enum": {"0": "analog", "1": "digital"}},
+        "power_setting": {"offset": 25, "type": "u8", "enum": {"0": "use_global_setting"}, "meaning": "Nonzero values remain numeric power-setting codes; no hardware-specific wattage is inferred. This is the OpenGD77 field, not the stock GD-77 high/low flag."},
+        "color_code": {"offset": 44, "type": "u8", "maximum": 15, "only_if": {"value": {"record_field": "mode"}, "in": [1]}},
+        "contact_number": {"offset": 46, "type": "u16le", "reference": {"table": "named_contacts", "index_base": 1, "null_value": 0}, "only_if": {"value": {"record_field": "mode"}, "in": [1]}},
+        "time_slot": {"offset": 49, "type": "u8", "mask": "0x40", "shift": 6, "enum": {"0": 1, "1": 2}, "only_if": {"value": {"record_field": "mode"}, "in": [1]}}
+      }
+    },
+    "base_zones": {
+      "at": "0x8030", "count": 250, "stride_bytes": 48,
+      "validity": {"bitmap_at": "0x8010", "bit_order": "lsb_first"},
+      "fields": {
+        "name": {"offset": 0, "type": "ascii", "bytes": 16, "terminators": ["0x00", "0xFF"]},
+        "members": {"offset": 16, "type": "u16le", "count": 16, "stride_bytes": 2, "reference": {"table": "channels", "index_base": 1, "null_value": 0}}
+      },
+      "meaning": "Legacy base zone slots and their first sixteen channel references in this saved-file layout. Additional OpenGD77 zone extensions, if present, are not decoded. Do not substitute native radio-memory zone addresses or strides."
+    },
+    "named_contacts": {
+      "at": "0x17620", "count": 1024, "stride_bytes": 24,
+      "validity": {"offset": 0, "bytes": 1, "not_hex": ["00", "FF"]},
+      "fields": {
+        "name": {"offset": 0, "type": "ascii", "bytes": 16, "terminators": ["0x00", "0xFF"]},
+        "id": {"offset": 16, "type": "bcdbe", "bytes": 4, "minimum": 1},
+        "call_type": {"offset": 20, "type": "u8", "enum": {"0": "group", "1": "private", "2": "all_call"}},
+        "slot_override_raw": {"offset": 23, "type": "u8"}
+      },
+      "meaning": "Select nonempty names without treating the last record byte as a stock-GD77 validity flag. It is retained as a raw OpenGD77 slot-override value."
+    }
+  },
+  "preservation": {
+    "retain_complete_original_image": true,
+    "retain_unknown_bytes_and_bits": true,
+    "retain_disabled_record_bodies": true,
+    "retain_unused_and_erased_space": true,
+    "renumber_physical_slots": false,
+    "infer_unread_bytes": false,
+    "unknown_sections": "OpenGD77 extension settings, additional zone members, scan lists, receive-group lists and unlisted fields remain uninterpreted. Saved-file layout and radio hardware identity are separate. No USB, write or relocation method is defined."
+  }
+}

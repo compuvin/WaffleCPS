@@ -1,0 +1,110 @@
+{
+  "definition_type": "codeplug",
+  "definition_version": 1,
+  "id": "cs750",
+  "notation": {
+    "numbers": "JSON integers are decimal. Strings beginning with 0x are hexadecimal integers. All offsets and lengths are bytes and start at zero.",
+    "image": "The decoded image equals the file bytes. Every at expression is an absolute image address. A record field's offset is relative to that record's start.",
+    "expressions": {
+      "integer": "An integer literal evaluates to itself.",
+      "image_size": "The object {\"image_size\": true} evaluates to the image length.",
+      "field": "The object {\"field\": name} resolves a named entry in fields. Resolve dependencies before their users; JSON object order is not significant.",
+      "record_field": "The object {\"record_field\": name} resolves a field of the current record before enum mapping.",
+      "add": "The object {\"add\": [a, b, ...]} sums its recursively evaluated operands.",
+      "subtract": "The object {\"subtract\": [a, b]} evaluates a minus b.",
+      "multiply": "The object {\"multiply\": [a, b, ...]} multiplies its recursively evaluated operands.",
+      "max": "The object {\"max\": [a, b, ...]} returns the largest recursively evaluated operand.",
+      "span_count": "The object {\"span_count\": {\"at\": start, \"end\": end, \"stride_bytes\": stride, \"probe_offset\": offset, \"empty_hex\": bytes}} scans complete fixed-stride slots within [start, end). at and end are expressions; stride_bytes and probe_offset are integers. probe_offset defaults to zero. Supply either empty_hex, one nonempty space-separated hexadecimal byte sequence, or empty_hex_patterns, a nonempty array of equal-length nonempty hexadecimal byte sequences. The probe must fit within each slot. A slot is populated when its probe matches none of the empty patterns. Return one plus the highest populated zero-based slot index, or zero if every slot is empty. Include empty gaps preceding that last populated slot. Ignore any incomplete trailing slot. This yields a physical slot span, not a count of active records."
+    },
+    "fields": "A field with at reads type at that absolute address. A field with value evaluates an expression instead of reading storage.",
+    "tables": "count is an expression. Fixed-stride record i begins at at + i * stride_bytes; i is zero-based. Slots describe physical positions, including empty gaps, not necessarily active channels or zones.",
+    "arrays": "A record field with count and stride_bytes is an array. Element i begins at record_start + offset + i * stride_bytes and uses that field's type.",
+    "references": "A reference identifies a target table. Stored number n addresses target storage index n minus index_base. An explicitly listed null_value has no target. Preserve original ordering.",
+    "joins": "A join whose rule states that records with the same zero-based storage index describe the same channel pairs those table rows by index, without renumbering physical slots.",
+    "text": "ASCII and UTF-16LE stop at their first NUL terminator. Full-width unterminated text is allowed unless require_terminator is true. Preserve unused bytes after the terminator. packed6 has no terminator; decode exactly characters values. trim removes ASCII spaces from both ends of its display string only.",
+    "ranges": "minimum and maximum constrain the decoded numeric value inclusively. A violation marks a field invalid without changing its storage.",
+    "bounds": "Evaluate address arithmetic without integer wraparound. Reject reads or record extents outside the input. A failed read does not permit filling missing bytes with zeros.",
+    "types": {
+      "u8": "Unsigned integer stored in one byte.",
+      "u16le": "Unsigned integer stored in two bytes, least-significant byte first.",
+      "u32le": "Unsigned integer stored in four bytes, least-significant byte first.",
+      "ascii": "One ASCII character per byte; byte 0x00 terminates text.",
+      "utf16le": "UTF-16 code units stored least-significant byte first; code unit 0x0000 terminates text. Preserve undecodable storage rather than replacing it.",
+      "packed6": "Read consecutive six-bit unsigned values from the most-significant bit of the first storage byte onward. alphabet[code] selects a character using a zero-based index. bytes is the storage length; characters is the number of values to decode."
+    }
+  },
+  "representations": [
+    {"name": "rdb", "extension": ".rdb", "decode": {"operation": "identity", "rule": "Decoded image equals input bytes; do not apply the CS7000 XOR transform."}}
+  ],
+  "recognition": {
+    "model_field": "model",
+    "model_value": "CS750",
+    "version_field": "header_version",
+    "supported_versions": ["D4.0.03"],
+    "rule": "Match both markers after decoding. The header version is a format-identification marker; this definition does not assign it to a specific firmware or CPS component. The file extension alone is not a match."
+  },
+  "fields": {
+    "model": {"at": "0x2000", "type": "ascii", "bytes": 16, "require_terminator": true},
+    "secondary_model": {"at": "0x29", "type": "ascii", "bytes": 16, "require_terminator": true},
+    "header_version": {"at": "0x2010", "type": "ascii", "bytes": 8, "require_terminator": true},
+    "secondary_version": {"at": "0x2048", "type": "ascii", "bytes": 8},
+    "hardware_marker": {"at": "0x2040", "type": "ascii", "bytes": 8},
+    "declared_file_size": {"at": "0x2064", "type": "u32le"},
+    "radio_name": {"at": "0x2200", "type": "utf16le", "bytes": 32},
+    "channel_index_count": {"at": "0x21F60", "type": "u16le"},
+    "channel_slot_count": {
+      "value": {"span_count": {"at": "0x12000", "end": "0x21F60", "stride_bytes": 32, "empty_hex_patterns": ["00 00 00 00 00 00 00 00", "FF FF FF FF FF FF FF FF"]}}
+    },
+    "zone_slot_count": {
+      "value": {"span_count": {"at": "0x26000", "end": "0x2C000", "stride_bytes": 80, "empty_hex_patterns": ["00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00", "FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF"]}}
+    }
+  },
+  "layout_checks": {
+    "equal_fields": [["model", "secondary_model"]],
+    "relationships": [
+      {"left": {"field": "declared_file_size"}, "right": {"image_size": true}},
+      {"left": {"max": [{"field": "channel_index_count"}, {"field": "channel_slot_count"}]}, "right": {"field": "channel_slot_count"}}
+    ],
+    "relationship_operation": "Each left expression must equal its right expression. The second relationship checks that the channel index count does not exceed the physical slot span."
+  },
+  "tables": {
+    "channel_index": {
+      "at": "0x21F62", "count": {"field": "channel_index_count"}, "stride_bytes": 2,
+      "fields": {"channel_number": {"offset": 0, "type": "u16le", "reference": {"table": "channel_slots", "index_base": 1}}},
+      "meaning": "The ordered channel index references physical channel slots. Do not assume it is sorted, consecutive, or includes every populated slot."
+    },
+    "channel_names": {
+      "at": "0xA000", "count": {"field": "channel_slot_count"}, "stride_bytes": 16,
+      "fields": {
+        "name": {"offset": 0, "type": "packed6", "bytes": 12, "characters": 16, "alphabet": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz  ", "trim": "Remove ASCII spaces from both ends of the decoded display string; retain all original packed bits."}
+      },
+      "join": {"table": "channel_slots", "rule": "Records with the same zero-based storage index describe the same channel."}
+    },
+    "channel_slots": {
+      "at": "0x12000", "count": {"field": "channel_slot_count"}, "stride_bytes": 32,
+      "fields": {
+        "frequency_a": {"offset": 0, "type": "u32le", "unit": "Hz"},
+        "frequency_b": {"offset": 4, "type": "u32le", "unit": "Hz"}
+      },
+      "meaning": "Physical channel slots. Use channel_index to distinguish indexed channels from other populated slots. Frequency direction and the remaining channel fields are not assigned meanings by this definition."
+    },
+    "zone_slots": {
+      "at": "0x26000", "count": {"field": "zone_slot_count"}, "stride_bytes": 80,
+      "fields": {
+        "name": {"offset": 0, "type": "utf16le", "bytes": 32},
+        "member_count": {"offset": 36, "type": "u8", "maximum": 16},
+        "members": {"offset": 48, "type": "u16le", "count": {"record_field": "member_count"}, "stride_bytes": 2, "reference": {"table": "channel_slots", "index_base": 1}, "order": "Preserve zone channel order."}
+      },
+      "meaning": "Slots span through the last nonempty zone name. An empty-name gap is retained as a slot and is not asserted to be an active zone. No separate zone-index structure is decoded."
+    }
+  },
+  "preservation": {
+    "retain_complete_original_image": true,
+    "retain_unknown_bytes_and_bits": true,
+    "retain_unused_and_erased_space": true,
+    "renumber_physical_slots": false,
+    "infer_unread_bytes": false,
+    "scan_scope": "The scan ranges and record positions describe this layout. They are not universal limits for all CS750 firmware or file variants. A scan detects occupied storage, not the radio's complete activation/deletion rules.",
+    "unknown_sections": "Contact records, most radio settings, receive-group structures, scan lists, and unlisted channel/zone fields remain uninterpreted. Their bytes remain part of the original file. No write or relocation method is defined."
+  }
+}

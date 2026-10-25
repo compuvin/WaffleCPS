@@ -1,0 +1,167 @@
+{
+  "definition_type": "codeplug",
+  "definition_version": 1,
+  "id": "cs7000-m17-plus",
+  "notation": {
+    "numbers": "JSON integers are decimal. Strings beginning with 0x are hexadecimal integers. Offsets and lengths are bytes unless explicitly stated otherwise.",
+    "image": "All field and table addresses refer to the decoded image, starting at byte zero. image_size is the decoded image length.",
+    "expressions": {
+      "integer": "An integer literal evaluates to itself.",
+      "image_size": "The object {\"image_size\": true} evaluates to the decoded image length.",
+      "field": "The object {\"field\": name} evaluates a named entry in fields. Dependencies must be resolved before dependent fields or tables; JSON object order is not significant.",
+      "record_field": "The object {\"record_field\": name} evaluates a field of the current record, after masking and shifting but before enum mapping.",
+      "add": "The object {\"add\": [a, b, ...]} sums its recursively evaluated operands.",
+      "subtract": "The object {\"subtract\": [a, b]} evaluates a minus b.",
+      "multiply": "The object {\"multiply\": [a, b, ...]} multiplies its recursively evaluated operands.",
+      "max": "The object {\"max\": [a, b, ...]} returns the largest recursively evaluated operand."
+    },
+    "fields": "A field with at reads its type at the evaluated absolute address. A field with value is computed from that expression instead of reading bytes.",
+    "record_fields": "offset is relative to the start of the current record. bytes is the full storage extent of that field, including text padding.",
+    "mask_and_shift": "For an integer field, extract (stored_value AND mask) shifted right by shift. Omitted mask selects all bits; omitted shift is zero. The enum object maps extracted integers, expressed as decimal string keys, to displayed values. Unmapped values remain numeric and are not assigned an invented meaning.",
+    "ranges": "minimum and maximum are inclusive constraints on the extracted numeric value, before enum mapping. A violation marks that field invalid without changing its original bytes.",
+    "conditions": "only_if applies a field interpretation when its evaluated value appears in its in array; otherwise retain the storage bytes without interpreting them.",
+    "arrays": "count is an expression. Records are zero-indexed in storage. Fixed-stride record i starts at at + i * stride_bytes. With record_bytes, the first record starts at at and each subsequent record starts after the preceding record's evaluated record_bytes. logical_span_bytes includes fields extending into the next physical stride.",
+    "table_references": "A reference identifies a target table and its index_base. Translate a stored number n into storage index n minus index_base. Any explicitly listed null_value has no target.",
+    "text": "Decode at most bytes storage bytes. A NUL terminator ends ASCII or UTF-16LE text; full-width text without a terminator is allowed unless require_terminator is true. Text after the first terminator remains preserved storage. Do not trim non-padding spaces unless trim says to do so.",
+    "bounds": "Evaluate sizes without integer wraparound. Reject an individual read or record extent outside the image. Never read beyond the input, silently truncate a record, or allocate an unchecked count of records.",
+    "types": {
+      "u8": "Unsigned 8-bit integer, one byte.",
+      "u16le": "Unsigned 16-bit integer, two bytes, least-significant byte first.",
+      "u24le": "Unsigned 24-bit integer, three bytes, least-significant byte first.",
+      "u32le": "Unsigned 32-bit integer, four bytes, least-significant byte first.",
+      "ascii": "One ASCII character per byte; terminator is byte 0x00.",
+      "utf16le": "UTF-16 code units, two bytes each, least-significant byte first; terminator is code unit 0x0000. Code-unit capacities include any terminator. Preserve undecodable storage rather than replacing it.",
+      "packed6": "Take characters consecutive six-bit unsigned values from the storage bit stream, starting with the most-significant bit of the first byte. alphabet[code] gives the character; alphabet positions are zero-based. No terminator is implied."
+    }
+  },
+  "representations": [
+    {
+      "name": "rdbx",
+      "extension": ".rdbx",
+      "decode": {
+        "operation": "repeating_xor",
+        "mask_input_offset": "0x300",
+        "mask_bytes": 256,
+        "mask_phase_at_input_zero": 0,
+        "rule": "Copy the mask from the original input before decoding. For each input byte i, decoded[i] = input[i] XOR mask[i modulo 256]. Output length equals input length.",
+        "input_equal_ranges": [
+          {"first_offset": "0x300", "second_offset": "0x400", "bytes": 256}
+        ]
+      }
+    },
+    {
+      "name": "decoded_radio_image",
+      "decode": {"operation": "identity", "rule": "Decoded image equals input bytes."}
+    }
+  ],
+  "recognition": {
+    "rule": "Try each representation independently, then evaluate model and CPS version in the decoded image. Equivalent decoded results may be treated as one candidate. A filename extension alone does not identify the format.",
+    "model_field": "model",
+    "model_value": "CS7000-M17 PLUS",
+    "cps_version_field": "cps_version",
+    "supported_cps_versions": ["V1.02.20.00", "V1.02.21.00"],
+    "other_cps_versions": "May share features, but the layouts in this definition are not specified for them.",
+    "optional_decoded_marker": {
+      "at": "0x10",
+      "hex": "2A 2D 44 52 37 38 30 30 2D 52 43 44 42 2D 2A 01 00",
+      "required": false
+    }
+  },
+  "fields": {
+    "model": {"at": "0x1200", "type": "ascii", "bytes": 16, "require_terminator": true},
+    "cps_version": {"at": "0x1298", "type": "ascii", "bytes": 12, "require_terminator": true},
+    "radio_name": {"at": "0x1300", "type": "utf16le", "bytes": 32},
+    "radio_id": {"at": {"subtract": [{"image_size": true}, "0xC10C93"]}, "type": "u32le", "minimum": 1, "maximum": "0xFFFFFF"},
+    "channel_count_address": {"at": "0xE8", "type": "u32le"},
+    "channel_names_address": {"at": "0xEC", "type": "u32le"},
+    "channel_records_address": {"at": "0xF0", "type": "u32le"},
+    "zone_count_address": {"at": "0xF4", "type": "u32le"},
+    "zone_records_address": {"at": "0xF8", "type": "u32le"},
+    "channel_count": {"at": {"field": "channel_count_address"}, "type": "u32le"},
+    "zone_count": {"at": {"field": "zone_count_address"}, "type": "u32le"},
+    "contact_region_start": {"at": "0x1264", "type": "u32le"},
+    "contact_region_directory_start": {"at": "0x240", "type": "u32le"},
+    "first_contact_id_address": {"at": "0x248", "type": "u32le"},
+    "contact_count": {"at": {"field": "contact_region_start"}, "type": "u32le"},
+    "contact_region_size": {"at": {"add": [{"field": "contact_region_start"}, 4]}, "type": "u32le"},
+    "contact_first_record_address": {"value": {"add": [{"field": "contact_region_start"}, "0x3F7A03"]}}
+  },
+  "layout_checks": {
+    "equal_fields": [["contact_region_start", "contact_region_directory_start"]],
+    "expected_addresses": {
+      "channel_count_address": "0x2424",
+      "channel_names_address": "0x4368",
+      "channel_records_address": "0x23768",
+      "zone_count_address": "0x52568",
+      "zone_records_address": "0x52954"
+    },
+    "relationships": [
+      {"left": {"field": "first_contact_id_address"}, "right": {"add": [{"field": "contact_first_record_address"}, 5]}},
+      {"left": {"image_size": true}, "right": {"add": [{"field": "contact_region_start"}, {"field": "contact_region_size"}]}}
+    ],
+    "relationship_operation": "Each left expression must equal its right expression. A failed check identifies a layout mismatch; it does not permit altering the input."
+  },
+  "tables": {
+    "channel_index": {
+      "at": "0x2428", "count": {"field": "channel_count"}, "stride_bytes": 2,
+      "fields": {"channel_number": {"offset": 0, "type": "u16le", "reference": {"table": "channels", "index_base": 1}}}
+    },
+    "channel_names": {
+      "at": {"field": "channel_names_address"}, "count": {"field": "channel_count"}, "stride_bytes": 32,
+      "fields": {"name": {"offset": 0, "type": "utf16le", "bytes": 32}},
+      "join": {"table": "channels", "rule": "Records with the same zero-based storage index describe the same channel."}
+    },
+    "channels": {
+      "at": {"field": "channel_records_address"}, "count": {"field": "channel_count"}, "stride_bytes": 48,
+      "fields": {
+        "transmit_frequency": {"offset": 0, "type": "u32le", "unit": "Hz"},
+        "receive_frequency": {"offset": 4, "type": "u32le", "unit": "Hz"},
+        "power": {"offset": 9, "type": "u8", "mask": "0x80", "shift": 7, "enum": {"0": "low", "1": "high"}},
+        "mode_marker": {"offset": 23, "type": "u8", "enum": {"0": "analog", "32": "digital", "65": "digital"}},
+        "color_code": {"offset": 16, "type": "u8", "mask": "0x0F", "only_if": {"value": {"record_field": "mode_marker"}, "in": [32, 65]}},
+        "time_slot": {"offset": 16, "type": "u8", "mask": "0x10", "shift": 4, "enum": {"0": 1, "1": 2}, "only_if": {"value": {"record_field": "mode_marker"}, "in": [32, 65]}},
+        "receive_group_index": {"offset": 22, "type": "u8", "only_if": {"value": {"record_field": "mode_marker"}, "in": [32, 65]}, "null_value": 0, "meaning": "Receive-group list number. The receive-group table is not decoded by this definition."},
+        "contact_number": {"offset": 24, "type": "u16le", "only_if": {"value": {"record_field": "mode_marker"}, "in": [32, 65]}, "reference": {"table": "contacts", "index_base": 1, "null_value": 0}}
+      }
+    },
+    "zone_index": {
+      "at": "0x52570", "count": {"max": [0, {"subtract": [{"field": "zone_count"}, 1]}]}, "stride_bytes": 4,
+      "fields": {"relative_start": {"offset": 0, "type": "u32le"}},
+      "meaning": "Entry i is the byte offset of zone record i+1 relative to zone_records_address. Zone record 0 implicitly starts at relative offset zero."
+    },
+    "zones": {
+      "at": {"field": "zone_records_address"}, "count": {"field": "zone_count"},
+      "record_bytes": {"add": [36, {"multiply": [2, {"record_field": "member_count"}]}]},
+      "fields": {
+        "name": {"offset": 0, "type": "utf16le", "bytes": 32},
+        "member_count": {"offset": 32, "type": "u32le"},
+        "members": {"offset": 36, "type": "u16le", "count": {"record_field": "member_count"}, "stride_bytes": 2, "reference": {"table": "channels", "index_base": 1}, "order": "Preserve stored order; it is the zone's channel order."}
+      }
+    },
+    "contact_index": {
+      "at": {"add": [{"field": "contact_region_start"}, 8]}, "count": {"field": "contact_count"}, "stride_bytes": 4,
+      "fields": {"contact_number": {"offset": 0, "type": "u32le", "reference": {"table": "contacts", "index_base": 1}}}
+    },
+    "contacts": {
+      "at": {"field": "contact_first_record_address"}, "count": {"field": "contact_count"},
+      "stride_bytes": 16, "logical_span_bytes": 21,
+      "fields": {
+        "id": {"offset": 5, "type": "u24le", "minimum": 1},
+        "name": {"offset": 8, "type": "packed6", "bytes": 12, "characters": 16, "alphabet": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz  ", "trim": "Remove ASCII spaces from both ends of the decoded display string; retain all original packed bits."},
+        "call_type": {"offset": 20, "type": "u8", "enum": {"0": "private", "1": "group"}}
+      },
+      "overlap": "A contact's name extends into offsets 0..3 of the next physical stride. Its call_type occupies offset 4 of the next physical stride. The next contact's own ID begins at offset 5. Do not decode or overwrite each 16-byte stride as an independent logical record."
+    }
+  },
+  "preservation": {
+    "retain_complete_original_image": true,
+    "retain_unknown_bytes": true,
+    "retain_unmapped_bits_in_known_fields": true,
+    "retain_unused_and_erased_space": true,
+    "replace_ff_with_zero": false,
+    "infer_unread_bytes": false,
+    "unknown_sections": "This definition does not decode scan-list structures, receive-group list structures, or all radio-specific settings. Their bytes remain part of the original image.",
+    "overlapping_records": "Changes to one field must preserve neighboring packed data and all bits outside that field.",
+    "relocation": "Addresses following variable-length sections may move. Rules for editing or relocating variable-length sections are not defined here."
+  }
+}

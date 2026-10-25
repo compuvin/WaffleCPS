@@ -1,0 +1,143 @@
+{
+  "definition_type": "radio_read",
+  "definition_version": 1,
+  "id": "cs7000-m17-plus",
+  "notation": {
+    "numbers": "JSON integers are decimal; strings beginning with 0x are hexadecimal integers. Offsets and lengths are bytes. Hex byte strings contain space-separated hexadecimal pairs; an empty string denotes zero bytes.",
+    "integers": "u8 is one unsigned byte. u16le/u32le are unsigned integers of two/four bytes with the least-significant byte first. u16be/u32be use the most-significant byte first.",
+    "offsets": "CBW and CSW offsets start at byte zero of their wrappers. Frame offsets start at A1. Payload offsets start at the first byte after the five-byte frame header.",
+    "templates": "A field's value supplies constant bytes or an integer. A field's parameter supplies its value from parameters. The derived operation copy takes the named parameter unchanged; length takes its byte length; sum_modulo sums each unsigned byte in its named parameter and returns the remainder modulo modulus.",
+    "transactions": "Construct a CBW for each command. Send its data phase in the indicated direction, then receive and validate its CSW. A radio exchange consists of a send_frame transaction followed by one or more fetch_response transactions.",
+    "formulas": "Named quantities in rule strings are defined in the same object or its enclosing method. Integer arithmetic does not wrap except where explicitly specified. OR and AND are bitwise operations. ceil(a / b) rounds division upward. min(a, b) selects the smaller value. Byte slices use start-inclusive, end-exclusive bounds.",
+    "null": "An operation set to null is undefined. Do not infer or execute it."
+  },
+  "usb": {
+    "vendor_id": "0x0483", "product_id": "0x5720",
+    "interface_number": 0, "alternate_setting": 0,
+    "interface_class": "0x08", "interface_subclass": "0x06", "interface_protocol": "0x50",
+    "bulk_out_endpoint": "0x01", "bulk_in_endpoint": "0x81", "maximum_packet_bytes": 64,
+    "operating_mode": "Radio powered on in normal operating mode, using its programming connection; firmware DFU mode is not required.",
+    "identification": "The USB IDs identify a candidate interface, not the radio model. Confirm the model using the identify exchange before reading codeplug regions.",
+    "interface_lifecycle": ["Open the matching USB device", "Detach an active kernel driver for interface 0", "Claim interface 0", "Perform read exchanges", "Release interface 0", "Reattach the kernel driver if this session detached it", "Close the device"]
+  },
+  "bulk_only_transport": {
+    "cbw": {
+      "bytes": 31,
+      "parameters": {"tag": "u32le transaction identifier", "data_bytes": "Requested data-phase byte count", "direction": "0x00 for host-to-radio; 0x80 for radio-to-host", "cdb": "16-byte command descriptor"},
+      "fields": [
+        {"offset": 0, "hex": "55 53 42 43"},
+        {"offset": 4, "type": "u32le", "parameter": "tag"},
+        {"offset": 8, "type": "u32le", "parameter": "data_bytes"},
+        {"offset": 12, "type": "u8", "parameter": "direction"},
+        {"offset": 13, "type": "u8", "value": 0},
+        {"offset": 14, "type": "u8", "value": 16},
+        {"offset": 15, "bytes": 16, "parameter": "cdb"}
+      ],
+      "tag_rule": "Start at 1 and increment for each transaction, modulo 2^32. The corresponding CSW must echo the tag."
+    },
+    "csw": {
+      "bytes": 13,
+      "signature": {"offset": 0, "hex": "55 53 42 53"},
+      "tag": {"offset": 4, "type": "u32le"},
+      "residue": {"offset": 8, "type": "u32le"},
+      "status": {"offset": 12, "type": "u8", "success_value": 0},
+      "checks": ["Signature matches", "Tag equals the current CBW tag", "Received or sent data bytes plus residue equals CBW data_bytes", "For these vendor transactions, success requires status zero and residue zero"]
+    },
+    "commands": {
+      "send_frame": {"cdb_hex": "FF 2A 00 00 00 00 00 00 00 00 00 00 00 00 47 50", "direction": "0x00", "data": "The complete request frame", "data_bytes": "The frame length"},
+      "fetch_response": {"cdb_hex": "FF 28 00 00 00 00 00 00 00 00 00 00 00 00 47 50", "direction": "0x80", "data_bytes": "The response length specified by the current exchange"}
+    }
+  },
+  "frame": {
+    "parameters": {"class": "Request or response class byte", "command": "Command byte", "payload": "Byte sequence, possibly empty"},
+    "fields": [
+      {"offset": 0, "type": "u8", "value": "0xA1"},
+      {"offset": 1, "type": "u8", "parameter": "class"},
+      {"offset": 2, "type": "u8", "parameter": "command"},
+      {"offset": 3, "type": "u16be", "derived": {"operation": "length", "parameter": "payload"}},
+      {"offset": 5, "derived": {"operation": "copy", "parameter": "payload"}},
+      {"position": "Immediately after payload", "type": "u16be", "derived": {"operation": "sum_modulo", "parameter": "payload", "modulus": 65536}},
+      {"position": "Immediately after checksum", "type": "u8", "value": "0xA4"}
+    ],
+    "total_bytes": "8 + payload length",
+    "checks": ["First byte is A1 and final byte is A4", "Frame length equals payload length plus 8", "Checksum is the sum of payload bytes modulo 65536, excluding the header and delimiters"],
+    "response_checks": ["Response class equals request class OR 0x80", "Response command equals request command", "Payload contains at least one byte", "First response payload byte equals 0x01"]
+  },
+  "polling": {
+    "delay_before_each_fetch_ms": 20,
+    "bulk_transfer_timeout_ms": 3000,
+    "empty_response": "An entire response data phase containing only zero bytes is an empty poll, not a frame. Validate its CSW, then continue within the exchange's poll limit.",
+    "nonempty_response": "Validate its complete frame, command-specific fields and CSW before considering the exchange complete.",
+    "timeout": "If the poll limit expires without the required response, fail the read; do not create a complete image from partial data."
+  },
+  "methods": {
+    "identify": {
+      "sequence": [
+        {"class": "0x02", "command": "0x06", "payload_hex": "", "repeat": 2, "fetch_bytes": 265, "poll_limit_per_repeat": 10, "expected": "Only empty polls"},
+        {"class": "0x03", "command": "0x06", "payload_hex": "", "repeat": 2, "fetch_bytes": 265, "poll_limit_per_repeat": 10, "expected": "Only empty polls"},
+        {"class": "0x05", "command": "0x06", "payload_hex": "", "repeat": 1, "fetch_bytes": 265, "poll_limit_per_repeat": 21, "expected": "Successful identification frame"}
+      ],
+      "model_response": {"frame_offset": 6, "bytes": 16, "encoding": "ASCII", "expected_hex": "43 53 37 30 30 30 2D 4D 31 37 20 50 4C 55 53 00"},
+      "setup": {"class": "0x05", "command": "0x15", "payload_hex": "", "fetch_bytes": 10, "poll_limit": 21, "expected_response_hex": "A1 85 15 00 02 01 00 00 01 A4"}
+    },
+    "read_block": {
+      "request_class": "0x05",
+      "region_commands": {"main": "0x10", "contacts": "0x2C"},
+      "block_bytes": 2048,
+      "parameters": {"region": "main or contacts", "block_index": "Zero-based index within this region", "block_count": "ceil(region_size / 2048), once the region size is known"},
+      "selector": {
+        "rules_in_priority_order": [
+          {"when": "block_index equals zero", "value": "0x0000"},
+          {"when": "region is contacts and block_index equals block_count minus one", "value": "0x4000 OR block_index"},
+          {"when": "Any remaining block", "value": "0xC000 OR block_index"}
+        ],
+        "index_mask": "0x3FFF",
+        "maximum_block_index": 16383
+      },
+      "request_payload": [
+        {"payload_offset": 0, "type": "u16be", "parameter": "selector"},
+        {"payload_offset": 2, "type": "u16be", "value": 2048}
+      ],
+      "fetch_bytes": 2063,
+      "poll_limit": 21,
+      "response": {
+        "payload_bytes": 2055,
+        "fields": {
+          "success": {"frame_offset": 5, "type": "u8", "expected": 1},
+          "block_index": {"frame_offset": 6, "type": "u16be"},
+          "region_size": {"frame_offset": 8, "type": "u32be"},
+          "data": {"frame_offset": 12, "bytes": 2048}
+        },
+        "checks": ["Returned block_index equals selector AND 0x3FFF", "Region size is greater than zero and no greater than 33554432", "Region size matches preceding responses for the same region", "block_index * 2048 is less than region_size"]
+      }
+    },
+    "read_codeplug": {
+      "sequence": [
+        "Perform identify and its setup exchange",
+        "Read main block zero and obtain main_size from response region_size",
+        "Read main blocks 1 through ceil(main_size / 2048) minus 1 in ascending order",
+        "Read contacts block zero and obtain contact_size from response region_size",
+        "Check that u32le at byte 4 of contacts block zero equals contact_size",
+        "Read contacts blocks 1 through ceil(contact_size / 2048) minus 1 in ascending order"
+      ],
+      "assembly": {
+        "main_base": 0,
+        "contacts_base": "main_size",
+        "block_placement": "For each region, place response data at region_base + block_index * 2048.",
+        "valid_bytes_per_block": "min(2048, region_size - block_index * 2048)",
+        "total_image_bytes": "main_size + contact_size",
+        "completion": "Every block of both regions must have been received, validated and placed exactly once. Missing blocks are not zeros.",
+        "representation": "Decoded image. No XOR file encoding is applied by this method."
+      },
+      "sparse_selection": null
+    },
+    "cancel_read": {
+      "behavior": "Finish the current send_frame/fetch_response exchange, including its response validation and CSW. Check cancellation before sending the next request. If no exchange is active, stop immediately.",
+      "cleanup": "Release the interface and restore its kernel driver using interface_lifecycle.",
+      "partial_image": "Do not publish a partial image as a complete codeplug.",
+      "radio_exit_program_mode": null
+    },
+    "write_codeplug": null,
+    "exit_program_mode": null
+  }
+}
