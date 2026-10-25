@@ -81,9 +81,11 @@ Frame {
             }
         }
 
-        ColumnLayout {
+        Column {
             visible: panel.expanded
             Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            Layout.minimumWidth: 0
             spacing: 8
 
             Repeater {
@@ -92,8 +94,8 @@ Frame {
                 delegate: Rectangle {
                     id: groupRow
                     required property var modelData
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 68
+                    width: parent.width
+                    height: 68
                     radius: 10
                     color: "#f5f8f5"
                     border.color: "#e1e9e2"
@@ -132,12 +134,13 @@ Frame {
                             }
 
                             ToolButton {
-                                visible: !panel.importedChannels || modelData.contactIndex > 0
+                                objectName: "removeSlotChannelButton"
+                                property int zonePosition: modelData.zonePosition || 0
                                 text: "Remove"
                                 Accessible.name: "Remove " + modelData.channelName + " from time slot " + panel.slotNumber
                                 onClicked: {
                                     if (panel.importedChannels)
-                                        store.removeImportedTalkgroup(panel.slotNumber, modelData.contactIndex)
+                                        store.removeImportedTalkgroup(panel.slotNumber, modelData.contactIndex, modelData.zonePosition)
                                     else
                                         store.removeTalkgroup(panel.slotNumber, modelData.id)
                                 }
@@ -151,13 +154,13 @@ Frame {
                 visible: panel.channelCards.length === 0
                 text: "No talkgroups assigned"
                 color: "#66776d"
-                Layout.fillWidth: true
+                width: parent.width
             }
 
             Button {
                 objectName: "addTalkgroupButton"
                 text: "+ Add talkgroup"
-                Layout.fillWidth: true
+                width: parent.width
                 enabled: panel.canAdd
                 onClicked: panel.addRequested(panel.slotNumber)
             }

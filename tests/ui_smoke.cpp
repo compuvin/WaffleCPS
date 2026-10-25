@@ -7,6 +7,8 @@
 #include <QAbstractButton>
 #include <QDebug>
 #include <QDir>
+#include <QTemporaryDir>
+#include <QFile>
 #include <QImage>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
@@ -18,10 +20,26 @@
 #include <QThread>
 #include <QJSValue>
 #include <stdexcept>
+#include <memory>
 
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    const bool switchManual = argc > 2 && QByteArray(argv[2]) == "--switch-manual";
+    const bool switchSaved = argc > 2 && QByteArray(argv[2]) == "--switch-saved";
+    const bool switchLive = argc > 2 && QByteArray(argv[2]) == "--switch-saved-live";
+    const bool exerciseSwitching = switchManual || switchSaved || switchLive;
+    std::unique_ptr<QTemporaryDir> switchDirectory;
+    QString switchPath;
+    const bool requiredContact = argc > 2 && QByteArray(argv[2]) == "--required-contact";
+    const bool advancedNew = argc > 2 && QByteArray(argv[2]) == "--advanced-zone-new";
+    const bool advancedLarge = argc > 2 && QByteArray(argv[2]) == "--advanced-zone-contacts";
+    const bool exerciseAdvanced = (argc > 2 && QByteArray(argv[2]) == "--advanced-zone") || advancedNew || advancedLarge;
+    const bool liveImportNew = argc > 2 && QByteArray(argv[2]) == "--live-import-new";
+    const bool removeNoContact = argc > 2 && QByteArray(argv[2]) == "--remove-no-contact";
+    const bool largeZones = argc > 2 && QByteArray(argv[2]) == "--zones-large";
+    const bool freshZones = argc > 2 && QByteArray(argv[2]) == "--zones-new";
+    const bool exerciseZones = (argc > 2 && QByteArray(argv[2]) == "--zones") || freshZones || largeZones;
     const bool clickNew = argc > 2 && QByteArray(argv[2]) == "--click-new";
     const bool openContacts = argc > 2 && QByteArray(argv[2]) == "--contacts";
     const bool exerciseAdd = argc > 2 && QByteArray(argv[2]) == "--add-talkgroup";
@@ -54,7 +72,96 @@ int main(int argc, char *argv[])
     RadioReader radioReader(nullptr, std::move(read));
     QObject::connect(&radioReader, &RadioReader::completed,
                      &store, &RepeaterStore::importRadioCodeplug);
-    if (manualOrder) {
+    if (exerciseSwitching) {
+        const auto addSimplex = [](RepeaterStore &sample) {
+            sample.selectRepeater(0);
+            if (!sample.addSimplexToSelectedRepeater("North simplex", "446.500", false, 0, 0)) return false;
+            sample.selectRepeater(1);
+            if (!sample.addSimplexToSelectedRepeater("River simplex", "146.520", false, 0, 0)
+                || !sample.addSimplexToSelectedRepeater("River simplex 2", "446.025", false, 0, 0)) return false;
+            sample.selectRepeater(0);
+            return true;
+        };
+        if (switchManual) {
+            if (!addSimplex(store)) return 1;
+        } else {
+            switchDirectory = std::make_unique<QTemporaryDir>();
+            if (!switchDirectory->isValid()) return 1;
+            switchPath = switchDirectory->filePath("switching.waffle");
+            RepeaterStore sample;
+            if (!addSimplex(sample) || !sample.createCustomZone("Mixed test")
+                || !sample.addExistingChannelToSelectedZone(1) || !sample.addExistingChannelToSelectedZone(5)
+                || !sample.createCustomZone("Empty test") || !sample.saveProjectToFile(switchPath)) return 1;
+            if (switchSaved && !store.openProjectFromFile(switchPath)) return 1;
+        }
+    }
+    else if (requiredContact) {
+        store.newProject();
+        if (!store.createCustomZone("Contact test")) return 1;
+    }
+    else if (advancedNew) {
+        store.newProject();
+        if (!store.addRepeater("First", "443.000", "448.000", 1)
+            || !store.addTalkgroup(1, "Alpha", 9, "First Alpha")
+            || !store.addRepeater("Second", "444.350", "449.350", 2)
+            || !store.addTalkgroup(1, "Alpha", 9, "Second Alpha")
+            || !store.addTalkgroup(2, "Bravo", 3100, "Second Bravo")
+            || !store.addContact("Private Example", 1234567, false)) return 1;
+    }
+    else if (exerciseAdvanced) {
+        QString error;
+        const auto base = channelOrderFixture(&error);
+        ImportedCodeplug data;
+        if (!CodeplugReader::read(base, &data, &error)) return 1;
+        data.channels[3].contactIndex = 0; // Legacy files must still open and allow correction.
+        data.contacts.append({"Private Example", 1234567, false});
+        if (advancedLarge)
+            while (data.contacts.size() < 2000)
+                data.contacts.append({QString("Contact %1").arg(data.contacts.size()), 100000 + int(data.contacts.size()), true});
+        QByteArray source;
+        if (!CodeplugWriter::write(base, data, "TEST RADIO", 3109101, &source, &error) || !store.importRadioCodeplug(source)) return 1;
+    }
+    else if (liveImportNew) store.newProject();
+    else if (removeNoContact) {
+        QString error;
+        const auto original = channelOrderFixture(&error);
+        ImportedCodeplug data;
+        if (!CodeplugReader::read(original, &data, &error)) return 1;
+        data.channels[0].contactIndex = 0;
+        data.channels[2].contactIndex = 0;
+        QByteArray source;
+        if (!CodeplugWriter::write(original, data, "TEST RADIO", 3109101, &source, &error)
+            || !store.importRadioCodeplug(source)) return 1;
+    }
+    else if (freshZones) {
+        store.newProject();
+        if (!store.addRepeater("Master", "444.350", "449.350", 2)
+            || !store.addTalkgroup(2, "Alpha", 9, "Master Alpha 2")
+            || !store.addTalkgroup(2, "Bravo", 3100, "Master Bravo 2")
+            || !store.addTalkgroup(1, "Alpha", 9, "Master Alpha 1")
+            || !store.addTalkgroup(1, "Bravo", 3100, "Master Bravo 1")
+            || !store.addTalkgroup(1, "Charlie", 123, "Master Charlie")
+            || !store.addSimplexToSelectedRepeater("Simplex", "446.000", true, 1, 1)) return 1;
+    }
+    else if (exerciseZones) {
+        QString error;
+        auto source = channelOrderFixture(&error);
+        if (largeZones) {
+            ImportedCodeplug large;
+            if (!CodeplugReader::read(source, &large, &error)) return 1;
+            const auto prototype = large.channels.first();
+            while (large.channels.size() < 2000) {
+                auto channel = prototype;
+                channel.name = QString("Catalog %1").arg(large.channels.size() + 1);
+                large.channels.append(channel);
+            }
+            QByteArray expanded;
+            if (!CodeplugWriter::write(source, large, "TEST RADIO", 3109101, &expanded, &error)) return 1;
+            source = expanded;
+        }
+        if (!store.importRadioCodeplug(source)) return 1;
+    }
+    else if (manualOrder) {
         store.newProject();
         if (!store.addRepeater("Manual", "444.350", "449.350", 2)
             || !store.addTalkgroup(2, "Alpha", 9, "TS2 Alpha")
@@ -94,6 +201,324 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (exerciseSwitching) {
+        QObject *root = engine.rootObjects().constFirst();
+        const QStringList expectedNames{"North Ridge", "Riverbend", "Mixed test", "Empty test"};
+        QTimer switching;
+        int iterations = 0;
+        QObject::connect(&switching, &QTimer::timeout, &app, [&] {
+            const int target = switchManual || iterations < 100 ? iterations % 2 : (iterations - 100) % 4;
+            if (switchManual) store.selectRepeater(target);
+            else store.selectImportedGroup(target);
+            const QString actual = switchManual ? store.selectedName() : store.selectedImportedGroup().value("name").toString();
+            if (actual != expectedNames[target]) { qCritical() << "Switch selected wrong entry" << actual; app.exit(66); return; }
+            if (++iterations == 200) {
+                switching.stop();
+                if (qmlWarningCount || !qobject_cast<QQuickWindow *>(root)->isVisible() || (!switchManual && store.modified())) {
+                    qCritical() << "Switching changed the project or raised QML warnings" << qmlWarningCount;
+                    app.exit(67); return;
+                }
+                qInfo() << "200 repeater/zone switches completed" << switchManual << switchLive;
+                app.quit();
+            }
+        });
+        QTimer::singleShot(100, &app, [&] {
+            if (switchLive && !store.openProjectFromFile(switchPath)) { app.exit(68); return; }
+            switching.start(25);
+        });
+        QTimer::singleShot(20000, &app, [&] { qCritical() << "Repeater switching timed out"; app.exit(69); });
+        return app.exec();
+    }
+    if (requiredContact) {
+        QObject *root = engine.rootObjects().constFirst();
+        auto control = [root](const char *name) { return root->findChild<QObject *>(QString::fromLatin1(name)); };
+        auto click = [&app](QObject *object) {
+            if (!object || !QMetaObject::invokeMethod(object, "clicked")) { app.exit(59); }
+        };
+        QTimer::singleShot(100, &app, [&] {
+            click(control("zoneAddChannelButton"));
+            if (control("zoneChannelSave")->property("enabled").toBool() || control("zoneNoContact")) { app.exit(60); return; }
+            control("zoneChannelName")->setProperty("text", "Analog test");
+            control("zoneChannelRx")->setProperty("text", "446.000");
+            control("zoneChannelTx")->setProperty("text", "446.000");
+            control("zoneChannelMode")->setProperty("currentIndex", 1);
+            if (!control("zoneChannelSave")->property("enabled").toBool()) { app.exit(61); return; }
+            click(control("zoneChannelSave"));
+        });
+        QTimer::singleShot(260, &app, [&] {
+            if (!store.addContact("Local", 9, true)) { app.exit(62); return; }
+            click(control("zoneAddChannelButton"));
+            control("zoneChannelName")->setProperty("text", "Digital test");
+            control("zoneChannelRx")->setProperty("text", "444.350");
+            control("zoneChannelTx")->setProperty("text", "449.350");
+            if (control("zoneChannelSave")->property("enabled").toBool()) { app.exit(63); return; }
+            control("zoneContactSearch")->setProperty("text", "Local");
+        });
+        QTimer::singleShot(420, &app, [&] {
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == "zoneContactChoice" && item->property("contactNumber").toInt() == 1) return item;
+                for (auto *child : item->childItems()) if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            click(find(find, qobject_cast<QQuickWindow *>(root)->contentItem()));
+            if (!control("zoneChannelSave")->property("enabled").toBool()) { app.exit(64); return; }
+            click(control("zoneChannelSave"));
+        });
+        QTimer::singleShot(580, &app, [&] {
+            const auto channels = store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList();
+            if (channels.size() != 2 || channels[0].toMap().value("mode").toString() == "Digital"
+                || channels[0].toMap().value("contactIndex").toInt() != 0
+                || channels[1].toMap().value("contactIndex").toInt() != 1 || qmlWarningCount) { app.exit(65); return; }
+            qInfo() << "Digital Add requires contact selection; analog Add works without a contact";
+            app.quit();
+        });
+        return app.exec();
+    }
+    if (exerciseAdvanced) {
+        QObject *root = engine.rootObjects().constFirst();
+        auto control = [root](const char *name) { return root->findChild<QObject *>(QString::fromLatin1(name)); };
+        auto visual = [root](const QString &name, const char *property, int value) -> QQuickItem * {
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == name && item->property(property).toInt() == value && item->isVisible()) return item;
+                for (auto *child : item->childItems()) if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            return find(find, qobject_cast<QQuickWindow *>(root)->contentItem());
+        };
+        auto click = [&app](QObject *object) {
+            if (!object || !QMetaObject::invokeMethod(object, "clicked")) { qCritical() << "Advanced editor control missing"; app.exit(50); }
+        };
+        auto firstChannel = [&store] {
+            return store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList().first().toMap();
+        };
+        int originalContact = 0;
+        const QString expectedName = advancedNew ? QStringLiteral("Second") : QStringLiteral("Ordering test");
+        QTimer::singleShot(100, &app, [&] { click(control(advancedNew ? "manualEditAsZoneButton" : "importedEditAsZoneButton")); });
+        QTimer::singleShot(260, &app, [&] {
+            if (!store.editingAsZone() || store.selectedImportedGroup().value("name").toString() != expectedName
+                || !store.importedRepeaterNames().contains(expectedName)) { app.exit(51); return; }
+            originalContact = firstChannel().value("contactIndex").toInt();
+            click(visual("zoneEditChannelButton", "zonePosition", 1));
+            if (control("zoneChannelSave")->property("enabled").toBool() != (originalContact > 0)
+                || control("zoneNoContact")) { app.exit(58); return; }
+        });
+        QTimer::singleShot(380, &app, [&] {
+            if (advancedLarge && control("zoneContactChoices")->property("count").toInt() != 2000) { app.exit(52); return; }
+            control("zoneContactSearch")->setProperty("text", "pRiVaTe eXaMpLe");
+            if (control("zoneChannelDialog")->property("selectedContactIndex").toInt() != originalContact
+                || control("zoneContactChoices")->property("count").toInt() != 1) { app.exit(53); return; }
+        });
+        QTimer::singleShot(500, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 3)); click(control("zoneChannelCancel")); });
+        QTimer::singleShot(620, &app, [&] {
+            if (firstChannel().value("contactIndex").toInt() != originalContact) { app.exit(54); return; }
+            click(visual("zoneEditChannelButton", "zonePosition", 1));
+            control("zoneContactSearch")->setProperty("text", "1234567");
+        });
+        QTimer::singleShot(760, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 3)); click(control("zoneChannelSave")); });
+        QTimer::singleShot(900, &app, [&] {
+            if (!store.editingAsZone() || firstChannel().value("contactIndex").toInt() != 3
+                || firstChannel().value("contactGroupCall").toBool()) { app.exit(55); return; }
+            click(visual("zoneEditChannelButton", "zonePosition", 1));
+        });
+        QTimer::singleShot(1040, &app, [&] { control("zoneContactSearch")->setProperty("text", "3100"); });
+        QTimer::singleShot(1180, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 2)); click(control("zoneChannelSave")); });
+        QTimer::singleShot(1320, &app, [&] {
+            if (!store.editingAsZone() || firstChannel().value("contactIndex").toInt() != 2) { app.exit(56); return; }
+            click(control("radioSettingsNav"));
+        });
+        QTimer::singleShot(1480, &app, [&] {
+            if (store.editingAsZone() || root->property("currentSection").toString() != "settings"
+                || !store.importedRepeaterNames().contains(expectedName) || qmlWarningCount) {
+                qCritical() << "Advanced editor navigation failed" << qmlWarningCount; app.exit(57); return;
+            }
+            qInfo() << "Advanced zone view and searchable contacts verified" << advancedNew << advancedLarge;
+            app.quit();
+        });
+        return app.exec();
+    }
+    if (liveImportNew) {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("live-import.rdbx");
+        QString error;
+        const auto source = channelOrderFixture(&error);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly) || file.write(source) != source.size()) return 42;
+        file.close();
+        QObject *root = engine.rootObjects().constFirst();
+        bool clickedNew = false;
+        int heartbeats = 0;
+        QTimer heartbeat;
+        QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++heartbeats; });
+        heartbeat.start(20);
+        QTimer::singleShot(80, &app, [&] {
+            if (!store.importCodeplugFromFile(path)) { app.exit(43); return; }
+            QTimer::singleShot(200, &app, [&] {
+                if (root->property("clearingProject").toBool()) { app.exit(44); return; }
+                QTimer::singleShot(80, &app, [] {
+                    for (auto *widget : QApplication::topLevelWidgets())
+                        if (auto *box = qobject_cast<QMessageBox *>(widget)) box->button(QMessageBox::Yes)->click();
+                });
+                for (auto *object : root->findChildren<QObject *>())
+                    if (object->property("text").toString() == "New") {
+                        QMetaObject::invokeMethod(object, "clicked");
+                        clickedNew = true;
+                        break;
+                    }
+            });
+        });
+        QTimer completion;
+        QObject::connect(&completion, &QTimer::timeout, &app, [&] {
+            if (!clickedNew || store.hasImportedCodeplug() || root->property("clearingProject").toBool()) return;
+            if (!qobject_cast<QQuickWindow *>(root)->isVisible() || !store.repeaterNames().isEmpty() || heartbeats < 3 || qmlWarningCount) {
+                app.exit(45); return;
+            }
+            qInfo() << "Live file import followed by confirmed New kept an empty responsive window";
+            app.quit();
+        });
+        completion.start(40);
+        QTimer::singleShot(15000, &app, [&] { qCritical() << "Live import/New timed out"; app.exit(46); });
+        return app.exec();
+    }
+    if (removeNoContact) {
+        QObject *root = engine.rootObjects().constFirst();
+        QTimer::singleShot(100, &app, [&] {
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == "removeSlotChannelButton" && item->property("zonePosition").toInt() == 5 && item->isVisible()) return item;
+                for (auto *child : item->childItems()) if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            auto *button = find(find, qobject_cast<QQuickWindow *>(root)->contentItem());
+            if (!button) { app.exit(47); return; }
+            QMetaObject::invokeMethod(button, "clicked");
+        });
+        QTimer::singleShot(300, &app, [&] {
+            const auto zones = store.selectedImportedGroup().value("zones").toList();
+            const auto channels = zones.first().toMap().value("channels").toList();
+            if (channels.size() != 5 || channels[1].toMap().value("contactIndex").toInt() != 0 || qmlWarningCount) { app.exit(48); return; }
+            store.selectImportedGroup(1);
+            const auto shared = store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList();
+            if (shared.size() != 2 || shared.first().toMap().value("number").toInt() != 3) { app.exit(49); return; }
+            qInfo() << "No-contact Remove targets one channel and preserves the other zone";
+            app.quit();
+        });
+        return app.exec();
+    }
+    if (exerciseZones) {
+        QObject *root = engine.rootObjects().constFirst();
+        auto control = [root](const char *name) { return root->findChild<QObject *>(QString::fromLatin1(name)); };
+        auto click = [&app](QObject *object) {
+            if (!object || !QMetaObject::invokeMethod(object, "clicked")) { qCritical() << "Zone UI control missing"; app.exit(31); }
+        };
+        auto memberNumbers = [&store] {
+            QVariantList result;
+            const auto zones = store.selectedImportedGroup().value("zones").toList();
+            if (zones.isEmpty()) return result;
+            for (const auto &channel : zones.first().toMap().value("channels").toList())
+                result.append(channel.toMap().value("number"));
+            return result;
+        };
+        auto frequencyButton = [root]() -> QObject * {
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == QStringLiteral("zoneEditChannelButton")
+                    && item->property("zonePosition").toInt() == 2 && item->isVisible()) return item;
+                for (auto *child : item->childItems())
+                    if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            return find(find, qobject_cast<QQuickWindow *>(root)->contentItem());
+        };
+        int copiedChannelNumber = 0;
+        QTimer::singleShot(100, &app, [&] {
+            click(control("createZoneButton"));
+            control("createZoneName")->setProperty("text", "UI Mixed");
+            click(control("createZoneSave"));
+        });
+        auto searchFor = [&store, &control](int number) {
+            for (const auto &value : store.availableZoneChannels())
+                if (value.toMap().value("number").toInt() == number)
+                    control("zoneChannelSearch")->setProperty("text", value.toMap().value("name").toString().toUpper());
+        };
+        auto selectExisting = [root, &click](int number) {
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == QStringLiteral("zoneExistingChannelChoice")
+                    && item->property("channelNumber").toInt() == number) return item;
+                for (auto *child : item->childItems())
+                    if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            click(find(find, qobject_cast<QQuickWindow *>(root)->contentItem()));
+        };
+        QTimer::singleShot(240, &app, [&] {
+            click(control("zoneAddChannelButton"));
+            if (largeZones && control("zoneExistingChannels")->property("count").toInt() != 2000) { app.exit(39); return; }
+            control("zoneChannelSearch")->setProperty("text", "3100");
+            if (control("zoneExistingChannels")->property("count").toInt() != 2) { app.exit(40); return; }
+            control("zoneChannelSearch")->setProperty("text", "444.350");
+            if (control("zoneExistingChannels")->property("count").toInt() == 0) { app.exit(41); return; }
+            control("zoneChannelSearch")->setProperty("text", "no-such-channel");
+            if (control("zoneChannelSave")->property("enabled").toBool()) { app.exit(36); return; }
+            searchFor(1);
+        });
+        QTimer::singleShot(360, &app, [&] { selectExisting(1); click(control("zoneChannelSave")); });
+        QTimer::singleShot(480, &app, [&] { click(control("zoneAddChannelButton")); searchFor(3); });
+        QTimer::singleShot(600, &app, [&] { selectExisting(3); click(control("zoneChannelSave")); });
+        QTimer::singleShot(720, &app, [&] {
+            if (memberNumbers() != QVariantList{1, 3} || !store.updateSelectedZoneChannelFrequencies(2, "444.400", "449.400")) {
+                qCritical() << "Zone UI membership failed" << memberNumbers(); app.exit(32); return;
+            }
+            copiedChannelNumber = memberNumbers()[1].toInt();
+            store.leaveZoneEditor(); // Still mixed; establish the initial classification.
+            click(frequencyButton());
+        });
+        QTimer::singleShot(840, &app, [&] {
+            if (control("zoneChannelMode")->property("currentIndex").toInt() != 0
+                || control("zoneChannelRx")->property("text").toString() != "444.4000") { app.exit(37); return; }
+            control("zoneChannelName")->setProperty("text", "Canceled name");
+            control("zoneChannelColorCode")->setProperty("value", 7);
+            control("zoneChannelPower")->setProperty("currentIndex", 1);
+            control("zoneChannelRx")->setProperty("text", "444.350");
+            control("zoneChannelTx")->setProperty("text", "449.350");
+            click(control("zoneChannelCancel"));
+        });
+        QTimer::singleShot(960, &app, [&] {
+            const auto channels = store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList();
+            if (channels[1].toMap().value("receiveFrequency").toString() != "444.4000") { app.exit(33); return; }
+            click(frequencyButton());
+        });
+        QTimer::singleShot(1080, &app, [&] {
+            control("zoneChannelName")->setProperty("text", "Edited channel");
+            control("zoneChannelPower")->setProperty("currentIndex", 1);
+            control("zoneChannelTimeSlot")->setProperty("currentIndex", 1);
+            control("zoneChannelDialog")->setProperty("selectedContactIndex", 2);
+            control("zoneChannelRx")->setProperty("text", "444.350");
+            control("zoneChannelTx")->setProperty("text", "449.350");
+            click(control("zoneChannelSave"));
+        });
+        QTimer::singleShot(1200, &app, [&] {
+            if (!store.importedZoneNames().contains("UI Mixed") || store.selectedImportedGroup().value("isRepeater").toBool()) {
+                qCritical() << "Zone moved during UI correction"; app.exit(34); return;
+            }
+            const auto edited = store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList()[1].toMap();
+            if (edited.value("name").toString() != "Edited channel" || edited.value("timeSlot").toInt() != 2
+                || edited.value("power").toString() != "Low" || edited.value("contactIndex").toInt() != 2) { app.exit(38); return; }
+            click(control("zoneOrderChannelsButton"));
+        });
+        QTimer::singleShot(1320, &app, [&] { click(control("channelOrderCancel")); click(control("radioSettingsNav")); });
+        QTimer::singleShot(1480, &app, [&] {
+            if (!store.importedRepeaterNames().contains("UI Mixed") || root->property("currentSection").toString() != "settings"
+                || memberNumbers() != QVariantList{1, copiedChannelNumber} || qmlWarningCount) {
+                qCritical() << "Deferred zone UI navigation failed" << qmlWarningCount << memberNumbers(); app.exit(35); return;
+            }
+            qInfo() << "Zone UI creation, adding channels, frequency Cancel/Save and deferred classification verified";
+            app.quit();
+        });
+        return app.exec();
+    }
     if (exerciseOrder) {
         QObject *root = engine.rootObjects().constFirst();
         QObject *button = root->findChild<QObject *>(manualOrder ? QStringLiteral("manualOrderChannelsButton") : QStringLiteral("orderChannelsButton"));

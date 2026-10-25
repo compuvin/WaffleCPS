@@ -131,6 +131,7 @@ bool CodeplugReader::read(const QByteArray &bytes, ImportedCodeplug *result, QSt
                                 digital ? int(digitalSettings & 0x0f) : 0,
                                 digital ? (digitalSettings & 0x10 ? 2 : 1) : 0,
                                 contactIndex, highPower});
+        parsed.channels.last().sourceRecord = index;
     }
     if (parsed.channels.isEmpty())
         return reject(QStringLiteral("No channels were found at the expected location."));

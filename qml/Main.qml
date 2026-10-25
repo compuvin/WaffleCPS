@@ -15,6 +15,7 @@ ApplicationWindow {
     Connections {
         target: store
         function onAboutToResetProject() {
+            createZoneDialog.close()
             channelOrderDialog.close()
             window.clearingProject = true
             window.currentSection = "repeaters"
@@ -132,7 +133,7 @@ ApplicationWindow {
                         text: "Contacts"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
-                        onClicked: window.currentSection = "contacts"
+                        onClicked: { store.leaveZoneEditor(); window.currentSection = "contacts" }
                     }
 
                     Button {
@@ -140,7 +141,7 @@ ApplicationWindow {
                         text: "Radio Settings"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "settings"
-                        onClicked: window.currentSection = "settings"
+                        onClicked: { store.leaveZoneEditor(); window.currentSection = "settings" }
                     }
 
                     Label {
@@ -191,12 +192,11 @@ ApplicationWindow {
                         Layout.topMargin: 8
                     }
 
-                    Label {
-                        text: "Zone editor is planned next"
-                        color: "#839188"
-                        wrapMode: Text.WordWrap
+                    Button {
+                        objectName: "createZoneButton"
+                        text: "+ Add zone"
                         Layout.fillWidth: true
-                        font.pixelSize: 12
+                        onClicked: createZoneDialog.openForNew()
                     }
 
                     Item { Layout.fillHeight: true }
@@ -254,14 +254,14 @@ ApplicationWindow {
                         text: "Contacts"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
-                        onClicked: window.currentSection = "contacts"
+                        onClicked: { store.leaveZoneEditor(); window.currentSection = "contacts" }
                     }
                     Button {
                         objectName: "radioSettingsNav"
                         text: "Radio Settings"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "settings"
-                        onClicked: window.currentSection = "settings"
+                        onClicked: { store.leaveZoneEditor(); window.currentSection = "settings" }
                     }
                     Label { text: "REPEATERS"; color: "#697c71"; font.bold: true; font.pixelSize: 11 }
                     ScrollView {
@@ -285,6 +285,11 @@ ApplicationWindow {
                                     }
                                 }
                             }
+                            Button {
+                                text: "+ Add repeater"
+                                Layout.fillWidth: true
+                                onClicked: { store.leaveZoneEditor(); editDialog.openForNew() }
+                            }
                             Label { text: "ZONES"; color: "#697c71"; font.bold: true; font.pixelSize: 11; Layout.topMargin: 12 }
                             Repeater {
                                 model: store.importedZoneNames
@@ -301,6 +306,12 @@ ApplicationWindow {
                                 }
                             }
                         }
+                    }
+                    Button {
+                        objectName: "createZoneButton"
+                        text: "+ Add zone"
+                        Layout.fillWidth: true
+                        onClicked: createZoneDialog.openForNew()
                     }
                     Label {
                         text: store.importedCodeplugSummary
@@ -433,11 +444,18 @@ ApplicationWindow {
                         }
                     }
 
-                    Button {
-                        objectName: "manualOrderChannelsButton"
+                    RowLayout {
                         visible: store.repeaterNames.length > 0
-                        text: "Order channels"
-                        onClicked: channelOrderDialog.openForSelectedRepeater()
+                        Button {
+                            objectName: "manualOrderChannelsButton"
+                            text: "Order channels"
+                            onClicked: channelOrderDialog.openForSelectedRepeater()
+                        }
+                        Button {
+                            objectName: "manualEditAsZoneButton"
+                            text: "Edit as zone (advanced)"
+                            onClicked: store.editSelectedRepeaterAsZone()
+                        }
                     }
 
                     Frame {
@@ -464,31 +482,38 @@ ApplicationWindow {
                                 text: "No additional simplex frequencies."
                                 color: "#64776c"
                             }
-                            Repeater {
-                                model: store.selectedSimplexFrequencies
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    required property int index
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 44
-                                    radius: 8
-                                    color: "#f5f8f5"
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        Label { text: modelData.name; Layout.fillWidth: true }
-                                        Label { text: modelData.frequency + " MHz"; color: "#64776c" }
-                                        Label {
-                                            text: modelData.mode === "Digital"
-                                                  ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
-                                                  : modelData.mode
-                                            color: "#64776c"
-                                        }
-                                        ToolButton {
-                                            text: "Remove"
-                                            Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
-                                            onClicked: store.removeSimplexFromSelectedRepeater(index)
+                            Column {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 0
+                                Layout.minimumWidth: 0
+                                visible: store.selectedSimplexFrequencies.length > 0
+                                spacing: 8
+                                Repeater {
+                                    model: store.selectedSimplexFrequencies
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        required property int index
+                                        width: parent.width
+                                        height: 44
+                                        radius: 8
+                                        color: "#f5f8f5"
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            Label { text: modelData.name; Layout.fillWidth: true }
+                                            Label { text: modelData.frequency + " MHz"; color: "#64776c" }
+                                            Label {
+                                                text: modelData.mode === "Digital"
+                                                      ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
+                                                      : modelData.mode
+                                                color: "#64776c"
+                                            }
+                                            ToolButton {
+                                                text: "Remove"
+                                                Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
+                                                onClicked: store.removeSimplexFromSelectedRepeater(index)
+                                            }
                                         }
                                     }
                                 }
@@ -516,6 +541,7 @@ ApplicationWindow {
                 ColumnLayout {
                     id: importedContent
                     property var group: store.selectedImportedGroup
+                    readonly property bool showZoneEditor: store.editingAsZone || !(group.isRepeater || false)
                     width: Math.max(0, importedWorkspace.availableWidth - 40)
                     x: 20
                     spacing: 20
@@ -531,7 +557,7 @@ ApplicationWindow {
                             color: "#183b2d"
                         }
                         Label {
-                            text: importedContent.group.isRepeater
+                            text: !importedContent.showZoneEditor
                                   ? "Repeater overview"
                                   : (importedContent.group.classification || "Zone overview")
                             color: "#718379"
@@ -540,12 +566,12 @@ ApplicationWindow {
                         }
                     }
                     Label {
-                        visible: importedContent.group.isRepeater || false
+                        visible: !importedContent.showZoneEditor
                         text: "ZONE · " + importedContent.group.zoneChannelCount + " / 16 channels"
                         color: "#64776c"
                     }
                     Frame {
-                        visible: importedContent.group.isRepeater || false
+                        visible: !importedContent.showZoneEditor
                         Layout.fillWidth: true
                         padding: 20
                         background: Rectangle { color: "white"; radius: 16; border.color: "#dce4df" }
@@ -584,14 +610,14 @@ ApplicationWindow {
                         }
                     }
                     Label {
-                        visible: importedContent.group.isRepeater || false
+                        visible: !importedContent.showZoneEditor
                         text: "TIME SLOTS"
                         color: "#697c71"
                         font.pixelSize: 11
                         font.bold: true
                     }
                     RowLayout {
-                        visible: importedContent.group.isRepeater || false
+                        visible: !importedContent.showZoneEditor
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignTop
                         spacing: 16
@@ -619,7 +645,7 @@ ApplicationWindow {
                         }
                     }
                     Label {
-                        visible: Boolean(importedContent.group.isRepeater)
+                        visible: !importedContent.showZoneEditor
                                  && importedContent.group.zoneChannelCount < 16
                                  && importedContent.group.power === "Unknown"
                         text: "Choose High or Low transmit power in Repeater details before adding a talkgroup."
@@ -627,59 +653,30 @@ ApplicationWindow {
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                     }
-                    Button {
-                        visible: importedContent.group.isRepeater || false
-                        objectName: "orderChannelsButton"
-                        text: "Order channels"
-                        enabled: (importedContent.group.zones || []).length === 1
-                        onClicked: channelOrderDialog.openForSelectedZone()
-                        ToolTip.visible: hovered
-                        ToolTip.text: "Arrange the radio's channel order for this zone"
-                    }
-                    Repeater {
-                        model: importedContent.group.isRepeater ? [] : (importedContent.group.zones || [])
-                        delegate: Frame {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            padding: 16
-                            background: Rectangle { color: "white"; radius: 12; border.color: "#dce4df" }
-                            ColumnLayout {
-                                anchors.fill: parent
-                                spacing: 8
-                                Label {
-                                    text: modelData.name + " · " + modelData.channels.length + " channels"
-                                    font.bold: true
-                                    font.pixelSize: 17
-                                    color: "#20372e"
-                                }
-                                Repeater {
-                                    model: importedContent.group.isRepeater ? modelData.repeaterChannels : modelData.channels
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: 48
-                                        radius: 8
-                                        color: "#f5f8f5"
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 12
-                                            anchors.rightMargin: 12
-                                            Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
-                                            Label { text: "RX " + modelData.receiveFrequency + " · TX " + modelData.transmitFrequency + " MHz"; color: "#64776c" }
-                                            Label {
-                                                text: modelData.mode === "Digital"
-                                                      ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
-                                                      : modelData.mode
-                                                color: "#64776c"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                    RowLayout {
+                        visible: !importedContent.showZoneEditor
+                        Button {
+                            objectName: "orderChannelsButton"
+                            text: "Order channels"
+                            enabled: (importedContent.group.zones || []).length === 1
+                            onClicked: channelOrderDialog.openForSelectedZone()
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Arrange the radio's channel order for this zone"
+                        }
+                        Button {
+                            objectName: "importedEditAsZoneButton"
+                            text: "Edit as zone (advanced)"
+                            onClicked: store.editSelectedRepeaterAsZone()
                         }
                     }
+                    ZoneEditor {
+                        Layout.fillWidth: true
+                        visible: importedContent.showZoneEditor
+                        group: importedContent.group
+                        onOrderRequested: channelOrderDialog.openForSelectedZone()
+                    }
                     Frame {
-                        visible: importedContent.group.isRepeater || false
+                        visible: !importedContent.showZoneEditor
                         Layout.fillWidth: true
                         padding: 16
                         background: Rectangle { color: "white"; radius: 12; border.color: "#dce4df" }
@@ -706,31 +703,38 @@ ApplicationWindow {
                                 text: "No additional simplex frequencies."
                                 color: "#64776c"
                             }
-                            Repeater {
-                                model: importedContent.group.simplexChannels || []
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 44
-                                    radius: 8
-                                    color: "#f5f8f5"
-                                    RowLayout {
-                                        anchors.fill: parent
-                                        anchors.leftMargin: 12
-                                        anchors.rightMargin: 12
-                                        Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
-                                        Label { text: modelData.receiveFrequency + " MHz"; color: "#64776c" }
-                                        Label {
-                                            text: modelData.mode === "Digital"
-                                                  ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
-                                                  : modelData.mode
-                                            color: "#64776c"
-                                        }
-                                        ToolButton {
-                                            text: "Remove"
-                                            Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
-                                            onClicked: store.removeSimplexFromSelectedImportedRepeater(
-                                                           modelData.zoneInGroup, modelData.zonePosition)
+                            Column {
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 0
+                                Layout.minimumWidth: 0
+                                visible: (importedContent.group.simplexChannels || []).length > 0
+                                spacing: 8
+                                Repeater {
+                                    model: importedContent.group.simplexChannels || []
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        width: parent.width
+                                        height: 44
+                                        radius: 8
+                                        color: "#f5f8f5"
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            Label { text: modelData.name; Layout.fillWidth: true; elide: Text.ElideRight }
+                                            Label { text: modelData.receiveFrequency + " MHz"; color: "#64776c" }
+                                            Label {
+                                                text: modelData.mode === "Digital"
+                                                      ? "CC " + modelData.colorCode + " · TS " + modelData.timeSlot
+                                                      : modelData.mode
+                                                color: "#64776c"
+                                            }
+                                            ToolButton {
+                                                text: "Remove"
+                                                Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
+                                                onClicked: store.removeSimplexFromSelectedImportedRepeater(
+                                                               modelData.zoneInGroup, modelData.zonePosition)
+                                            }
                                         }
                                     }
                                 }
@@ -1369,6 +1373,39 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: createZoneDialog
+        objectName: "createZoneDialog"
+        modal: true
+        width: Math.min(400, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Create custom zone"
+        standardButtons: Dialog.NoButton
+        function openForNew() { createZoneName.text = ""; createZoneError.text = ""; open() }
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label { text: "Zone name" }
+            TextField { id: createZoneName; objectName: "createZoneName"; maximumLength: 16; Layout.fillWidth: true }
+            Label { id: createZoneError; visible: text.length > 0; color: "#a33a33"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+            RowLayout {
+                Item { Layout.fillWidth: true }
+                Button { text: "Cancel"; onClicked: createZoneDialog.close() }
+                Button {
+                    objectName: "createZoneSave"
+                    text: "Create zone"
+                    enabled: createZoneName.text.trim().length > 0
+                    onClicked: {
+                        if (store.createCustomZone(createZoneName.text)) {
+                            window.currentSection = "repeaters"
+                            createZoneDialog.close()
+                        } else createZoneError.text = "Could not create this zone. Check the name and radio capacity."
+                    }
+                }
+            }
+        }
+    }
+
     ListModel { id: channelOrderModel; objectName: "channelOrderModel" }
 
     Dialog {
@@ -1492,7 +1529,7 @@ ApplicationWindow {
                         for (let i = 0; i < channelOrderModel.count; ++i)
                             numbers.push(channelOrderModel.get(i).channelNumber)
                         if (channelOrderDialog.manualProject ? store.reorderSelectedRepeaterChannels(numbers)
-                                                            : store.reorderSelectedImportedZone(numbers))
+                                                            : store.reorderSelectedZone(numbers))
                             channelOrderDialog.close()
                         else
                             channelOrderError.text = "Could not apply this order. Close and reopen the dialog to refresh the zone."

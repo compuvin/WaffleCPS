@@ -14,6 +14,8 @@ struct ImportedChannel {
     int timeSlot = 0;
     int contactIndex = 0; // One-based contact table index; zero means no contact.
     std::optional<bool> highPower; // CS7000 channel power; absent in older saved projects.
+    int sourceRecord = -1; // Original channel record in the retained export base.
+    bool useDefaultTemplate = false; // Mode changes start from the matching mode defaults.
 };
 
 struct ImportedContact {
@@ -25,6 +27,7 @@ struct ImportedContact {
 struct ImportedZone {
     QString name;
     QVector<int> channelIndexes;
+    std::optional<ImportedChannel> repeaterTemplate; // Settings for a newly created, empty repeater.
 };
 
 struct ImportedCodeplug {

@@ -33,6 +33,8 @@ class RepeaterStore : public QObject
     Q_PROPERTY(bool hasImportedCodeplug READ hasImportedCodeplug NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QString importedCodeplugSummary READ importedCodeplugSummary NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QStringList importedRepeaterNames READ importedRepeaterNames NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(bool editingAsZone READ editingAsZone NOTIFY importedSelectionChanged)
+    Q_PROPERTY(QVariantList availableZoneChannels READ availableZoneChannels NOTIFY importedSelectionChanged)
     Q_PROPERTY(QStringList importedZoneNames READ importedZoneNames NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QVariantMap selectedImportedGroup READ selectedImportedGroup NOTIFY importedSelectionChanged)
     Q_PROPERTY(int selectedImportedIndex READ selectedImportedIndex NOTIFY importedSelectionChanged)
@@ -67,6 +69,22 @@ public:
     QVariantMap selectedImportedGroup() const;
     int selectedImportedIndex() const;
 
+    QVariantList availableZoneChannels() const;
+    bool editingAsZone() const;
+    Q_INVOKABLE bool editSelectedRepeaterAsZone();
+    Q_INVOKABLE QVariantList zoneContactChoices() const;
+    Q_INVOKABLE bool createCustomZone(const QString &name);
+    Q_INVOKABLE bool renameSelectedZone(const QString &name);
+    Q_INVOKABLE bool addExistingChannelToSelectedZone(int channelNumber);
+    Q_INVOKABLE bool createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
+        bool digital, int colorCode, int timeSlot, int contactIndex, bool highPower);
+    Q_INVOKABLE bool updateSelectedZoneChannel(int zonePosition, const QString &name,
+        const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
+        int contactIndex, int powerChoice);
+    Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);
+    Q_INVOKABLE bool updateSelectedZoneChannelFrequencies(int zonePosition, const QString &rx, const QString &tx);
+    Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers);
+    Q_INVOKABLE void leaveZoneEditor();
     Q_INVOKABLE void selectRepeater(int index);
     Q_INVOKABLE bool addRepeater(const QString &name, const QString &rxFrequency,
                                 const QString &txFrequency, int colorCode, bool highPower = true);
@@ -94,7 +112,7 @@ public:
                                                     int powerChoice = -1);
     Q_INVOKABLE bool addImportedTalkgroup(int timeSlot, const QString &name, int id,
                                          const QString &channelName = QString());
-    Q_INVOKABLE bool removeImportedTalkgroup(int timeSlot, int contactIndex);
+    Q_INVOKABLE bool removeImportedTalkgroup(int timeSlot, int contactIndex, int zonePosition = 0);
     Q_INVOKABLE bool addSimplexToSelectedImportedRepeater(int zoneInGroup, const QString &name,
                                                          const QString &frequency, bool digital,
                                                          int colorCode, int timeSlot);
@@ -165,6 +183,11 @@ private:
     void setModified(bool modified);
     bool fail(const QString &message);
     void rebuildImportedGroups();
+    bool buildManualCodeplug(ImportedCodeplug *result);
+    bool ensureZoneRecords(int reservedZones = 0);
+    int selectedZoneIndex() const;
+    void selectZoneIndex(int zoneIndex);
+    void zoneEdited();
 
     struct ImportedGroup {
         QString name;
@@ -182,6 +205,13 @@ private:
     QString m_sourceCodeplugName;
     QByteArray m_sourceCodeplug;
     bool m_modified = false;
+    bool m_generatedCodeplug = false;
+    bool m_zoneClassificationPending = false;
+    int m_advancedZoneIndex = -1;
+    mutable bool m_zoneChoicesCached = false;
+    mutable QVariantList m_zoneChoicesCache;
+    mutable bool m_contactsCached = false;
+    mutable QVariantList m_contactsCache;
     ImportedCodeplug m_importedCodeplug;
     QVector<ImportedContact> m_manualContacts;
     QString m_radioName;

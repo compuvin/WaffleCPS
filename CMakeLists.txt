@@ -43,6 +43,7 @@ qt_add_resources(wafflecps "qml"
         qml/Main.qml
         qml/SlotPanel.qml
         qml/ContactsView.qml
+        qml/ZoneEditor.qml
 )
 
 target_link_libraries(wafflecps PRIVATE
@@ -58,6 +59,16 @@ target_link_libraries(wafflecps PRIVATE
 
 include(CTest)
 if(BUILD_TESTING)
+    qt_add_executable(zone_editor_test
+        tests/zone_editor.cpp tests/channel_order_fixture.h
+        src/repeaterstore.cpp src/repeaterstore.h
+        src/codeplugreader.cpp src/codeplugreader.h
+        src/codeplugwriter.cpp src/codeplugwriter.h
+        src/cs7000default.cpp src/cs7000default.h
+        src/ziparchive.cpp src/ziparchive.h)
+    target_link_libraries(zone_editor_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    add_test(NAME zone_editor COMMAND zone_editor_test)
+
     qt_add_executable(channel_order_test
         tests/channel_order.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
@@ -125,10 +136,35 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml qml/ContactsView.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
     )
     target_link_libraries(ui_smoke_test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets ZLIB::ZLIB radioreader)
+    foreach(mode IN ITEMS manual saved saved-live)
+        add_test(NAME ui_repeater_switch_${mode} COMMAND ui_smoke_test --demo --switch-${mode})
+        set_tests_properties(ui_repeater_switch_${mode} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+    endforeach()
+    add_test(NAME ui_required_contact COMMAND ui_smoke_test --demo --required-contact)
+    set_tests_properties(ui_required_contact PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    foreach(mode IN ITEMS imported new contacts)
+        if(mode STREQUAL "imported")
+            set(advanced_argument "--advanced-zone")
+        else()
+            set(advanced_argument "--advanced-zone-${mode}")
+        endif()
+        add_test(NAME ui_advanced_zone_${mode} COMMAND ui_smoke_test --demo ${advanced_argument})
+        set_tests_properties(ui_advanced_zone_${mode} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endforeach()
+    add_test(NAME ui_live_import_new COMMAND ui_smoke_test --demo --live-import-new)
+    set_tests_properties(ui_live_import_new PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_remove_no_contact COMMAND ui_smoke_test --demo --remove-no-contact)
+    set_tests_properties(ui_remove_no_contact PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_zone_editor_large COMMAND ui_smoke_test --demo --zones-large)
+    set_tests_properties(ui_zone_editor_large PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_zone_editor_new COMMAND ui_smoke_test --demo --zones-new)
+    set_tests_properties(ui_zone_editor_new PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_zone_editor COMMAND ui_smoke_test --demo --zones)
+    set_tests_properties(ui_zone_editor PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke COMMAND ui_smoke_test)
     set_tests_properties(ui_smoke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_new COMMAND ui_smoke_test --new)

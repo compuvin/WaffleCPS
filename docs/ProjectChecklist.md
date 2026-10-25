@@ -50,24 +50,24 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [x] Keep zones with channels from multiple repeaters, unrelated non-simplex channels, or only simplex frequencies in Zones.
 - [x] Preserve the original source bytes inside a `.waffle` project.
 - [x] Remove a talkgroup only from the selected zone; keep a channel record if another zone uses it, and delete it if no zone uses it.
-- [ ] Build the visual editor for mixed and custom zones, including membership and ordering.
-  - [ ] Let users create a custom zone and add channels to it.
-  - [ ] Let users manually correct a channel frequency in a zone.
-  - [ ] Reclassify the zone after a correction; if its channels now fit one repeater, show that same zone under Repeaters while preserving its name, membership, and channel order.
-  - [ ] Keep other zones unchanged when a corrected channel is shared.
+- [x] Build the visual editor for mixed and custom zones, including membership and ordering.
+  - [x] Let users create a custom zone and add channels to it.
+  - [x] Let users manually correct a channel frequency in a zone.
+  - [x] Reclassify the zone after a correction; if its channels now fit one repeater, show that same zone under Repeaters while preserving its name, membership, and channel order.
+  - [x] Keep other zones unchanged when a corrected channel is shared.
 - [ ] Decode receive groups, scan lists, radio settings, and other required records while retaining unknown fields.
-- [ ] Verify import against controlled CPS edits and more than one representative codeplug.
-- [ ] Compare an unchanged import/export round trip byte by byte before enabling export.
-- [ ] Export a validated CS7000 M17 Plus codeplug without losing unsupported settings.
+- [x] Verify import against controlled CPS edits and more than one representative codeplug.
+- [x] Compare an unchanged import/export round trip byte by byte before enabling export.
+- [x] Export a validated CS7000 M17 Plus codeplug without losing unsupported settings.
 
 ## Project format and reliability
 
 - [x] Save and open an offline `.waffle` project containing editor data and an untouched source attachment.
 - [x] Provide New, Open, Import, Save, and Save As actions.
 - [x] Fix the New-button crash after confirming a reset from an imported project; verify the window stays open with an empty project.
-- [ ] Cover edit, save, reopen, and zone-membership changes with realistic project tests.
+- [x] Cover edit, save, reopen, and zone-membership changes with realistic project tests.
 - [ ] Add clear user-facing errors and recovery steps for unsupported or damaged files.
-- [ ] Keep imported source data and derived repeater classification distinct so edits can be reviewed and exported safely.
+- [x] Keep imported source data and derived repeater classification distinct so edits can be reviewed and exported safely.
 
 ## Radio settings
 

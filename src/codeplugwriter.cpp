@@ -1,7 +1,9 @@
 #include "codeplugwriter.h"
+#include "cs7000default.h"
 
 #include <QtEndian>
 #include <algorithm>
+#include <array>
 
 namespace {
 constexpr qsizetype channelCountAt = 0x2424;
@@ -104,6 +106,29 @@ void writeContactName(QByteArray *bytes, qsizetype at, const QString &name)
             (*bytes)[byteAt] = char((old & ~mask) | ((code & (1 << (5 - part))) ? mask : 0));
         }
     }
+}
+
+QByteArray defaultChannelRecord(bool digital)
+{
+    static const auto records = [] {
+        std::array<QByteArray, 2> result;
+        const auto source = cs7000DefaultCodeplug();
+        ImportedCodeplug parsed;
+        QString error;
+        if (!CodeplugReader::read(source, &parsed, &error)) return result;
+        const auto mask = source.mid(0x300, 256);
+        for (int i = 0; i < parsed.channels.size(); ++i) {
+            auto &record = result[parsed.channels[i].digital ? 1 : 0];
+            if (!record.isEmpty()) continue;
+            record.resize(48);
+            for (int j = 0; j < 48; ++j) {
+                const qsizetype at = channelRecordAt + 48 * i + j;
+                record[j] = source[at] ^ mask[at % 256];
+            }
+        }
+        return result;
+    }();
+    return records[digital ? 1 : 0];
 }
 
 bool sameData(const ImportedCodeplug &a, const ImportedCodeplug &b)
@@ -211,26 +236,35 @@ bool CodeplugWriter::write(const QByteArray &source, const ImportedCodeplug &tar
             continue;
         }
         const auto &channel = target.channels.at(i);
-        int sourceIndex = -1;
-        if (i < original.channels.size() && original.channels.at(i).name == channel.name
-            && original.channels.at(i).digital == channel.digital)
-            sourceIndex = i;
-        if (sourceIndex < 0)
-            for (int j = 0; j < original.channels.size(); ++j)
-                if (original.channels.at(j).name == channel.name
-                    && original.channels.at(j).digital == channel.digital) {
-                    sourceIndex = j;
-                    break;
-                }
-        if (sourceIndex < 0)
-            for (int j = 0; j < original.channels.size(); ++j)
-                if (original.channels.at(j).digital == channel.digital) {
-                    sourceIndex = j;
-                    break;
-                }
-        if (sourceIndex < 0)
-            return fail(error, QStringLiteral("The export base has no matching channel mode."));
-        const QByteArray record = originalDecoded.mid(channelRecordAt + 48 * sourceIndex, 48);
+        QByteArray record;
+        if (channel.useDefaultTemplate) {
+            record = defaultChannelRecord(channel.digital);
+        } else {
+            int sourceIndex = channel.sourceRecord;
+            if (sourceIndex < -1 || sourceIndex >= original.channels.size()
+                || (sourceIndex >= 0 && original.channels[sourceIndex].digital != channel.digital))
+                return fail(error, QStringLiteral("A channel has an invalid source record."));
+            if (sourceIndex < 0 && i < original.channels.size() && original.channels.at(i).name == channel.name
+                && original.channels.at(i).digital == channel.digital)
+                sourceIndex = i;
+            if (sourceIndex < 0)
+                for (int j = 0; j < original.channels.size(); ++j)
+                    if (original.channels.at(j).name == channel.name
+                        && original.channels.at(j).digital == channel.digital) {
+                        sourceIndex = j;
+                        break;
+                    }
+            if (sourceIndex < 0)
+                for (int j = 0; j < original.channels.size(); ++j)
+                    if (original.channels.at(j).digital == channel.digital) {
+                        sourceIndex = j;
+                        break;
+                    }
+            record = sourceIndex >= 0
+                ? originalDecoded.mid(channelRecordAt + 48 * sourceIndex, 48) : defaultChannelRecord(channel.digital);
+        }
+        if (record.size() != 48)
+            return fail(error, QStringLiteral("No default record is available for this channel mode."));
         std::copy(record.begin(), record.end(), decoded.begin() + recordAt);
         writeName(&decoded, nameAt, 32, channel.name);
         write32(&decoded, recordAt, channel.frequencyAHz);
