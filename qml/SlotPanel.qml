@@ -19,10 +19,13 @@ Frame {
                     talkgroupName: group.name,
                     id: group.id,
                     groupCall: group.groupCall,
-                    contactIndex: group.contactIndex
+                    contactIndex: group.contactIndex,
+                    zonePosition: channel.zonePosition
                 })
             }
         }
+        if (panel.importedChannels)
+            cards.sort((a, b) => a.zonePosition - b.zonePosition)
         return cards
     }
     signal addRequested(int slotNumber)

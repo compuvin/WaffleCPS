@@ -16,8 +16,8 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
   - [x] Let users create a new talkgroup with its ID and display name in the same flow.
   - [x] Provide a separate channel name field, so a channel can be labeled "Brooklyn CT Wide" while using the "CT Statewide" talkgroup.
   - [x] Inherit the repeater frequencies, color code, and selected time slot automatically.
-- [ ] Make the existing Order channels button open one ordered list for the selected repeater zone.
-  - [ ] Let users interleave channels from Time Slot 1, Time Slot 2, and Additional simplex frequencies in any order.
+- [x] Make the existing Order channels button open one ordered list for the selected repeater zone.
+  - [x] Let users interleave channels from Time Slot 1, Time Slot 2, and Additional simplex frequencies in any order.
   - [x] Preserve an imported zone's original channel order until the user changes it.
   - [x] Default newly generated repeater zones to Time Slot 2 channels, then Time Slot 1 channels, then Additional simplex frequencies.
   - [x] Keep repeater frequencies and color code on the repeater, rather than repeating them in channel editing controls.

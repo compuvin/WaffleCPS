@@ -20,6 +20,7 @@
 #include <QVariantMap>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace {
 
@@ -605,6 +606,39 @@ bool RepeaterStore::removeSimplexFromSelectedImportedRepeater(int zoneInGroup, i
     return true;
 }
 
+bool RepeaterStore::reorderSelectedImportedZone(const QVariantList &channelNumbers)
+{
+    if (m_selectedImportedIndex < 0 || m_selectedImportedIndex >= m_importedGroups.size())
+        return false;
+    const auto &group = m_importedGroups.at(m_selectedImportedIndex);
+    if (!group.repeater || group.zoneIndexes.size() != 1)
+        return false;
+    auto &zone = m_importedCodeplug.zones[group.zoneIndexes.constFirst()];
+    if (channelNumbers.size() != zone.channelIndexes.size())
+        return false;
+    QVector<int> reordered;
+    for (const QVariant &value : channelNumbers) {
+        bool ok = false;
+        const int number = value.toInt(&ok);
+        if (!ok || value.toDouble() != number
+            || number < 1 || number > m_importedCodeplug.channels.size())
+            return false;
+        reordered.append(number - 1);
+    }
+    auto expected = zone.channelIndexes;
+    auto supplied = reordered;
+    std::sort(expected.begin(), expected.end());
+    std::sort(supplied.begin(), supplied.end());
+    if (expected != supplied)
+        return false;
+    if (zone.channelIndexes == reordered)
+        return true;
+    zone.channelIndexes = std::move(reordered);
+    setModified(true);
+    emit importedSelectionChanged();
+    return true;
+}
+
 void RepeaterStore::rebuildImportedGroups()
 {
     m_importedGroups.clear();
@@ -662,6 +696,86 @@ void RepeaterStore::rebuildImportedGroups()
     m_selectedImportedIndex = 0;
     emit importedCodeplugChanged();
     emit importedSelectionChanged();
+}
+
+int RepeaterStore::nextZoneOrder(const Repeater &repeater)
+{
+    int maximum = -1;
+    for (const auto *slot : {&repeater.slot1, &repeater.slot2})
+        for (const auto &group : *slot) maximum = std::max(maximum, group.zoneOrder);
+    for (const auto &simplex : repeater.simplexFrequencies)
+        maximum = std::max(maximum, simplex.zoneOrder);
+    return maximum < 0 ? -1 : maximum + 1;
+}
+
+QVector<QPair<int, int>> RepeaterStore::orderedChannels(const Repeater &repeater)
+{
+    QVector<QPair<int, int>> result;
+    for (int i = 0; i < int(repeater.slot2.size()); ++i) result.append({2, i});
+    for (int i = 0; i < int(repeater.slot1.size()); ++i) result.append({1, i});
+    for (int i = 0; i < int(repeater.simplexFrequencies.size()); ++i) result.append({0, i});
+    auto rank = [&](const QPair<int, int> &entry) {
+        const int value = entry.first == 0 ? repeater.simplexFrequencies[entry.second].zoneOrder
+            : (entry.first == 1 ? repeater.slot1 : repeater.slot2)[entry.second].zoneOrder;
+        return value < 0 ? std::numeric_limits<int>::max() : value;
+    };
+    std::stable_sort(result.begin(), result.end(), [&](const auto &a, const auto &b) { return rank(a) < rank(b); });
+    return result;
+}
+
+QVariantList RepeaterStore::selectedRepeaterChannels() const
+{
+    QVariantList result;
+    if (m_repeaters.empty()) return result;
+    const auto &repeater = selected();
+    for (const auto &entry : orderedChannels(repeater)) {
+        QString name;
+        int slot = entry.first;
+        int number = 0;
+        if (slot == 0) {
+            const auto &simplex = repeater.simplexFrequencies[entry.second];
+            name = simplex.name;
+            slot = simplex.digital ? simplex.timeSlot : 0;
+            number = int(repeater.slot2.size() + repeater.slot1.size()) + entry.second + 1;
+        } else {
+            const auto &group = (slot == 1 ? repeater.slot1 : repeater.slot2)[entry.second];
+            name = group.channelName.isEmpty() ? group.name : group.channelName;
+            number = (slot == 1 ? int(repeater.slot2.size()) : 0) + entry.second + 1;
+        }
+        result.append(QVariantMap{{QStringLiteral("name"), name}, {QStringLiteral("number"), number},
+            {QStringLiteral("timeSlot"), slot}, {QStringLiteral("simplex"), entry.first == 0}});
+    }
+    return result;
+}
+
+bool RepeaterStore::reorderSelectedRepeaterChannels(const QVariantList &channelNumbers)
+{
+    if (hasImportedCodeplug() || m_repeaters.empty()) return false;
+    const auto current = selectedRepeaterChannels();
+    if (channelNumbers.size() != current.size()) return false;
+    QSet<int> seen;
+    for (const auto &value : channelNumbers) {
+        bool ok = false;
+        const int number = value.toInt(&ok);
+        if (!ok || value.toDouble() != number || number < 1 || number > current.size() || seen.contains(number))
+            return false;
+        seen.insert(number);
+    }
+    bool changed = false;
+    for (int i = 0; i < current.size(); ++i)
+        changed |= current[i].toMap().value(QStringLiteral("number")).toInt() != channelNumbers[i].toInt();
+    if (!changed) return true;
+    auto &repeater = selected();
+    for (int i = 0; i < channelNumbers.size(); ++i) {
+        int index = channelNumbers[i].toInt() - 1;
+        if (index < int(repeater.slot2.size())) repeater.slot2[index].zoneOrder = i;
+        else if ((index -= int(repeater.slot2.size())) < int(repeater.slot1.size())) repeater.slot1[index].zoneOrder = i;
+        else repeater.simplexFrequencies[index - int(repeater.slot1.size())].zoneOrder = i;
+    }
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    setModified(true);
+    return true;
 }
 
 QVariantList RepeaterStore::slot1Talkgroups() const { return m_repeaters.empty() ? QVariantList() : toVariantList(selected().slot1); }
@@ -877,8 +991,9 @@ bool RepeaterStore::addSimplexToSelectedRepeater(const QString &name, const QStr
         || (digital && (colorCode < 0 || colorCode > 15 || timeSlot < 1 || timeSlot > 2)))
         return false;
     selected().simplexFrequencies.push_back({cleanName, hz, digital,
-                                             digital ? colorCode : 0, digital ? timeSlot : 0});
+                                             digital ? colorCode : 0, digital ? timeSlot : 0, nextZoneOrder(selected())});
     emit simplexFrequenciesChanged();
+    emit talkgroupsChanged();
     setModified(true);
     return true;
 }
@@ -891,6 +1006,7 @@ bool RepeaterStore::removeSimplexFromSelectedRepeater(int index)
     auto &frequencies = selected().simplexFrequencies;
     frequencies.erase(frequencies.begin() + index);
     emit simplexFrequenciesChanged();
+    emit talkgroupsChanged();
     setModified(true);
     return true;
 }
@@ -949,7 +1065,7 @@ bool RepeaterStore::addTalkgroup(int timeSlot, const QString &name, int id,
             return false;
         m_manualContacts.append({cleanName, id, true});
     }
-    items.push_back({cleanName, id, cleanChannelName});
+    items.push_back({cleanName, id, cleanChannelName, nextZoneOrder(selected())});
     emit talkgroupsChanged();
     emit contactsChanged();
     setModified(true);
@@ -979,7 +1095,8 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
             QJsonArray result;
             for (const auto &group : groups) {
                 QJsonObject item{{QStringLiteral("name"), group.name},
-                                 {QStringLiteral("id"), group.id}};
+                                 {QStringLiteral("id"), group.id},
+                                 {QStringLiteral("zoneOrder"), group.zoneOrder}};
                 if (!group.channelName.isEmpty()) {
                     item.insert(QStringLiteral("channelName"), group.channelName);
                 }
@@ -1002,14 +1119,15 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                            {QStringLiteral("frequencyHz"), frequency.hz},
                                            {QStringLiteral("digital"), frequency.digital},
                                            {QStringLiteral("colorCode"), frequency.colorCode},
-                                           {QStringLiteral("timeSlot"), frequency.timeSlot}});
+                                           {QStringLiteral("timeSlot"), frequency.timeSlot},
+                                           {QStringLiteral("zoneOrder"), frequency.zoneOrder}});
             item.insert(QStringLiteral("simplexFrequencies"), simplex);
         }
         repeaters.append(item);
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), 6},
+                     {QStringLiteral("schemaVersion"), 7},
                      {QStringLiteral("repeaters"), repeaters}};
     root.insert(QStringLiteral("radioSettings"),
                 QJsonObject{{QStringLiteral("name"), m_radioName},
@@ -1091,7 +1209,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 6, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 7, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
@@ -1143,7 +1261,10 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
                             || channelName.isEmpty() || channelName.size() > 32)))
                     return false;
                 ids.insert(static_cast<int>(id));
-                groups->push_back({name, static_cast<int>(id), channelName});
+                qint64 order = -1;
+                if (version >= 7 && !integerValue(group.value(QStringLiteral("zoneOrder")), -1, 2147483646, &order))
+                    return false;
+                groups->push_back({name, static_cast<int>(id), channelName, int(order)});
             }
             return true;
         };
@@ -1167,6 +1288,10 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
                     || !integerValue(frequency.value(QStringLiteral("colorCode")), 0, 15, &colorCode)
                     || !integerValue(frequency.value(QStringLiteral("timeSlot")), 0, 2, &timeSlot))
                     return fail(QStringLiteral("A simplex frequency has invalid details."));
+                qint64 order = -1;
+                if (version >= 7 && !integerValue(frequency.value(QStringLiteral("zoneOrder")), -1, 2147483646, &order))
+                    return fail(QStringLiteral("A simplex frequency has invalid channel order."));
+                simplex.zoneOrder = int(order);
                 simplex.digital = frequency.value(QStringLiteral("digital")).toBool();
                 simplex.colorCode = colorCode;
                 simplex.timeSlot = timeSlot;
@@ -1597,6 +1722,14 @@ bool RepeaterStore::exportCodeplugToFile(const QString &path)
                     zone.channelIndexes.append(target.channels.size());
                     target.channels.append(channel);
                 }
+                const auto originalMembers = zone.channelIndexes;
+                zone.channelIndexes.clear();
+                for (const auto &entry : orderedChannels(repeater)) {
+                    const int index = entry.first == 2 ? entry.second
+                        : entry.first == 1 ? int(repeater.slot2.size()) + entry.second
+                        : int(repeater.slot2.size() + repeater.slot1.size()) + entry.second;
+                    zone.channelIndexes.append(originalMembers[index]);
+                }
                 target.zones.append(std::move(zone));
             }
         } else if (!m_manualContacts.isEmpty()) {
@@ -1652,7 +1785,12 @@ std::vector<RepeaterStore::Talkgroup> &RepeaterStore::talkgroups(int timeSlot)
 QVariantList RepeaterStore::toVariantList(const std::vector<Talkgroup> &talkgroups)
 {
     QVariantList result;
-    for (const auto &talkgroup : talkgroups) {
+    auto ordered = talkgroups;
+    std::stable_sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) {
+        return (a.zoneOrder < 0 ? std::numeric_limits<int>::max() : a.zoneOrder)
+             < (b.zoneOrder < 0 ? std::numeric_limits<int>::max() : b.zoneOrder);
+    });
+    for (const auto &talkgroup : ordered) {
         const QString channelName = talkgroup.channelName.isEmpty() ? talkgroup.name : talkgroup.channelName;
         result.append(QVariantMap{{QStringLiteral("name"), talkgroup.name},
                                   {QStringLiteral("id"), talkgroup.id},

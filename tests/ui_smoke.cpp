@@ -1,6 +1,7 @@
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
 #include "../src/radioreader.h"
+#include "channel_order_fixture.h"
 
 #include <QApplication>
 #include <QAbstractButton>
@@ -15,6 +16,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QThread>
+#include <QJSValue>
 #include <stdexcept>
 
 int main(int argc, char *argv[])
@@ -26,6 +28,8 @@ int main(int argc, char *argv[])
     const bool exerciseCreate = argc > 2 && QByteArray(argv[2]) == "--create-talkgroup";
     const bool exercisePower = argc > 2 && QByteArray(argv[2]) == "--power";
     const bool exerciseSettings = argc > 2 && QByteArray(argv[2]) == "--settings";
+    const bool manualOrder = argc > 2 && QByteArray(argv[2]) == "--manual-order";
+    const bool exerciseOrder = argc > 2 && QByteArray(argv[2]) == "--order" || manualOrder;
     const bool captureScreenshots = argc > 2 && QByteArray(argv[2]) == "--capture-screenshots";
     const bool demo = argc > 1 && QByteArray(argv[1]) == "--demo";
     const QByteArray radioMode = argc > 2 ? QByteArray(argv[2]) : QByteArray();
@@ -50,7 +54,26 @@ int main(int argc, char *argv[])
     RadioReader radioReader(nullptr, std::move(read));
     QObject::connect(&radioReader, &RadioReader::completed,
                      &store, &RepeaterStore::importRadioCodeplug);
-    if (argc > 1 && QByteArray(argv[1]) == "--new")
+    if (manualOrder) {
+        store.newProject();
+        if (!store.addRepeater("Manual", "444.350", "449.350", 2)
+            || !store.addTalkgroup(2, "Alpha", 9, "TS2 Alpha")
+            || !store.addTalkgroup(2, "Bravo", 3100, "TS2 Bravo")
+            || !store.addTalkgroup(1, "Alpha", 9, "TS1 Alpha 1")
+            || !store.addTalkgroup(1, "Bravo", 3100, "TS1 Bravo")
+            || !store.addTalkgroup(1, "Charlie", 123, "TS1 Alpha 2")
+            || !store.addSimplexToSelectedRepeater("Simplex", "446.000", true, 1, 1)) return 1;
+    }
+    else if (exerciseOrder) {
+        QString error;
+        const auto source = channelOrderFixture(&error);
+        if (source.isEmpty() || !store.importRadioCodeplug(source)) {
+            qCritical() << "Could not create ordering UI fixture:" << error;
+            return 1;
+        }
+        store.selectImportedGroup(0);
+    }
+    else if (argc > 1 && QByteArray(argv[1]) == "--new")
         store.newProject();
     else if (argc > 1 && QByteArray(argv[1]) == "--embedded") {
         if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug()))
@@ -71,6 +94,93 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (exerciseOrder) {
+        QObject *root = engine.rootObjects().constFirst();
+        QObject *button = root->findChild<QObject *>(manualOrder ? QStringLiteral("manualOrderChannelsButton") : QStringLiteral("orderChannelsButton"));
+        QObject *dialog = root->findChild<QObject *>(QStringLiteral("channelOrderDialog"));
+        QObject *cancel = root->findChild<QObject *>(QStringLiteral("channelOrderCancel"));
+        QObject *save = root->findChild<QObject *>(QStringLiteral("channelOrderSave"));
+        QObject *slot1 = root->findChild<QObject *>(manualOrder ? QStringLiteral("manualSlot1") : QStringLiteral("importedSlot1"));
+        QObject *slot2 = root->findChild<QObject *>(manualOrder ? QStringLiteral("manualSlot2") : QStringLiteral("importedSlot2"));
+        if (!button || !dialog || !cancel || !save || !slot1 || !slot2) return 20;
+        auto order = [&store, manualOrder] {
+            if (manualOrder) {
+                QVariantList numbers;
+                for (const auto &entry : store.selectedRepeaterChannels())
+                    numbers.append(entry.toMap().value(QStringLiteral("number")));
+                return numbers;
+            }
+            QVariantList numbers;
+            const auto zones = store.selectedImportedGroup().value(QStringLiteral("zones")).toList();
+            for (const auto &item : zones.constFirst().toMap().value(QStringLiteral("channels")).toList())
+                numbers.append(item.toMap().value(QStringLiteral("number")));
+            return numbers;
+        };
+        auto names = [](QObject *panel) {
+            const auto value = panel->property("channelCards");
+            const auto cards = value.metaType() == QMetaType::fromType<QJSValue>()
+                                   ? value.value<QJSValue>().toVariant().toList() : value.toList();
+            QStringList result;
+            for (const auto &card : cards)
+                result.append(card.toMap().value(QStringLiteral("channelName")).toString());
+            return result;
+        };
+        auto move = [root, &app](const QString &objectName, int row) {
+            QObject *list = root->findChild<QObject *>(QStringLiteral("channelOrderList"));
+            auto *content = list ? list->property("contentItem").value<QQuickItem *>() : nullptr;
+            const auto find = [&](auto &&self, QQuickItem *item) -> QQuickItem * {
+                if (!item) return nullptr;
+                if (item->objectName() == objectName && item->property("rowIndex").toInt() == row
+                    && item->isEnabled())
+                    return item;
+                for (auto *child : item->childItems())
+                    if (auto *found = self(self, child)) return found;
+                return nullptr;
+            };
+            if (auto *control = find(find, content)) {
+                QMetaObject::invokeMethod(control, "clicked");
+                return;
+            }
+            qCritical() << "Ordering control not found" << objectName << row;
+            app.exit(21);
+        };
+        const QVariantList original = manualOrder ? QVariantList{1, 2, 3, 4, 5, 6} : QVariantList{4, 1, 2, 5, 3, 6};
+        QTimer::singleShot(80, &app, [&] {
+            if (names(slot1) != QStringList({"TS1 Alpha 1", "TS1 Bravo", "TS1 Alpha 2"})) {
+                qCritical() << "Slot cards regrouped repeated contacts instead of following zone order";
+                app.exit(22);
+                return;
+            }
+            QMetaObject::invokeMethod(button, "clicked");
+        });
+        QTimer::singleShot(160, &app, [&] {
+            if (!dialog->property("visible").toBool()) { app.exit(23); return; }
+            move(QStringLiteral("channelOrderDown"), 0);
+            if (order() != original) { app.exit(24); return; }
+            QMetaObject::invokeMethod(cancel, "clicked");
+        });
+        QTimer::singleShot(260, &app, [&] {
+            if (order() != original) { app.exit(25); return; }
+            QMetaObject::invokeMethod(button, "clicked");
+        });
+        QTimer::singleShot(340, &app, [&] { move(QStringLiteral("channelOrderDown"), 0); });
+        QTimer::singleShot(420, &app, [&] { move(QStringLiteral("channelOrderUp"), 3); });
+        QTimer::singleShot(500, &app, [&] { move(QStringLiteral("channelOrderUp"), 2); });
+        QTimer::singleShot(580, &app, [&] { QMetaObject::invokeMethod(save, "clicked"); });
+        QTimer::singleShot(740, &app, [&] {
+            if (dialog->property("visible").toBool() || order() != (manualOrder ? QVariantList{2, 4, 1, 3, 5, 6} : QVariantList{1, 5, 4, 2, 3, 6})
+                || names(slot1) != (manualOrder ? QStringList{"TS1 Bravo", "TS1 Alpha 1", "TS1 Alpha 2"}
+                                                      : QStringList{"TS1 Alpha 1", "TS1 Bravo", "TS1 Alpha 2"})
+                || names(slot2) != QStringList({"TS2 Bravo", "TS2 Alpha"}) || qmlWarningCount) {
+                qCritical() << "Ordering UI failed" << order() << names(slot1) << names(slot2) << qmlWarningCount;
+                app.exit(26);
+                return;
+            }
+            qInfo() << "Ordering dialog Cancel/Save and filtered slot-card order verified";
+            app.quit();
+        });
+        return app.exec();
+    }
     if (exerciseRadio) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         window->resize(800, 720);

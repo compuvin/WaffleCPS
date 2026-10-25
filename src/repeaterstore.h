@@ -22,6 +22,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(int radioId READ radioId NOTIFY radioSettingsChanged)
     Q_PROPERTY(QString radioModel READ radioModel NOTIFY radioSettingsChanged)
     Q_PROPERTY(QString radioCpsVersion READ radioCpsVersion NOTIFY radioSettingsChanged)
+    Q_PROPERTY(QVariantList selectedRepeaterChannels READ selectedRepeaterChannels NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList slot1Talkgroups READ slot1Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList slot2Talkgroups READ slot2Talkgroups NOTIFY talkgroupsChanged)
     Q_PROPERTY(QVariantList selectedSimplexFrequencies READ selectedSimplexFrequencies NOTIFY simplexFrequenciesChanged)
@@ -50,6 +51,8 @@ public:
     int radioId() const;
     QString radioModel() const;
     QString radioCpsVersion() const;
+    QVariantList selectedRepeaterChannels() const;
+    Q_INVOKABLE bool reorderSelectedRepeaterChannels(const QVariantList &channelNumbers);
     QVariantList slot1Talkgroups() const;
     QVariantList slot2Talkgroups() const;
     QVariantList selectedSimplexFrequencies() const;
@@ -96,6 +99,7 @@ public:
                                                          const QString &frequency, bool digital,
                                                          int colorCode, int timeSlot);
     Q_INVOKABLE bool removeSimplexFromSelectedImportedRepeater(int zoneInGroup, int zonePosition);
+    Q_INVOKABLE bool reorderSelectedImportedZone(const QVariantList &channelNumbers);
     Q_INVOKABLE void newProject();
     Q_INVOKABLE void newProjectDialog();
     Q_INVOKABLE bool updateRadioSettings(const QString &name, const QString &idText);
@@ -127,6 +131,7 @@ private:
         QString name;
         int id;
         QString channelName;
+        int zoneOrder = -1;
     };
 
     struct Repeater {
@@ -142,11 +147,14 @@ private:
             bool digital;
             int colorCode;
             int timeSlot;
+            int zoneOrder = -1;
         };
         std::vector<SimplexFrequency> simplexFrequencies;
         bool highPower = true;
     };
 
+    static int nextZoneOrder(const Repeater &repeater);
+    static QVector<QPair<int, int>> orderedChannels(const Repeater &repeater);
     const Repeater &selected() const;
     Repeater &selected();
     const std::vector<Talkgroup> &talkgroups(int timeSlot) const;

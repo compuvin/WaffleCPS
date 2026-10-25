@@ -15,6 +15,7 @@ ApplicationWindow {
     Connections {
         target: store
         function onAboutToResetProject() {
+            channelOrderDialog.close()
             window.clearingProject = true
             window.currentSection = "repeaters"
         }
@@ -414,6 +415,7 @@ ApplicationWindow {
                         spacing: 16
 
                         SlotPanel {
+                            objectName: "manualSlot1"
                             slotNumber: 1
                             groups: store.slot1Talkgroups
                             Layout.fillWidth: true
@@ -422,12 +424,20 @@ ApplicationWindow {
                         }
 
                         SlotPanel {
+                            objectName: "manualSlot2"
                             slotNumber: 2
                             groups: store.slot2Talkgroups
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
                             onAddRequested: slot => addDialog.openForSlot(slot)
                         }
+                    }
+
+                    Button {
+                        objectName: "manualOrderChannelsButton"
+                        visible: store.repeaterNames.length > 0
+                        text: "Order channels"
+                        onClicked: channelOrderDialog.openForSelectedRepeater()
                     }
 
                     Frame {
@@ -586,6 +596,7 @@ ApplicationWindow {
                         Layout.alignment: Qt.AlignTop
                         spacing: 16
                         SlotPanel {
+                            objectName: "importedSlot1"
                             slotNumber: 1
                             groups: importedContent.group.slot1Talkgroups || []
                             importedChannels: true
@@ -596,6 +607,7 @@ ApplicationWindow {
                             onAddRequested: slot => addDialog.openForSlot(slot, true)
                         }
                         SlotPanel {
+                            objectName: "importedSlot2"
                             slotNumber: 2
                             groups: importedContent.group.slot2Talkgroups || []
                             importedChannels: true
@@ -617,10 +629,12 @@ ApplicationWindow {
                     }
                     Button {
                         visible: importedContent.group.isRepeater || false
+                        objectName: "orderChannelsButton"
                         text: "Order channels"
-                        enabled: false
+                        enabled: (importedContent.group.zones || []).length === 1
+                        onClicked: channelOrderDialog.openForSelectedZone()
                         ToolTip.visible: hovered
-                        ToolTip.text: "Channel ordering is planned for a later step."
+                        ToolTip.text: "Arrange the radio's channel order for this zone"
                     }
                     Repeater {
                         model: importedContent.group.isRepeater ? [] : (importedContent.group.zones || [])
@@ -1352,6 +1366,139 @@ ApplicationWindow {
         function onFailed(message) {
             operationError.message = message
             Qt.callLater(() => operationError.open())
+        }
+    }
+
+    ListModel { id: channelOrderModel; objectName: "channelOrderModel" }
+
+    Dialog {
+        id: channelOrderDialog
+        objectName: "channelOrderDialog"
+        property string zoneName: ""
+        property bool manualProject: false
+        width: Math.min(540, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Order channels — " + zoneName
+        modal: true
+        standardButtons: Dialog.NoButton
+
+        function openForSelectedRepeater() {
+            manualProject = true
+            zoneName = store.selectedName
+            channelOrderModel.clear()
+            for (const channel of store.selectedRepeaterChannels) {
+                channelOrderModel.append({
+                    channelName: channel.name,
+                    channelNumber: channel.number,
+                    kind: channel.simplex ? "Simplex" + (channel.timeSlot ? " · TS " + channel.timeSlot : "")
+                                          : "TS " + channel.timeSlot
+                })
+            }
+            channelOrderError.text = ""
+            open()
+        }
+
+        function openForSelectedZone() {
+            manualProject = false
+            const zones = store.selectedImportedGroup.zones || []
+            if (zones.length !== 1)
+                return
+            zoneName = zones[0].name
+            channelOrderModel.clear()
+            for (const channel of zones[0].channels) {
+                const simplex = channel.receiveFrequency === channel.transmitFrequency
+                channelOrderModel.append({
+                    channelName: channel.name,
+                    channelNumber: channel.number,
+                    kind: simplex ? "Simplex" + (channel.timeSlot ? " · TS " + channel.timeSlot : "")
+                                  : (channel.timeSlot ? "TS " + channel.timeSlot : channel.mode)
+                })
+            }
+            channelOrderError.text = ""
+            open()
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                text: "Arrange all channels in radio order. Each time-slot box follows this order, filtered to its slot."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            ListView {
+                id: channelOrderList
+                objectName: "channelOrderList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(360, channelOrderModel.count * 54)
+                clip: true
+                spacing: 4
+                model: channelOrderModel
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Frame {
+                    required property int index
+                    required property string channelName
+                    required property string kind
+                    width: channelOrderList.width
+                    height: 50
+                    padding: 6
+                    RowLayout {
+                        anchors.fill: parent
+                        Label { text: index + 1; Layout.preferredWidth: 24 }
+                        Label {
+                            text: channelName
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        Label { text: kind; color: "#64776c" }
+                        ToolButton {
+                            objectName: "channelOrderUp"
+                            property int rowIndex: index
+                            text: "Up"
+                            enabled: index > 0
+                            Accessible.name: "Move " + channelName + " up"
+                            onClicked: channelOrderModel.move(index, index - 1, 1)
+                        }
+                        ToolButton {
+                            objectName: "channelOrderDown"
+                            property int rowIndex: index
+                            text: "Down"
+                            enabled: index < channelOrderModel.count - 1
+                            Accessible.name: "Move " + channelName + " down"
+                            onClicked: channelOrderModel.move(index, index + 1, 1)
+                        }
+                    }
+                }
+            }
+            Label {
+                id: channelOrderError
+                color: "#b33a32"
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                Button {
+                    objectName: "channelOrderCancel"
+                    text: "Cancel"
+                    onClicked: channelOrderDialog.close()
+                }
+                Button {
+                    objectName: "channelOrderSave"
+                    text: "Save"
+                    onClicked: {
+                        const numbers = []
+                        for (let i = 0; i < channelOrderModel.count; ++i)
+                            numbers.push(channelOrderModel.get(i).channelNumber)
+                        if (channelOrderDialog.manualProject ? store.reorderSelectedRepeaterChannels(numbers)
+                                                            : store.reorderSelectedImportedZone(numbers))
+                            channelOrderDialog.close()
+                        else
+                            channelOrderError.text = "Could not apply this order. Close and reopen the dialog to refresh the zone."
+                    }
+                }
+            }
         }
     }
 

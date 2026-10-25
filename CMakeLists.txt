@@ -58,6 +58,16 @@ target_link_libraries(wafflecps PRIVATE
 
 include(CTest)
 if(BUILD_TESTING)
+    qt_add_executable(channel_order_test
+        tests/channel_order.cpp tests/channel_order_fixture.h
+        src/repeaterstore.cpp src/repeaterstore.h
+        src/codeplugreader.cpp src/codeplugreader.h
+        src/codeplugwriter.cpp src/codeplugwriter.h
+        src/cs7000default.cpp src/cs7000default.h
+        src/ziparchive.cpp src/ziparchive.h)
+    target_link_libraries(channel_order_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    add_test(NAME channel_order COMMAND channel_order_test)
+
     qt_add_executable(radio_import_test
         tests/radio_import.cpp
         src/repeaterstore.cpp src/repeaterstore.h
@@ -133,6 +143,10 @@ if(BUILD_TESTING)
     set_tests_properties(ui_smoke_power PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_test(NAME ui_smoke_settings COMMAND ui_smoke_test --demo --settings)
     set_tests_properties(ui_smoke_settings PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_manual_channel_order COMMAND ui_smoke_test --demo --manual-order)
+    set_tests_properties(ui_manual_channel_order PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME ui_channel_order COMMAND ui_smoke_test --demo --order)
+    set_tests_properties(ui_channel_order PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     foreach(flow success cancel failure)
         add_test(NAME ui_radio_${flow} COMMAND ui_smoke_test --demo --radio-${flow})
