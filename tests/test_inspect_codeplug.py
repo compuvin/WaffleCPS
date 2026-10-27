@@ -1,6 +1,7 @@
 """Run: python3 -B -m unittest discover -s tests -p test_inspect_codeplug.py"""
 
 import copy
+import base64
 import hashlib
 import importlib.util
 import json
@@ -9,6 +10,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import warnings
+import zipfile
+import zlib
+import re
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "inspect_codeplug.py"
@@ -438,6 +444,303 @@ class InspectorTests(unittest.TestCase):
                      if c["name"] == "pointer_a equals pointer_b")
         self.assertEqual(check["status"], "match")
         self.assertFalse(check["informative"])
+
+
+    def test_text_report_shows_identity_without_matching_owner_values(self):
+        definition = copy.deepcopy(self.definition)
+        definition["fields"]["radio_name"] = {"at": 32, "type": "ascii", "bytes": 8}
+        definition["fields"]["radio_id"] = {"at": 40, "type": "u32le"}
+        baseline_checks = self.inspect()[0]["checks"]
+        for name, identifier in (("ALPHA", 1234567), ("BRAVO", 7654321), ("ZERO", 0)):
+            with self.subTest(name=name, identifier=identifier):
+                data = bytearray(self.data)
+                data[32:40] = name.encode().ljust(8, b"\0")
+                data[40:44] = identifier.to_bytes(4, "little")
+                results = self.inspect(bytes(data), definition)
+                self.assertEqual(results[0]["status"], "recognized")
+                self.assertEqual(results[0]["checks"], baseline_checks)
+                before = copy.deepcopy(results)
+                rendered = inspector.text_report({"input": "test.bin", "bytes": len(data), "definitions": [
+                    {"file": "test.wcp", "recognition": definition["recognition"], "results": results}]})
+                self.assertIn(f'    radio_name: "{name}"', rendered)
+                self.assertIn(f"    radio_id: {identifier}", rendered)
+                self.assertIn('    marker: "TEST"', rendered)
+                self.assertEqual(results, before)  # Formatting leaves JSON/check results intact.
+
+    def test_text_report_marks_unmapped_identity_unavailable(self):
+        results = self.inspect()
+        rendered = inspector.text_report({"input": "test.bin", "bytes": len(self.data), "definitions": [
+            {"file": "test.wcp", "recognition": self.definition["recognition"], "results": results}]})
+        self.assertIn("    radio_name: unavailable", rendered)
+        self.assertIn("    radio_id: unavailable", rendered)
+        self.assertEqual(results[0]["status"], "recognized")
+
+    def test_text_report_marks_unreadable_id_unavailable_and_keeps_error(self):
+        definition = copy.deepcopy(self.definition)
+        definition["fields"]["radio_id"] = {"at": len(self.data), "type": "u32le"}
+        results = self.inspect(definition=definition)
+        rendered = inspector.text_report({"input": "test.bin", "bytes": len(self.data), "definitions": [
+            {"file": "test.wcp", "recognition": definition["recognition"], "results": results}]})
+        self.assertIn("    radio_id: unavailable", rendered)
+        self.assertIn("Decode issue: fields.radio_id:", rendered)
+
+
+    def test_cs750_radio_id_decodes_three_bytes_without_using_following_byte(self):
+        definition = inspector.load_definition(SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        data = bytearray(0x2224)
+        data[0x2200:0x220C] = "N0CALL".encode("utf-16-le")
+        original = bytes(data)
+        for identifier in (3109272, 3109273, 3109274, 3109275, 3109276):
+            for following in (0, 255):
+                with self.subTest(identifier=identifier, following=following):
+                    data[0x2220:0x2223] = identifier.to_bytes(3, "little")
+                    data[0x2223] = following
+                    reader = inspector.DefinitionReader(bytes(data), definition)
+                    value = reader.globals.get("radio_id")
+                    self.assertEqual(value["value"], identifier)
+                    self.assertEqual(value["raw"], identifier)
+                    self.assertEqual(reader.globals.get("radio_name")["value"], "N0CALL")
+                    self.assertEqual(bytes(data[:0x2220]), original[:0x2220])
+                    self.assertEqual(data[0x2223], following)
+        self.assertNotIn("radio_id", definition["recognition"].get("required_fields", {}))
+
+
+class Cs750ContactTests(unittest.TestCase):
+    def setUp(self):
+        self.definition = inspector.load_definition(SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        self.data = bytearray(0x44000 + 2 * 16)
+        for at, value in ((0x29, b"CS750\0"), (0x2000, b"CS750\0"), (0x2010, b"D4.0.03\0")):
+            self.data[at:at + len(value)] = value
+        self.data[0x2064:0x2068] = len(self.data).to_bytes(4, "little")
+        self.data[0x2220:0x2223] = (1234567).to_bytes(3, "little")
+        self.data[0x9568:0x956C] = (2).to_bytes(4, "little")
+        alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ."
+        for index, (identifier, name, flags) in enumerate(((9, "Local 9", 9),
+                                                        (1234567, "N0CALL . TEST", 0))):
+            at = 0x44000 + index * 16
+            self.data[at:at + 3] = identifier.to_bytes(3, "little")
+            bits = 0
+            for char in name.ljust(16):
+                bits = (bits << 6) | alphabet.index(char)
+            self.data[at + 3:at + 15] = bits.to_bytes(12, "big")
+            self.data[at + 15] = flags
+
+    def inspect(self, data=None):
+        return inspector.inspect_definition(bytes(self.data if data is None else data), self.definition)[0]
+
+    def test_contact_records_decode_ids_names_types_and_offsets(self):
+        before = bytes(self.data)
+        result = self.inspect()
+        self.assertEqual(result["status"], "recognized", result.get("errors"))
+        self.assertEqual(result["decoded"]["fields"]["contact_count"], 2)
+        table = result["decoded"]["tables"]["contacts"]
+        self.assertTrue(table["complete"])
+        self.assertEqual([r["address"] for r in table["records"]], [0x44000, 0x44010])
+        self.assertEqual([r["fields"] for r in table["records"]], [
+            {"id": 9, "name": "Local 9", "call_type_flags": "group"},
+            {"id": 1234567, "name": "N0CALL . TEST", "call_type_flags": "private"}])
+        self.assertEqual([r["raw_values"]["call_type_flags"] for r in table["records"]], [9, 0])
+        self.assertEqual(bytes(self.data), before)
+
+    def test_unmapped_contact_flags_remain_numeric(self):
+        self.data[0x4400F] = 0x81
+        result = self.inspect()
+        self.assertEqual(result["status"], "recognized")
+        record = result["decoded"]["tables"]["contacts"]["records"][0]
+        self.assertEqual(record["fields"]["call_type_flags"], 0x81)
+        self.assertEqual(record["raw_values"]["call_type_flags"], 0x81)
+
+    def test_contact_count_must_account_for_file_length(self):
+        for count in (1, 3, 0xFFFFFFFF):
+            with self.subTest(count=count):
+                self.data[0x9568:0x956C] = count.to_bytes(4, "little")
+                result = self.inspect()
+                self.assertNotEqual(result["status"], "recognized")
+                check = next(c for c in result["checks"] if c["name"] == "relationship 3")
+                self.assertEqual(check["status"], "mismatch")
+                if count > 2:
+                    self.assertFalse(result["decoded"]["tables"]["contacts"]["complete"])
+
+    def test_truncated_contact_is_not_silently_decoded(self):
+        data = self.data[:-1]
+        data[0x2064:0x2068] = len(data).to_bytes(4, "little")
+        result = self.inspect(data)
+        self.assertNotEqual(result["status"], "recognized")
+        self.assertFalse(result["decoded"]["tables"]["contacts"]["complete"])
+        self.assertTrue(any(e["path"] == "tables.contacts" for e in result["errors"]))
+
+    def test_empty_contact_table_is_valid_when_count_and_length_agree(self):
+        data = self.data[:0x44000]
+        data[0x2064:0x2068] = len(data).to_bytes(4, "little")
+        data[0x9568:0x956C] = (0).to_bytes(4, "little")
+        result = self.inspect(data)
+        self.assertEqual(result["status"], "recognized", result.get("errors"))
+        self.assertEqual(result["decoded"]["tables"]["contacts"]["records"], [])
+
+
+class PackagedDefinitionTests(unittest.TestCase):
+    def setUp(self):
+        self.data, self.definition = fixture()
+        self.definition["definition_version"] = 2
+        self.definition["creation"] = {
+            "template": "templates/default.bin", "representation": "plain",
+            "template_bytes": len(self.data),
+            "template_sha256": hashlib.sha256(self.data).hexdigest(),
+        }
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.path = self.root / "synthetic.wcp"
+
+    def package(self, definition=None, template=None, extra=(), include_template=True):
+        with zipfile.ZipFile(self.path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("definition.json", json.dumps(self.definition if definition is None else definition))
+            if include_template:
+                archive.writestr("templates/default.bin", self.data if template is None else template)
+            for name, data in extra:
+                archive.writestr(name, data)
+
+    def test_package_and_legacy_json_decode_identically(self):
+        self.package()
+        loaded = inspector.load_definition(self.path)
+        _, legacy = fixture()
+        self.assertEqual(inspector.inspect_definition(self.data, loaded),
+                         inspector.inspect_definition(self.data, legacy))
+        plain = self.root / "legacy.wcp"
+        plain.write_text(json.dumps(legacy))
+        self.assertEqual(inspector.load_definition(plain), legacy)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["legacy.wcp", "synthetic.wcp"])
+
+    def test_missing_definition_and_template_are_rejected(self):
+        with zipfile.ZipFile(self.path, "w") as archive:
+            archive.writestr("templates/default.bin", self.data)
+        with self.assertRaisesRegex(inspector.DefinitionError, "missing definition.json"):
+            inspector.load_definition(self.path)
+        self.package(include_template=False)
+        with self.assertRaisesRegex(inspector.DefinitionError, "missing its default"):
+            inspector.load_definition(self.path)
+
+    def test_template_size_and_hash_are_checked(self):
+        self.package(template=self.data + b"x")
+        with self.assertRaisesRegex(inspector.DefinitionError, "size does not match"):
+            inspector.load_definition(self.path)
+        self.package(template=b"x" + self.data[1:])
+        with self.assertRaisesRegex(inspector.DefinitionError, "SHA-256 does not match"):
+            inspector.load_definition(self.path)
+
+    def test_duplicate_members_and_invalid_paths_are_rejected(self):
+        for name in ("definition.json", "../escaped.bin", "/absolute.bin", "templates\\escaped.bin"):
+            with self.subTest(name=name):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    self.package(extra=[(name, b"x")])
+                with self.assertRaisesRegex(inspector.DefinitionError, "Duplicate or invalid"):
+                    inspector.load_definition(self.path)
+        self.assertFalse((self.root.parent / "escaped.bin").exists())
+
+    def test_version_two_metadata_is_required_and_validated(self):
+        for key, value in (("template", "../outside"), ("template", "definition.json"),
+                           ("representation", "missing"), ("template_bytes", -1),
+                           ("template_bytes", True), ("template_sha256", "bad"),
+                           ("channel_defaults", []), ("construction", [])):
+            definition = copy.deepcopy(self.definition)
+            definition["creation"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(inspector.DefinitionError):
+                inspector.validate_definition(definition)
+        definition = copy.deepcopy(self.definition)
+        del definition["creation"]
+        with self.assertRaisesRegex(inspector.DefinitionError, "creation object"):
+            inspector.validate_definition(definition)
+
+    def test_container_and_schema_versions_must_agree(self):
+        self.path.write_text(json.dumps(self.definition))
+        with self.assertRaisesRegex(inspector.DefinitionError, "must be packaged"):
+            inspector.load_definition(self.path)
+        _, legacy = fixture()
+        self.package(definition=legacy)
+        with self.assertRaisesRegex(inspector.DefinitionError, "definition_version 2"):
+            inspector.load_definition(self.path)
+
+    def test_truncated_archive_and_duplicate_json_keys_are_reported(self):
+        self.path.write_bytes(b"PK\x03\x04incomplete")
+        with self.assertRaisesRegex(inspector.DefinitionError, "Invalid .wcp package"):
+            inspector.load_definition(self.path)
+        with zipfile.ZipFile(self.path, "w") as archive:
+            archive.writestr("definition.json", '{"id":1,"id":2}')
+        with self.assertRaisesRegex(inspector.DefinitionError, "Duplicate JSON key"):
+            inspector.load_definition(self.path)
+
+    def test_corrupt_template_compression_is_reported_as_a_package_error(self):
+        self.package()
+        with zipfile.ZipFile(self.path) as archive:
+            info = archive.getinfo("templates/default.bin")
+            offset = info.header_offset
+        data = bytearray(self.path.read_bytes())
+        name_bytes = int.from_bytes(data[offset + 26:offset + 28], "little")
+        extra_bytes = int.from_bytes(data[offset + 28:offset + 30], "little")
+        data[offset + 30 + name_bytes + extra_bytes] ^= 255
+        self.path.write_bytes(data)
+        with self.assertRaisesRegex(inspector.DefinitionError, "Invalid .wcp package"):
+            inspector.load_definition(self.path)
+
+    def test_package_and_json_size_limits(self):
+        self.package()
+        with mock.patch.object(inspector, "MAX_PACKAGE_BYTES", 1):
+            with self.assertRaisesRegex(inspector.DefinitionError, "package exceeds"):
+                inspector.load_definition(self.path)
+        with mock.patch.object(inspector, "MAX_DEFINITION_BYTES", 1):
+            with self.assertRaisesRegex(inspector.DefinitionError, "JSON exceeds"):
+                inspector.load_definition(self.path)
+        self.path.write_text(json.dumps(fixture()[1]))
+        with mock.patch.object(inspector, "MAX_DEFINITION_BYTES", 1):
+            with self.assertRaisesRegex(inspector.DefinitionError, "JSON exceeds"):
+                inspector.load_definition(self.path)
+
+    def test_cli_mixed_packages_json_and_invalid_archive_are_read_only(self):
+        definitions = self.root / "definitions"
+        definitions.mkdir()
+        self.path = definitions / "package.wcp"
+        self.package()
+        (definitions / "legacy.wcp").write_text(json.dumps(fixture()[1]))
+        (definitions / "broken.wcp").write_bytes(b"PKbroken")
+        input_path = self.root / "input.bin"
+        input_path.write_bytes(self.data)
+        before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        process = subprocess.run([sys.executable, "-B", str(SCRIPT), str(input_path),
+                                  "--definitions", str(definitions), "--json"],
+                                 capture_output=True, text=True, cwd=self.root)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        entries = json.loads(process.stdout)["definitions"]
+        self.assertIn("Invalid .wcp package", entries[0]["error"])
+        self.assertEqual([entry["results"][0]["status"] for entry in entries[1:]],
+                         ["recognized", "recognized"])
+        self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_cs7000_template_is_exact_embedded_default_and_recognized(self):
+        root = SCRIPT.parent.parent
+        path = root / "definitions" / "cs7000-m17-plus.wcp"
+        definition = inspector.load_definition(path)
+        with zipfile.ZipFile(path) as archive:
+            self.assertEqual(archive.namelist(), ["definition.json", "templates/default.rdbx"])
+            template = archive.read(definition["creation"]["template"])
+        # Independently reconstruct the bytes produced by cs7000DefaultCodeplug.
+        # qUncompress uses a four-byte big-endian length followed by zlib data.
+        cpp = (root / "src" / "cs7000default.cpp").read_text()
+        literals = cpp.split("static const char packed[] =", 1)[1].split(";", 1)[0]
+        packed = base64.b64decode("".join(re.findall(r'"([^"\n]*)"', literals)), validate=True)
+        decoded = zlib.decompress(packed[4:])
+        self.assertEqual(len(decoded), int.from_bytes(packed[:4], "big"))
+        mask = bytes.fromhex(re.search(r'QByteArray::fromHex\("([0-9a-f]+)"\)', cpp).group(1))
+        expected = bytes(value ^ mask[index % len(mask)] for index, value in enumerate(decoded))
+        self.assertEqual(template, expected)
+        result = inspector.inspect_definition(template, definition)[0]
+        self.assertEqual(result["status"], "recognized", result.get("errors"))
+        markers = {r["fields"]["mode_marker"] for r in result["decoded"]["tables"]["channels"]["records"]}
+        self.assertIn("analog", markers)
+        self.assertIn("digital", markers)
+        self.assertGreater(len(result["decoded"]["tables"]["zones"]["records"]), 0)
+        self.assertEqual(definition["creation"]["construction"]["relocate_sections"]["pointer_directory"],
+                         {"first_at": "0xFC", "last_at": "0x248", "stride_bytes": 4, "type": "u32le", "skip_value": 0})
 
 
 if __name__ == "__main__":

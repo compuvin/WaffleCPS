@@ -91,8 +91,8 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
   - [ ] Show which channels, zones, contacts, and settings can transfer, which need adjustment, and which the target cannot support.
   - [ ] Require review of the converted configuration before exporting it for the target radio.
 - [ ] Verify exact model and firmware compatibility before any radio write.
-- [ ] Add radio read/write with backup, validation, and recovery safeguards.
-- [ ] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse.
+- [x] Add radio read/write with backup, validation, and recovery safeguards. [Radio operations and backups](RadioOperations.md)
+- [x] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse. [Research and license notes](DMRProjectResearch.md)
 - [x] Choose and publish an open-source license for WaffleCPS.
 - [ ] Linux support
   - [x] Build and test on Linux.
@@ -103,7 +103,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [ ] macOS support
   - [ ] Build and test on macOS.
   - [ ] Provide a macOS app bundle and decide on signing and distribution.
-- [ ] Document USB drivers or device permissions on each supported platform when radio communication arrives.
+- [x] Document USB drivers or device permissions on each supported platform when radio communication arrives. [Linux USB permissions](RadioReading.md#linux-usb-permission)
 - [x] Keep the app usable offline, without accounts or subscriptions.
 - [ ] Support additional radios only after the shared model and first adapter are proven.
 
