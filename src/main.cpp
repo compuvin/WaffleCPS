@@ -22,8 +22,9 @@ int main(int argc, char *argv[])
                      &store, &RepeaterStore::importRadioCodeplug);
     if (argc == 2) {
         const QString path = QString::fromLocal8Bit(argv[1]);
-        const bool imported = QFileInfo(path).suffix().compare(QStringLiteral("rdbx"), Qt::CaseInsensitive) == 0;
-        if (!(imported ? store.importCodeplugFromFile(path) : store.openProjectFromFile(path))) {
+        const QString extension = QFileInfo(path).suffix().toLower();
+        const bool project = extension == QStringLiteral("waffle") || extension == QStringLiteral("zip");
+        if (!(project ? store.openProjectFromFile(path) : store.importCodeplugFromFile(path))) {
             qCritical() << "Could not open" << path;
             return 1;
         }

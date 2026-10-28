@@ -1,4 +1,5 @@
 #include "repeaterstore.h"
+#include "codeplugdefinitions.h"
 #include "codeplugwriter.h"
 #include "cs7000default.h"
 #include "ziparchive.h"
@@ -1720,8 +1721,11 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         const QJsonValue channelsValue = data.value(QStringLiteral("channels"));
         const QJsonValue zonesValue = data.value(QStringLiteral("zones"));
         if (imported.model != QStringLiteral("CS7000-M17 PLUS")
-            || (imported.cpsVersion != QStringLiteral("V1.02.20.00")
-                && imported.cpsVersion != QStringLiteral("V1.02.21.00"))
+            || !data.value(QStringLiteral("cpsVersion")).isString()
+            || imported.cpsVersion.isEmpty()
+            || imported.cpsVersion.size() > 64
+            || !std::all_of(imported.cpsVersion.cbegin(), imported.cpsVersion.cend(),
+                            [](QChar c) { return c.isPrint(); })
             || !channelsValue.isArray()
             || channelsValue.toArray().size() > 3000 || !zonesValue.isArray()
             || zonesValue.toArray().isEmpty() || zonesValue.toArray().size() > 500)
@@ -1948,7 +1952,7 @@ bool RepeaterStore::importCodeplugFromBytes(const QByteArray &bytes)
 {
     ImportedCodeplug imported;
     QString error;
-    if (!CodeplugReader::read(bytes, &imported, &error))
+    if (!CodeplugDefinitions::read(bytes, &imported, &error))
         return fail(QStringLiteral("Could not import codeplug: %1").arg(error));
     emit aboutToResetProject();
     m_generatedCodeplug = false;
@@ -1989,7 +1993,7 @@ bool RepeaterStore::importRadioCodeplug(const QByteArray &bytes)
     // Validate before replacing any part of the currently open project.
     ImportedCodeplug imported;
     QString error;
-    if (!CodeplugReader::read(bytes, &imported, &error))
+    if (!CodeplugDefinitions::read(bytes, &imported, &error))
         return fail(tr("Could not import radio codeplug: %1").arg(error));
     emit aboutToResetProject();
     m_generatedCodeplug = false;
@@ -2030,12 +2034,17 @@ void RepeaterStore::importAttachedCodeplug()
 
 void RepeaterStore::importCodeplugDialog()
 {
+    QString error;
+    const QString filter = CodeplugDefinitions::importFileFilter(&error);
+    if (filter.isEmpty()) {
+        fail(error);
+        return;
+    }
     if (m_modified && QMessageBox::question(nullptr, tr("Discard unsaved changes?"),
                                              tr("Importing a codeplug will replace the current imported view and discard unsaved changes."))
                           != QMessageBox::Yes)
         return;
-    const QString path = QFileDialog::getOpenFileName(nullptr, tr("Import CS7000 codeplug"), QString(),
-                                                      tr("CS7000 codeplugs (*.rdbx);;All files (*)"));
+    const QString path = QFileDialog::getOpenFileName(nullptr, tr("Import codeplug"), QString(), filter);
     if (!path.isEmpty())
         importCodeplugFromFile(path);
 }

@@ -1,4 +1,7 @@
 #include "../src/codeplugreader.h"
+#include "../src/codeplugdefinitions.h"
+#include "../src/codeplugwriter.h"
+#include "../src/cs7000default.h"
 #include "../src/repeaterstore.h"
 #include "../src/ziparchive.h"
 
@@ -9,50 +12,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QtEndian>
-
-namespace {
-void put32(QByteArray &bytes, int offset, quint32 value)
-{
-    qToLittleEndian(value, reinterpret_cast<uchar *>(bytes.data() + offset));
-}
-
-void put16(QByteArray &bytes, int offset, quint16 value)
-{
-    qToLittleEndian(value, reinterpret_cast<uchar *>(bytes.data() + offset));
-}
-
-void putName(QByteArray &bytes, int offset, const QString &name)
-{
-    for (int i = 0; i < name.size(); ++i)
-        put16(bytes, offset + 2 * i, name.at(i).unicode());
-}
-
-void putContact(QByteArray &bytes, int index, const QString &name, int id)
-{
-    const int record = 0x47d3c0 + 16 * index;
-    bytes[record + 20] = 1; // Group call, after the packed name.
-    bytes[record + 5] = char(id & 0xff);
-    bytes[record + 6] = char((id >> 8) & 0xff);
-    bytes[record + 7] = char((id >> 16) & 0xff);
-    for (int character = 0; character < 16; ++character) {
-        const QChar letter = character < name.size() ? name.at(character) : QChar(' ');
-        int code = 62;
-        if (letter >= QChar('0') && letter <= QChar('9'))
-            code = letter.unicode() - '0';
-        else if (letter >= QChar('A') && letter <= QChar('Z'))
-            code = letter.unicode() - 'A' + 10;
-        else if (letter >= QChar('a') && letter <= QChar('z'))
-            code = letter.unicode() - 'a' + 36;
-        const int bit = character * 6;
-        for (int part = 0; part < 6; ++part) {
-            const int position = bit + part;
-            bytes[record + 8 + position / 8] = char(uchar(bytes[record + 8 + position / 8])
-                | (((code >> (5 - part)) & 1) << (7 - position % 8)));
-        }
-    }
-}
-} // namespace
+#include <QTemporaryDir>
 
 int main(int argc, char *argv[])
 {
@@ -84,46 +44,30 @@ int main(int argc, char *argv[])
                 << "channels," << parsed.zones.size() << "zone," << parsed.contacts.size() << "contact";
         return 0;
     }
-    QByteArray bytes(0x47d500, '\0');
-    bytes.replace(0x1200, 16, QByteArray("CS7000-M17 PLUS\0", 16));
-    bytes.replace(0x1298, 12, QByteArray("V1.02.20.00\0", 12));
-    const QStringList names{QStringLiteral("Local"), QStringLiteral("Wide"),
-                            QStringLiteral("Simplex"), QStringLiteral("Other repeater")};
-    for (int i = 0; i < names.size(); ++i) {
-        putName(bytes, 0x4368 + 32 * i, names.at(i));
-        const int record = 0x23768 + 48 * i;
-        put32(bytes, record, i == 2 ? 446000000 : (i == 3 ? 447200000 : 449350000));
-        put32(bytes, record + 4, i == 2 ? 446000000 : (i == 3 ? 442200000 : 444350000));
-        bytes[record + 16] = i == 1 ? 0x12 : 0x02;
-        bytes[record + 9] = i == 1 ? char(0x00) : char(0x80);
-        bytes[record + 23] = 0x20;
-        bytes[record + 24] = i == 1 ? 2 : 1;
-    }
-    putContact(bytes, 1, QStringLiteral("Local"), 9);
-    putContact(bytes, 2, QStringLiteral("Statewide"), 3100);
-    put32(bytes, 0x52568, 4);
-    int cursor = 0x52954;
-    putName(bytes, cursor, QStringLiteral("Repeater zone"));
-    put32(bytes, cursor + 32, 2);
-    put16(bytes, cursor + 36, 1);
-    put16(bytes, cursor + 38, 2);
-    cursor += 40;
-    putName(bytes, cursor, QStringLiteral("Mixed zone"));
-    put32(bytes, cursor + 32, 2);
-    put16(bytes, cursor + 36, 1);
-    put16(bytes, cursor + 38, 3);
-    cursor += 40;
-    putName(bytes, cursor, QStringLiteral("Simplex only"));
-    put32(bytes, cursor + 32, 1);
-    put16(bytes, cursor + 36, 3);
-    cursor += 38;
-    putName(bytes, cursor, QStringLiteral("Two repeaters"));
-    put32(bytes, cursor + 32, 2);
-    put16(bytes, cursor + 36, 1);
-    put16(bytes, cursor + 38, 4);
-
-    ImportedCodeplug parsed;
+    // Use a complete codeplug, including real pointers and selection indexes,
+    // while preserving the original editor fixture's channels and zone order.
+    const QByteArray base = cs7000DefaultCodeplug();
     QString error;
+    ImportedCodeplug fixture;
+    if (!CodeplugReader::read(base, &fixture, &error)) return 40;
+    fixture.contacts = {{QStringLiteral("Local"), 9, true},
+                        {QStringLiteral("Statewide"), 3100, true}};
+    fixture.channels = {
+        {QStringLiteral("Local"), 449350000, 444350000, true, 2, 1, 1, true},
+        {QStringLiteral("Wide"), 449350000, 444350000, true, 2, 2, 2, false},
+        {QStringLiteral("Simplex"), 446000000, 446000000, true, 2, 1, 1, true},
+        {QStringLiteral("Other repeater"), 447200000, 442200000, true, 2, 1, 1, true}
+    };
+    fixture.zones = {{QStringLiteral("Repeater zone"), {0, 1}},
+                     {QStringLiteral("Mixed zone"), {0, 2}},
+                     {QStringLiteral("Simplex only"), {2}},
+                     {QStringLiteral("Two repeaters"), {0, 3}}};
+    QByteArray bytes;
+    if (!CodeplugWriter::write(base, fixture, QStringLiteral("TEST RADIO"), 3109101, &bytes, &error)) {
+        qCritical() << "Could not create complete import fixture:" << error;
+        return 41;
+    }
+    ImportedCodeplug parsed;
     if (!CodeplugReader::read(bytes, &parsed, &error) || parsed.channels.size() != 4
         || parsed.zones.size() != 4 || parsed.zones.at(0).channelIndexes.at(1) != 1
         || parsed.channels.at(1).timeSlot != 2 || parsed.channels.at(1).contactIndex != 2
@@ -135,10 +79,107 @@ int main(int argc, char *argv[])
         return 1;
     }
     QByteArray unsupported = bytes;
-    unsupported[0x1299] = '2';
+    unsupported[0x1299] = char('2' ^ uchar(unsupported[0x300 + 0x1299 % 256]));
     if (CodeplugReader::read(unsupported, &parsed, &error)) {
         qCritical() << "Unsupported CPS version was accepted";
         return 7;
+    }
+    const QString filters = CodeplugDefinitions::importFileFilter(&error);
+    if (filters != QStringLiteral("All supported codeplugs (*.rdbx);;CS7000-M17 PLUS (*.rdbx);;All files (*)")
+        || !CodeplugDefinitions::read(unsupported, &parsed, &error)
+        || !parsed.cpsVersion.startsWith(QStringLiteral("V2."))) {
+        qCritical() << "Definition filters or version-independent recognition failed:" << error;
+        return 42;
+    }
+    QTemporaryDir temporary;
+    if (!temporary.isValid()) return 43;
+    const QString versionSourcePath = temporary.filePath(QStringLiteral("different-version.rdbx"));
+    QFile versionSource(versionSourcePath);
+    if (!versionSource.open(QIODevice::WriteOnly) || versionSource.write(unsupported) != unsupported.size()) return 48;
+    versionSource.close();
+    const QString versionProjectPath = temporary.filePath(QStringLiteral("different-version.waffle"));
+    RepeaterStore versionStore, versionReopened;
+    if (!versionStore.importCodeplugFromFile(versionSourcePath)
+        || !versionStore.saveProjectToFile(versionProjectPath)
+        || !versionReopened.openProjectFromFile(versionProjectPath)
+        || versionReopened.radioCpsVersion() != parsed.cpsVersion
+        || versionReopened.contacts() != versionStore.contacts()
+        || versionReopened.importedRepeaterNames() != versionStore.importedRepeaterNames()
+        || versionReopened.importedZoneNames() != versionStore.importedZoneNames()
+        || versionReopened.radioName() != versionStore.radioName()
+        || versionReopened.radioId() != versionStore.radioId()) {
+        qCritical() << "A definition-accepted version did not survive Save/Open";
+        return 49;
+    }
+    QMap<QString, QByteArray> versionEntries, reopenedEntries;
+    const QString reopenedPath = temporary.filePath(QStringLiteral("reopened.waffle"));
+    if (!ZipArchive::read(versionProjectPath, &versionEntries, &error)
+        || !versionReopened.saveProjectToFile(reopenedPath)
+        || !ZipArchive::read(reopenedPath, &reopenedEntries, &error)) return 50;
+    const auto versionJson = QJsonDocument::fromJson(versionEntries.value(QStringLiteral("project.json"))).object();
+    const auto reopenedJson = QJsonDocument::fromJson(reopenedEntries.value(QStringLiteral("project.json"))).object();
+    if (versionJson.value(QStringLiteral("importedCodeplug")) != reopenedJson.value(QStringLiteral("importedCodeplug"))
+        || versionJson.value(QStringLiteral("radioSettings")) != reopenedJson.value(QStringLiteral("radioSettings"))
+        || reopenedEntries.value(QStringLiteral("source/original-codeplug.bin")) != unsupported) {
+        qCritical() << "Different-version Save/Open changed editor records or source bytes";
+        return 51;
+    }
+    // Replacing the whitelist must not permit malformed saved metadata.
+    const QList<QJsonValue> invalidVersions{
+        QJsonValue(QJsonValue::Null), QJsonValue(42), QJsonValue(QString()),
+        QJsonValue(QString(65, QChar('A'))), QJsonValue(QStringLiteral("V1\n"))};
+    const QString invalidProjectPath = temporary.filePath(QStringLiteral("invalid-version.waffle"));
+    for (const auto &invalidVersion : invalidVersions) {
+        auto invalidJson = versionJson;
+        auto importedJson = invalidJson.value(QStringLiteral("importedCodeplug")).toObject();
+        importedJson.insert(QStringLiteral("cpsVersion"), invalidVersion);
+        invalidJson.insert(QStringLiteral("importedCodeplug"), importedJson);
+        auto invalidEntries = versionEntries;
+        invalidEntries[QStringLiteral("project.json")] = QJsonDocument(invalidJson).toJson();
+        if (!ZipArchive::write(invalidProjectPath, invalidEntries, &error)
+            || versionReopened.openProjectFromFile(invalidProjectPath)
+            || versionReopened.radioCpsVersion() != parsed.cpsVersion
+            || versionReopened.contacts() != versionStore.contacts()
+            || versionReopened.modified()) {
+            qCritical() << "Invalid version metadata accepted or changed the open project";
+            return 52;
+        }
+    }
+    const QString unusualPath = temporary.filePath(QStringLiteral("codeplug.unusual"));
+    QFile unusual(unusualPath);
+    if (!unusual.open(QIODevice::WriteOnly) || unusual.write(bytes) != bytes.size()) return 44;
+    unusual.close();
+    RepeaterStore guarded;
+    if (!guarded.importCodeplugFromFile(unusualPath)) return 45;
+    const auto savedContacts = guarded.contacts();
+    const auto savedRepeaters = guarded.importedRepeaterNames();
+    const auto savedZones = guarded.importedZoneNames();
+    const auto savedRadioName = guarded.radioName();
+    const auto savedRadioId = guarded.radioId();
+    const auto savedSourceName = guarded.sourceCodeplugName();
+    QString reportedError;
+    QObject::connect(&guarded, &RepeaterStore::errorOccurred, &app,
+                     [&](const QString &message) { reportedError = message; });
+    for (const QString &kind : {QStringLiteral("model"), QStringLiteral("layout"), QStringLiteral("truncated")}) {
+        auto invalid = bytes;
+        if (kind == QStringLiteral("model")) invalid[0x1200] = char(invalid[0x1200] ^ 1);
+        else if (kind == QStringLiteral("layout")) invalid[0xf0] = char(invalid[0xf0] ^ 1);
+        else invalid.chop(1);
+        reportedError.clear();
+        if (guarded.importCodeplugFromBytes(invalid) || reportedError.isEmpty()
+            || guarded.contacts() != savedContacts || guarded.importedRepeaterNames() != savedRepeaters
+            || guarded.importedZoneNames() != savedZones || guarded.radioName() != savedRadioName
+            || guarded.radioId() != savedRadioId || guarded.sourceCodeplugName() != savedSourceName) {
+            qCritical() << "Failed definition import changed the current project:" << kind << reportedError;
+            return 46;
+        }
+    }
+    const QString retainedPath = temporary.filePath(QStringLiteral("retained.waffle"));
+    QMap<QString, QByteArray> retained;
+    if (!guarded.saveProjectToFile(retainedPath) || !ZipArchive::read(retainedPath, &retained, &error)
+        || retained.value(QStringLiteral("source/original-codeplug.bin")) != bytes) {
+        qCritical() << "Definition import changed the retained source:" << error;
+        return 47;
     }
     RepeaterStore talkgroupStore;
     talkgroupStore.importCodeplugFromBytes(bytes);

@@ -23,6 +23,15 @@ add_library(radioreader STATIC
     src/radiocodeplug.cpp src/radiocodeplug.h)
 target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb)
 
+add_library(codeplugdefinition STATIC
+    src/codeplugdefinition.cpp src/codeplugdefinition.h
+    src/codeplugdefinitions.cpp src/codeplugdefinitions.h
+    src/ziparchive.cpp src/ziparchive.h)
+target_link_libraries(codeplugdefinition PUBLIC Qt6::Core ZLIB::ZLIB)
+qt_add_resources(codeplugdefinition "codeplug_definitions"
+    PREFIX "/"
+    FILES definitions/cs7000-m17-plus.wcp)
+
 qt_add_executable(wafflecps
     src/main.cpp
     src/repeaterstore.cpp
@@ -56,10 +65,20 @@ target_link_libraries(wafflecps PRIVATE
     Qt6::Widgets
     ZLIB::ZLIB
     radioreader
+    codeplugdefinition
 )
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(codeplug_definition_test
+        tests/codeplug_definition.cpp tests/channel_order_fixture.h
+        src/codeplugreader.cpp src/codeplugreader.h
+        src/codeplugwriter.cpp src/codeplugwriter.h
+        src/cs7000default.cpp src/cs7000default.h)
+    target_link_libraries(codeplug_definition_test PRIVATE codeplugdefinition)
+    target_compile_definitions(codeplug_definition_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME codeplug_definition COMMAND codeplug_definition_test)
+
     add_executable(radio_write_protocol_test tests/radio_write_protocol.cpp)
     target_link_libraries(radio_write_protocol_test PRIVATE cs7000usb)
     add_test(NAME radio_write_protocol COMMAND radio_write_protocol_test)
@@ -199,5 +218,9 @@ if(BUILD_TESTING)
     foreach(flow success cancel failure)
         add_test(NAME ui_radio_${flow} COMMAND ui_smoke_test --demo --radio-${flow})
         set_tests_properties(ui_radio_${flow} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endforeach()
+    foreach(target IN ITEMS zone_editor_test channel_order_test radio_import_test
+                            project_roundtrip_test codeplug_import_test ui_smoke_test)
+        target_link_libraries(${target} PRIVATE codeplugdefinition)
     endforeach()
 endif()
