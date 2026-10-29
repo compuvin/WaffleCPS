@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=WaffleCPS
+Exec=wafflecps %F
+Icon=wafflecps
+Categories=Utility;
+Terminal=false

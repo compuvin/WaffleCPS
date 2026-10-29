@@ -63,6 +63,38 @@ target_link_libraries(wafflecps PRIVATE
     codeplugdefinition
 )
 
+if(APPLE)
+    set_target_properties(wafflecps PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
+
+if(UNIX AND NOT APPLE)
+    install(TARGETS wafflecps RUNTIME DESTINATION lib/wafflecps)
+    install(PROGRAMS packaging/wafflecps-launcher
+            DESTINATION bin RENAME wafflecps)
+    install(DIRECTORY definitions/
+            DESTINATION lib/wafflecps/definitions
+            FILES_MATCHING PATTERN "*.wcp" PATTERN "*.wrd")
+    install(FILES packaging/70-wafflecps.rules
+            DESTINATION lib/udev/rules.d)
+    install(FILES packaging/wafflecps.desktop
+            DESTINATION share/applications)
+    install(FILES assets/waffle-radio.png
+            DESTINATION share/icons/hicolor/512x512/apps
+            RENAME wafflecps.png)
+
+    set(CPACK_GENERATOR DEB)
+    set(CPACK_PACKAGE_NAME wafflecps)
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "DMR codeplug editor")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "WaffleCPS Project")
+    set(CPACK_DEBIAN_PACKAGE_SECTION hamradio)
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS
+        "udev, qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-templates, qml6-module-qtquick-window")
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/postinst")
+    include(CPack)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     qt_add_executable(cs750_roundtrip_test

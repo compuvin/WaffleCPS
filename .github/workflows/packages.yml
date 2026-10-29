@@ -1,0 +1,83 @@
+name: Build packages
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ pkg-config \
+            libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev \
+            qml6-module-qtqml qml6-module-qtqml-workerscript \
+            qml6-module-qtquick qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts qml6-module-qtquick-templates \
+            qml6-module-qtquick-window
+      - name: Build and test
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build -j 2
+          ctest --test-dir build --output-on-failure -j 2
+      - name: Build DEB
+        run: |
+          cpack --config build/CPackConfig.cmake -G DEB -B dist \
+            -D "CPACK_DEBIAN_PACKAGE_VERSION=0.1.0+ci${GITHUB_RUN_NUMBER}"
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-24.04-${{ matrix.arch }}
+          path: dist/*.deb
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install cmake ninja pkgconf qtbase qtdeclarative qttools libusb
+      - name: Build app bundle
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+          cmake --build build --target wafflecps -j 2
+      - name: Create DMG
+        run: |
+          set -euo pipefail
+          app="build/wafflecps.app"
+          test -d "$app"
+          mkdir -p "$app/Contents/definitions" "$app/Contents/Frameworks" "$app/Contents/Resources"
+          cp definitions/*.wcp definitions/*.wrd "$app/Contents/definitions/"
+          cp LICENSE "$app/Contents/Resources/"
+          "$(brew --prefix)/bin/macdeployqt" "$app" -qmldir=qml
+          executable="$app/Contents/MacOS/wafflecps"
+          libusb_link="$(otool -L "$executable" | awk '/libusb-1.0.*dylib/ {print $1; exit}')"
+          test -n "$libusb_link"
+          cp "$(brew --prefix libusb)/lib/libusb-1.0.0.dylib" "$app/Contents/Frameworks/"
+          install_name_tool -change "$libusb_link" \
+            "@executable_path/../Frameworks/libusb-1.0.0.dylib" "$executable"
+          hdiutil create -volname WaffleCPS -srcfolder "$app" \
+            -ov -format UDZO WaffleCPS-macos-arm64.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: WaffleCPS-macos-arm64.dmg
+          if-no-files-found: error
