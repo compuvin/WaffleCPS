@@ -14,6 +14,7 @@ class RadioReader : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
     Q_PROPERTY(QString status READ status NOTIFY progressChanged)
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
+
 public:
     using ReadOperation = std::function<Cs7000Usb::Bytes(
         const Cs7000Usb::Progress &, const std::atomic_bool &)>;
@@ -29,6 +30,7 @@ signals:
     void progressChanged();
     void completed(const QByteArray &codeplug);
     void failed(const QString &message);
+
 private:
     ReadOperation m_read;
     QThread *m_thread = nullptr;

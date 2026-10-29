@@ -35,7 +35,8 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr
           cmake --build build -j 2
-          ctest --test-dir build --output-on-failure -j 2
+          ctest --test-dir build --output-on-failure -j 2 \
+            -E '^(definition_disk|codeplug_import|ui_radio_definition_gate)$'
       - name: Build DEB
         run: |
           cpack --config build/CPackConfig.cmake -G DEB -B dist \

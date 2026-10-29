@@ -284,7 +284,6 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
                 repeaterChannels.append(item);
                 if (group.repeater) {
                     powerCounts[channel.powerValue()]++;
-
                 }
                 if (group.repeater && channel.timeSlot == 1)
                     slot1Channels.append(item);

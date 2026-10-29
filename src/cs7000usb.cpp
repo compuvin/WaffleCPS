@@ -363,6 +363,7 @@ class Usb {
         require(!exact || size_t(actual) == data.size(), "Short USB transfer");
         data.resize(size_t(actual));
     }
+
 public:
     explicit Usb(std::ostream &output, const std::atomic_bool *stopRequested = nullptr)
         : log(output), cancelled(stopRequested)
