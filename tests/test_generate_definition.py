@@ -93,6 +93,174 @@ def fixture():
 
 
 class DefinitionInferenceTests(unittest.TestCase):
+    def test_unmapped_enum_warns_but_cli_still_generates(self):
+        root = SCRIPT.parent.parent
+        donor_path = root / "definitions" / "cs750.wcp"
+        cs800_sample = root / "Codeplugs" / "CS800-KB1JDX 2017-01-22.rdb"
+        with tempfile.TemporaryDirectory() as directory:
+            definitions = Path(directory)
+            (definitions / "cs750.wcp").write_bytes(donor_path.read_bytes())
+            result = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), str(cs800_sample),
+                 "--definitions", str(definitions), "--generate-definition"],
+                input="cs800\n", capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((definitions / "cs800.wcp").exists())
+            self.assertIn("Definition is incomplete:", result.stderr)
+            self.assertIn("contacts.call_type has undeclared value 1 in 37 records.", result.stderr)
+            self.assertIn("The definition will still be generated.", result.stderr)
+
+    def test_mapped_enums_do_not_warn(self):
+        path = SCRIPT.parent.parent / "definitions" / "cs750.wcp"
+        donor = inspector.load_definition(path)
+        with zipfile.ZipFile(path) as archive:
+            source = archive.read(donor["creation"]["template"])
+        self.assertEqual(inspector.undeclared_enum_values(source, donor), [])
+
+    def test_complete_generation_preserves_writer_and_creation_metadata(self):
+        path = SCRIPT.parent.parent / "definitions" / "cs750.wcp"
+        donor = inspector.load_definition(path)
+        with zipfile.ZipFile(path) as archive:
+            source = archive.read(donor["creation"]["template"])
+        draft = inspector.generation_definition(source, [donor])
+        default = inspector.create_default_codeplug(source, draft)
+        with tempfile.TemporaryDirectory() as directory:
+            package = inspector.save_definition_package(directory, "Complete test", draft, default)
+            loaded = inspector.load_definition(package)
+        for key in ("construction", "channel_defaults", "base_image"):
+            self.assertEqual(loaded["creation"][key], donor["creation"][key])
+        self.assertEqual(loaded["fields"], donor["fields"])
+        self.assertEqual(loaded["tables"], donor["tables"])
+        self.assertEqual(loaded["preservation"], donor["preservation"])
+        reset_only = deepcopy(donor)
+        reset_only["creation"]["construction"] = {"default_generation": "reset only"}
+        invalid = deepcopy(donor)
+        invalid["creation"]["construction"]["contacts"]["operation"] = "invented_operation"
+        different = deepcopy(donor)
+        different["recognition"]["model_value"] = "DIFFERENT RADIO"
+        for rejected in (reset_only, invalid, different):
+            with self.assertRaisesRegex(inspector.DefinitionGenerationError, "No matching definition supplies executable"):
+                inspector.generation_definition(source, [rejected])
+
+    def test_cli_refuses_reset_only_without_prompt_or_output(self):
+        source, donors, _ = fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "input.rdb"
+            input_path.write_bytes(source)
+            for i, donor in enumerate(donors):
+                (root / f"donor{i}.wcp").write_text(json.dumps(donor))
+            before = {p: p.read_bytes() for p in root.iterdir()}
+            result = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), str(input_path),
+                 "--definitions", str(root), "--generate-definition"],
+                input="unused\n", capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("No matching definition supplies executable", result.stderr)
+            self.assertNotIn("Definition name [", result.stderr)
+            self.assertEqual(before, {p: p.read_bytes() for p in root.iterdir()})
+
+    def test_identity_metadata_retained_only_for_matching_model_and_version(self):
+        for model, version, retained in (("NEWTEST", "V2", True),
+                                         ("OLDTEST", "V2", False),
+                                         ("NEWTEST", "V1", False)):
+            with self.subTest(model=model, version=version):
+                source, donors, _ = fixture()
+                data = bytearray(source)
+                data[40:48] = b"HW-TEST\0"
+                data[48:56] = b"V2\0\0\0\0\0\0"
+                identity = donors[0]
+                identity["recognition"].update(model_value=model, version_field="version",
+                                                supported_versions=[version])
+                identity["fields"]["version"] = {"at": 48, "type": "ascii", "bytes": 8}
+                identity["fields"]["hardware_marker"] = {"at": 40, "type": "ascii", "bytes": 8}
+                identity["preservation"] = {"scan_scope": "Verified research note"}
+                draft = inspector.infer_definition(bytes(data), donors)
+                self.assertEqual("identity__hardware_marker" in draft["fields"], retained)
+                self.assertEqual("scan_scope" in draft["preservation"], retained)
+                if retained:
+                    reader = inspector.DefinitionReader(bytes(data), draft)
+                    self.assertEqual(reader.globals.get("identity__hardware_marker")["value"], "HW-TEST")
+                    self.assertEqual(draft["preservation"]["scan_scope"], "Verified research note")
+                    regenerated = inspector.infer_definition(bytes(data), [draft])
+                    self.assertIn("identity__hardware_marker", regenerated["fields"])
+                    self.assertEqual(regenerated["preservation"], draft["preservation"])
+
+    def test_matching_model_equality_check_is_retained(self):
+        source, donors, _ = fixture()
+        data = bytearray(source)
+        data[40:48] = b"NEWTEST\0"
+        identity = donors[0]
+        identity["recognition"]["model_value"] = "NEWTEST"
+        identity["fields"]["secondary_model"] = {"at": 40, "type": "ascii", "bytes": 8}
+        identity["layout_checks"]["equal_fields"] = [["model", "secondary_model"]]
+        draft = inspector.infer_definition(bytes(data), donors)
+        self.assertIn(["identity__model", "identity__secondary_model"],
+                      draft["layout_checks"]["equal_fields"])
+
+    def test_power_on_messages_are_carried_and_cleared_in_packaged_default(self):
+        for messages in (("Dah dit dah dit", "dah dah dit dah"), ("", ""),
+                         ("ABCDEFGHIJKLMNOP", "Different text")):
+            with self.subTest(messages=messages):
+                source, donors, _ = fixture()
+                data = bytearray(source)
+                for n, message in enumerate(messages, 1):
+                    at = 352 + (n - 1) * 16
+                    donors[0]["fields"][f"power_on_message_{n}"] = {
+                        "at": at, "type": "ascii", "bytes": 16,
+                        "terminators": ["0x00", "0xFF"]}
+                    data[at:at + 16] = message.encode().ljust(16, b"\xff")
+                original = bytes(data)
+                draft = inspector.infer_definition(original, donors)
+                default = inspector.create_default_codeplug(original, draft)
+                # The new resets change only the two message regions relative
+                # to the existing default-generation behavior.
+                baseline = inspector.create_default_codeplug(
+                    original, inspector.infer_definition(original, fixture()[1]))
+                self.assertEqual(default[:352], baseline[:352])
+                self.assertEqual(default[384:], baseline[384:])
+                self.assertEqual(default[352:384], b"\0" * 32)
+                self.assertEqual(bytes(data), original)
+                for n in (1, 2):
+                    name = f"power_on_message_{n}"
+                    self.assertIn(name, draft["fields"])
+                    self.assertEqual(draft["default_generation"]["globals"][name], "")
+                    self.assertNotIn(name, draft["recognition"].get("required_fields", {}))
+                with tempfile.TemporaryDirectory() as directory:
+                    path = inspector.save_definition_package(directory, "Message test", draft, default)
+                    loaded = inspector.load_definition(path)
+                    with zipfile.ZipFile(path) as archive:
+                        packaged = archive.read(loaded["creation"]["template"])
+                    reader = inspector.DefinitionReader(packaged, loaded)
+                    for n in (1, 2):
+                        self.assertEqual(reader.globals.get(f"power_on_message_{n}")["value"], "")
+                    regenerated = inspector.infer_definition(original, [loaded])
+                    for n in (1, 2):
+                        self.assertIn(f"power_on_message_{n}", regenerated["fields"])
+
+    def test_generation_preserves_transmit_and_receive_frequency_names(self):
+        source, donors, _ = fixture()
+        names = {"tx": "transmit_frequency", "rx": "receive_frequency"}
+        for donor in donors:
+            if "channels" in donor["tables"]:
+                fields = donor["tables"]["channels"]["fields"]
+                donor["tables"]["channels"]["fields"] = {
+                    names.get(key, key): value for key, value in fields.items()}
+            for plan in donor["default_generation"]["tables"]:
+                if plan["table"] == "channels":
+                    for record in plan["records"]:
+                        record["fields"] = {names.get(key, key): value
+                                            for key, value in record["fields"].items()}
+        draft = inspector.infer_definition(source, donors)
+        fields = draft["tables"]["channels"]["fields"]
+        self.assertEqual(fields["transmit_frequency"]["offset"], 12)
+        self.assertEqual(fields["receive_frequency"]["offset"], 8)
+        plan = next(p for p in draft["default_generation"]["tables"] if p["table"] == "channels")
+        self.assertEqual(plan["records"][0]["fields"]["transmit_frequency"], 400000000)
+        self.assertEqual(plan["records"][0]["fields"]["receive_frequency"], 400000000)
+        self.assertNotIn("tx", fields)
+        self.assertNotIn("rx", fields)
+
     def test_different_secondary_model_and_version_allow_generation(self):
         source, donors, _ = fixture()
         data = bytearray(source)
@@ -159,14 +327,40 @@ class DefinitionInferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(inspector.DefinitionGenerationError, "Generated default failed"):
             inspector.infer_definition(source, bad)
 
-    def test_ambiguous_identity_mapping_is_rejected(self):
+    def test_equal_identity_matches_are_selected_independently_of_donor_order(self):
         source, donors, _ = fixture()
         data = bytearray(source)
         data[40:48] = b"OTHER\0\0\0"
         alternate = deepcopy(donors[0])
         alternate["fields"]["radio_name"]["at"] = 40
-        with self.assertRaisesRegex(inspector.DefinitionGenerationError, "Ambiguous"):
-            inspector.infer_definition(bytes(data), donors + [alternate])
+        draft = inspector.infer_definition(bytes(data), donors + [alternate])
+        self.assertEqual(draft, inspector.infer_definition(bytes(data), [alternate] + donors[::-1]))
+        self.assertEqual(inspector.inspect_definition(bytes(data), draft)[0]["status"], "recognized")
+
+    def test_more_field_mappings_win_only_after_complete_validation(self):
+        source, donors, _ = fixture()
+        richer = deepcopy(donors[1])
+        richer["fields"]["extra_setting"] = {"at": 400, "type": "u8"}
+        richer["default_generation"]["globals"]["extra_setting"] = 0
+        draft = inspector.infer_definition(source, donors + [richer])
+        self.assertEqual(draft, inspector.infer_definition(source, [richer] + donors[::-1]))
+        self.assertTrue(any(name.endswith("extra_setting") for name in draft["fields"]))
+        invalid = deepcopy(richer)
+        invalid["fields"]["extra_setting"]["maximum"] = 0
+        invalid["default_generation"]["globals"]["extra_setting"] = 1
+        fallback = inspector.infer_definition(source, donors + [invalid])
+        self.assertFalse(any(name.endswith("extra_setting") for name in fallback["fields"]))
+
+    def test_more_required_checks_break_equal_field_count_ties(self):
+        source, donors, _ = fixture()
+        stricter = deepcopy(donors[1])
+        rule = {"left": {"field": "channel_count"}, "right": {"field": "channel_count"}}
+        stricter["layout_checks"]["relationships"].append(rule)
+        draft = inspector.infer_definition(source, donors + [stricter])
+        mapped_rule = {"left": {"field": "channels__channel_count"},
+                       "right": {"field": "channels__channel_count"}}
+        self.assertIn(mapped_rule, draft["layout_checks"]["relationships"])
+        self.assertEqual(draft, inspector.infer_definition(source, [stricter] + donors[::-1]))
 
     def test_equivalent_donor_descriptions_are_deduplicated(self):
         source, donors, _ = fixture()
@@ -226,7 +420,7 @@ class DefinitionInferenceTests(unittest.TestCase):
                 (definitions / f"donor{i}.wcp").write_text(json.dumps(donor))
             before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
             result = subprocess.run([sys.executable, "-B", str(SCRIPT), str(input_path), "--definitions", str(definitions),
-                                     "--generate-definition", "--json"], input="\n", capture_output=True, text=True)
+                                     "--generate-definition", "--default-only", "--json"], input="\n", capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Definition name [NEWTEST]", result.stderr)
             report = json.loads(result.stdout)
@@ -235,6 +429,55 @@ class DefinitionInferenceTests(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(before, {p: p.read_bytes() for p in before})
             self.assertEqual({p for p in root.rglob("*") if p.is_file()}, set(before) | {path})
+
+    def test_cli_generation_uses_input_extension(self):
+        for donor_extension in (None, ".other"):
+            with self.subTest(donor_extension=donor_extension), tempfile.TemporaryDirectory() as directory:
+                source, donors, _ = fixture()
+                root = Path(directory)
+                input_path = root / "input.rdb"
+                input_path.write_bytes(source)
+                definitions = root / "defs"
+                definitions.mkdir()
+                for i, donor in enumerate(donors):
+                    representation = donor["representations"][0]
+                    if donor_extension is None:
+                        representation.pop("extension")
+                    else:
+                        representation["extension"] = donor_extension
+                    (definitions / f"donor{i}.wcp").write_text(json.dumps(donor))
+                result = subprocess.run(
+                    [sys.executable, "-B", str(SCRIPT), str(input_path),
+                     "--definitions", str(definitions), "--generate-definition", "--default-only"],
+                    input="\n", capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                with zipfile.ZipFile(definitions / "newtest.wcp") as archive:
+                    definition = json.loads(archive.read("definition.json"))
+                    self.assertEqual(definition["representations"][0]["extension"], ".rdb")
+                    self.assertEqual(definition["creation"]["template"], "templates/default.rdb")
+                    self.assertEqual(archive.read("templates/default.rdb"),
+                                     inspector.create_default_codeplug(source, definition))
+
+    def test_cli_generation_rejects_missing_or_invalid_input_extension(self):
+        for filename in ("input", "input.bad-ext"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as directory:
+                source, donors, _ = fixture()
+                root = Path(directory)
+                input_path = root / filename
+                input_path.write_bytes(source)
+                definitions = root / "defs"
+                definitions.mkdir()
+                for i, donor in enumerate(donors):
+                    (definitions / f"donor{i}.wcp").write_text(json.dumps(donor))
+                before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                result = subprocess.run(
+                    [sys.executable, "-B", str(SCRIPT), str(input_path),
+                     "--definitions", str(definitions), "--generate-definition", "--default-only"],
+                    input="\n", capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("Input filename must have a valid codeplug extension", result.stderr)
+                self.assertNotIn("Definition name [", result.stderr)
+                self.assertEqual(before, {p: p.read_bytes() for p in root.rglob("*") if p.is_file()})
 
     def test_cli_insufficient_data_does_not_prompt_or_write(self):
         source, donors, _ = fixture()
@@ -248,7 +491,7 @@ class DefinitionInferenceTests(unittest.TestCase):
             input_path.write_bytes(source)
             before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
             result = subprocess.run([sys.executable, "-B", str(SCRIPT), str(input_path), "--definitions", str(definitions),
-                                     "--generate-definition"], input="should-not-be-used\n", capture_output=True, text=True)
+                                     "--generate-definition", "--default-only"], input="should-not-be-used\n", capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn("Insufficient matching data", result.stderr)
             self.assertIn("contacts", result.stderr)

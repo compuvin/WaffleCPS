@@ -18,6 +18,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(QString txFrequency READ txFrequency NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(int colorCode READ colorCode NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QString selectedPower READ selectedPower NOTIFY selectedRepeaterChanged)
+    Q_PROPERTY(QStringList powerChoices READ powerChoices NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QString radioName READ radioName NOTIFY radioSettingsChanged)
     Q_PROPERTY(int radioId READ radioId NOTIFY radioSettingsChanged)
     Q_PROPERTY(QString radioModel READ radioModel NOTIFY radioSettingsChanged)
@@ -31,6 +32,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(QString sourceCodeplugName READ sourceCodeplugName NOTIFY projectChanged)
     Q_PROPERTY(bool modified READ modified NOTIFY projectChanged)
     Q_PROPERTY(bool hasImportedCodeplug READ hasImportedCodeplug NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(bool radioTransferAvailable READ radioTransferAvailable NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QString importedCodeplugSummary READ importedCodeplugSummary NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QStringList importedRepeaterNames READ importedRepeaterNames NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool editingAsZone READ editingAsZone NOTIFY importedSelectionChanged)
@@ -49,6 +51,8 @@ public:
     QString txFrequency() const;
     int colorCode() const;
     QString selectedPower() const;
+    QStringList powerChoices() const;
+    Q_INVOKABLE int powerChoice(const QString &label) const;
     QString radioName() const;
     int radioId() const;
     QString radioModel() const;
@@ -63,6 +67,7 @@ public:
     QString sourceCodeplugName() const;
     bool modified() const;
     bool hasImportedCodeplug() const;
+    bool radioTransferAvailable() const;
     QString importedCodeplugSummary() const;
     QStringList importedRepeaterNames() const;
     QStringList importedZoneNames() const;
@@ -77,7 +82,7 @@ public:
     Q_INVOKABLE bool renameSelectedZone(const QString &name);
     Q_INVOKABLE bool addExistingChannelToSelectedZone(int channelNumber);
     Q_INVOKABLE bool createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
-        bool digital, int colorCode, int timeSlot, int contactIndex, bool highPower);
+        bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice);
     Q_INVOKABLE bool updateSelectedZoneChannel(int zonePosition, const QString &name,
         const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
         int contactIndex, int powerChoice);
@@ -126,8 +131,8 @@ public:
     bool openProjectFromFile(const QString &path);
     bool saveProjectToFile(const QString &path);
     bool attachSourceCodeplugFromFile(const QString &path);
-    bool importCodeplugFromFile(const QString &path);
-    bool importCodeplugFromBytes(const QByteArray &bytes);
+    bool importCodeplugFromFile(const QString &path, const QString &definitionFile = {});
+    bool importCodeplugFromBytes(const QByteArray &bytes, const QString &definitionFile = {});
     bool importRadioCodeplug(const QByteArray &bytes);
     Q_INVOKABLE QByteArray exportCodeplugBytes();
     bool exportCodeplugToFile(const QString &path);

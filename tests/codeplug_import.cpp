@@ -85,7 +85,29 @@ int main(int argc, char *argv[])
         return 7;
     }
     const QString filters = CodeplugDefinitions::importFileFilter(&error);
-    if (filters != QStringLiteral("All supported codeplugs (*.rdbx);;CS7000-M17 PLUS (*.rdbx);;All files (*)")
+    if (!CodeplugDefinitions::hasCompanionWrd("cs7000-m17-plus.wcp")
+        || CodeplugDefinitions::hasCompanionWrd("cs750.wcp")
+        || CodeplugDefinitions::hasCompanionWrd("cs800.wcp")
+        || CodeplugDefinitions::hasCompanionWrd("opengd77-128k.wcp")) {
+        qCritical() << "Companion radio definition detection failed";
+        return 51;
+    }
+    RepeaterStore radioGate;
+    const QString cs800Sample = QCoreApplication::applicationDirPath()
+        + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
+    if (!radioGate.radioTransferAvailable()
+        || !radioGate.importCodeplugFromFile(cs800Sample, "cs800.wcp")
+        || radioGate.radioTransferAvailable()) {
+        qCritical() << "Radio controls were available for CS800 or unavailable in New";
+        return 52;
+    }
+    radioGate.newProject();
+    if (!radioGate.radioTransferAvailable()) {
+        qCritical() << "Radio controls stayed unavailable after New";
+        return 53;
+    }
+    if (!filters.contains("cs7000-m17-plus.wcp") || !filters.contains("cs750.wcp")
+        || !filters.contains("cs800.wcp") || !filters.contains("opengd77-128k.wcp")
         || !CodeplugDefinitions::read(unsupported, &parsed, &error)
         || !parsed.cpsVersion.startsWith(QStringLiteral("V2."))) {
         qCritical() << "Definition filters or version-independent recognition failed:" << error;
@@ -119,6 +141,8 @@ int main(int argc, char *argv[])
     const auto versionJson = QJsonDocument::fromJson(versionEntries.value(QStringLiteral("project.json"))).object();
     const auto reopenedJson = QJsonDocument::fromJson(reopenedEntries.value(QStringLiteral("project.json"))).object();
     if (versionJson.value(QStringLiteral("importedCodeplug")) != reopenedJson.value(QStringLiteral("importedCodeplug"))
+        || versionJson.value(QStringLiteral("importedCodeplug")).toObject().value(QStringLiteral("definitionFile"))
+            != QJsonValue(QStringLiteral("cs7000-m17-plus.wcp"))
         || versionJson.value(QStringLiteral("radioSettings")) != reopenedJson.value(QStringLiteral("radioSettings"))
         || reopenedEntries.value(QStringLiteral("source/original-codeplug.bin")) != unsupported) {
         qCritical() << "Different-version Save/Open changed editor records or source bytes";

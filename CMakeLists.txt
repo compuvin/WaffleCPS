@@ -28,9 +28,6 @@ add_library(codeplugdefinition STATIC
     src/codeplugdefinitions.cpp src/codeplugdefinitions.h
     src/ziparchive.cpp src/ziparchive.h)
 target_link_libraries(codeplugdefinition PUBLIC Qt6::Core ZLIB::ZLIB)
-qt_add_resources(codeplugdefinition "codeplug_definitions"
-    PREFIX "/"
-    FILES definitions/cs7000-m17-plus.wcp)
 
 qt_add_executable(wafflecps
     src/main.cpp
@@ -38,8 +35,6 @@ qt_add_executable(wafflecps
     src/repeaterstore.h
     src/codeplugreader.cpp
     src/codeplugreader.h
-    src/codeplugwriter.cpp
-    src/codeplugwriter.h
     src/cs7000default.cpp
     src/cs7000default.h
     src/ziparchive.cpp
@@ -70,6 +65,15 @@ target_link_libraries(wafflecps PRIVATE
 
 include(CTest)
 if(BUILD_TESTING)
+    qt_add_executable(cs750_roundtrip_test
+        tests/cs750_roundtrip.cpp
+        src/repeaterstore.cpp src/repeaterstore.h
+        src/codeplugreader.cpp src/codeplugreader.h
+        src/codeplugwriter.cpp src/codeplugwriter.h
+        src/cs7000default.cpp src/cs7000default.h)
+    target_link_libraries(cs750_roundtrip_test PRIVATE codeplugdefinition Qt6::Gui Qt6::Widgets)
+    target_compile_definitions(cs750_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME cs750_roundtrip COMMAND cs750_roundtrip_test)
     add_executable(codeplug_definition_test
         tests/codeplug_definition.cpp tests/channel_order_fixture.h
         src/codeplugreader.cpp src/codeplugreader.h
@@ -78,6 +82,20 @@ if(BUILD_TESTING)
     target_link_libraries(codeplug_definition_test PRIVATE codeplugdefinition)
     target_compile_definitions(codeplug_definition_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME codeplug_definition COMMAND codeplug_definition_test)
+
+    add_executable(codeplug_definition_export_test
+        tests/codeplug_definition_export.cpp
+        src/codeplugreader.cpp src/codeplugreader.h
+        src/codeplugwriter.cpp src/codeplugwriter.h
+        src/cs7000default.cpp src/cs7000default.h)
+    target_link_libraries(codeplug_definition_export_test PRIVATE codeplugdefinition)
+    target_compile_definitions(codeplug_definition_export_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME codeplug_definition_export COMMAND codeplug_definition_export_test)
+
+    add_executable(definition_disk_test tests/definition_disk.cpp)
+    target_link_libraries(definition_disk_test PRIVATE codeplugdefinition)
+    target_compile_definitions(definition_disk_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME definition_disk COMMAND definition_disk_test)
 
     add_executable(radio_write_protocol_test tests/radio_write_protocol.cpp)
     target_link_libraries(radio_write_protocol_test PRIVATE cs7000usb)
@@ -219,6 +237,8 @@ if(BUILD_TESTING)
         add_test(NAME ui_radio_${flow} COMMAND ui_smoke_test --demo --radio-${flow})
         set_tests_properties(ui_radio_${flow} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endforeach()
+    add_test(NAME ui_radio_definition_gate COMMAND ui_smoke_test --demo --radio-definition-gate)
+    set_tests_properties(ui_radio_definition_gate PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     foreach(target IN ITEMS zone_editor_test channel_order_test radio_import_test
                             project_roundtrip_test codeplug_import_test ui_smoke_test)
         target_link_libraries(${target} PRIVATE codeplugdefinition)

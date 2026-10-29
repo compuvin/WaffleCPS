@@ -93,7 +93,9 @@ ApplicationWindow {
                     Button {
                         objectName: "readRadioButton"
                         text: "Read from radio"
+                        enabled: store.radioTransferAvailable
                         onClicked: {
+                            if (!store.radioTransferAvailable) return
                             if (store.modified)
                                 radioReadConfirmation.open()
                             else
@@ -103,7 +105,10 @@ ApplicationWindow {
                     Button {
                         objectName: "writeRadioButton"
                         text: "Write to radio"
-                        onClicked: radioWriteConfirmation.open()
+                        enabled: store.radioTransferAvailable
+                        onClicked: {
+                            if (store.radioTransferAvailable) radioWriteConfirmation.open()
+                        }
                     }
                     Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
                     Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
@@ -856,8 +861,7 @@ ApplicationWindow {
             rxField.text = group.receiveFrequency
             txField.text = group.transmitFrequency
             colorCodeField.value = group.colorCode
-            powerField.currentIndex = group.power === "High" ? 0
-                                      : group.power === "Low" ? 1 : -1
+            powerField.currentIndex = store.powerChoices.indexOf(group.power)
             editError.text = ""
             open()
         }
@@ -886,7 +890,7 @@ ApplicationWindow {
                 id: powerField
                 objectName: "repeaterPowerField"
                 Layout.fillWidth: true
-                model: ["High", "Low"]
+                model: editDialog.forImported ? store.powerChoices : ["High", "Low"]
                 displayText: currentIndex < 0
                              ? (store.selectedImportedGroup.power || "Unknown") + " (unchanged)"
                              : currentText
@@ -922,7 +926,7 @@ ApplicationWindow {
                                         ? store.updateSelectedImportedRepeater(repeaterNameField.text, rxField.text,
                                                                               txField.text, colorCodeField.value,
                                                                               powerField.currentIndex < 0 ? -1
-                                                                                : powerField.currentIndex === 0 ? 1 : 0)
+                                                                                : store.powerChoice(powerField.currentText))
                                         : store.updateSelectedRepeater(repeaterNameField.text, rxField.text,
                                                                        txField.text, colorCodeField.value,
                                                                        powerField.currentIndex === 0)
@@ -1335,7 +1339,7 @@ ApplicationWindow {
                     text: "Read from radio"
                     onClicked: {
                         radioReadConfirmation.close()
-                        radioReader.start()
+                        if (store.radioTransferAvailable) radioReader.start()
                     }
                 }
             }
@@ -1403,7 +1407,7 @@ ApplicationWindow {
                     text: "Write to radio"
                     onClicked: {
                         radioWriteConfirmation.close()
-                        radioWriter.start(store.exportCodeplugBytes())
+                        if (store.radioTransferAvailable) radioWriter.start(store.exportCodeplugBytes())
                     }
                 }
             }

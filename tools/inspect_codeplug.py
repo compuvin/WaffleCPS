@@ -1320,7 +1320,20 @@ def _check_bundle_globals(definition, reader, fields, guards):
 
 def _identity_bundle(definition, reader, roots):
     recognition = deepcopy(definition["recognition"])
+    matching_identity = all(c["status"] == "match" for c in
+                            check_recognition(reader, definition) if c["required"])
     names = {"radio_name", "radio_id", recognition["model_field"]}
+    if matching_identity:
+        table_dependencies = set(_field_dependencies(definition["tables"]))
+        table_dependencies.update(_field_dependencies(
+            definition.get("default_generation", {}).get("tables", [])))
+        table_fields = _close_fields(definition, table_dependencies)
+        names.update(set(definition["fields"]) - table_fields)
+    message_fields = {
+        name for name in ("power_on_message_1", "power_on_message_2")
+        if name in definition["fields"]
+    }
+    names.update(message_fields)
     version = recognition.get("version_field", recognition.get("cps_version_field"))
     if version:
         names.add(version)
@@ -1354,11 +1367,15 @@ def _identity_bundle(definition, reader, roots):
     guards["equal_fields"] = [
         pair for pair in guards.get("equal_fields", [])
         if recognition["model_field"] not in pair
+        or reader.globals.get(pair[0])["value"] == reader.globals.get(pair[1])["value"]
     ]
     _check_bundle_globals(definition, reader, fields, guards)
     return {"role": "identity", "definition": definition, "root": None, "roots": roots,
             "tables": set(), "fields": fields, "guards": guards, "recognition": recognition,
-            "plans": [], "globals": {name: defaults[name] for name in ("radio_name", "radio_id")}}
+            "matching_identity": matching_identity,
+            "plans": [], "globals": {
+                **{name: defaults[name] for name in ("radio_name", "radio_id")},
+                **{name: "" for name in message_fields}}}
 
 
 def _component_bundle(role, root, definition, reader, decoded, roots, known_format):
@@ -1516,7 +1533,9 @@ def _assemble_definition(bundles, representation, aliases):
     for bundle in bundles:
         role = bundle["role"]
         source = bundle["definition"]
-        field_map = {key: key if role == "identity" and key in ("radio_name", "radio_id") else role + "__" + _base_mapping_name(key)
+        field_map = {key: key if role == "identity" and key in (
+                         "radio_name", "radio_id", "power_on_message_1", "power_on_message_2")
+                     else role + "__" + _base_mapping_name(key)
                      for key in bundle["fields"]}
         table_map = dict(aliases)
         table_map.update(bundle["roots"])
@@ -1550,6 +1569,8 @@ def _assemble_definition(bundles, representation, aliases):
             elif isinstance(value, dict) and isinstance(draft["notation"][key], dict):
                 draft["notation"][key].update(deepcopy(value))
         if role == "identity":
+            if bundle.get("matching_identity") and "preservation" in source:
+                draft["preservation"].update(deepcopy(source["preservation"]))
             recognition = deepcopy(bundle["recognition"])
             for key in ("model_field", "version_field", "cps_version_field"):
                 if key in recognition:
@@ -1591,7 +1612,7 @@ def _check_disjoint_core(image, draft, result):
 
 
 def infer_definition(data, definitions, max_records=100000):
-    """Combine complete, informative layout components; refuse ambiguity.
+    """Combine complete, informative layout components; rank valid candidates.
 
     Matching occurs per identity/channel/zone/contact component, not by choosing
     the definition with the largest partial-match score. Cross-component links
@@ -1601,7 +1622,10 @@ def infer_definition(data, definitions, max_records=100000):
         raise DefinitionGenerationError("Record limit must be positive")
     if not isinstance(data, (bytes, bytearray)) or not 0 < len(data) <= MAX_PACKAGE_BYTES:
         raise DefinitionGenerationError("Input is empty or exceeds the generation size limit")
-    definitions = list(definitions)
+    # Stable donor order also makes equivalent-bundle deduplication and the
+    # choice of representation independent of filenames/input order.
+    definitions = sorted((d for d in definitions if isinstance(d, dict)),
+                         key=lambda d: json.dumps(d, sort_keys=True))
     alias_roles = {}
     for definition in definitions:
         try:
@@ -1665,7 +1689,7 @@ def infer_definition(data, definitions, max_records=100000):
         for bundles in itertools.product(*candidates):
             tried += 1
             if tried > 256:
-                raise DefinitionGenerationError("Too many competing mappings; the layout cannot be chosen unambiguously")
+                raise DefinitionGenerationError("Too many competing mappings to evaluate completely")
             try:
                 draft = _assemble_definition(bundles, group["representation"], aliases)
                 if draft["tables"]["zones"]["fields"]["members"]["reference"]["table"] != "channels":
@@ -1683,14 +1707,20 @@ def infer_definition(data, definitions, max_records=100000):
                 successes.setdefault(signature, draft)
             except (DefinitionGenerationError, GenerationError, DefinitionError, KeyError, TypeError, ValueError, RecursionError) as error:
                 failures.add(str(error))
-            if len(successes) > 1:
-                raise DefinitionGenerationError("Ambiguous mappings: more than one complete definition fits the input")
-    if len(successes) > 1:
-        raise DefinitionGenerationError("Ambiguous mappings: more than one complete definition fits the input")
     if not successes:
         detail = next(iter(sorted(failures)), "No consistent reset profile could be established")
         raise DefinitionGenerationError("Cannot establish a consistent definition. " + detail)
-    return next(iter(successes.values()))
+    def rank(draft):
+        result = inspect_definition(data, draft, max_records)[0]
+        return (
+            len(draft["fields"]) + sum(
+                len(table["fields"]) for table in draft["tables"].values()),
+            sum(check.get("required", False) and check["status"] == "match"
+                for check in result["checks"]),
+            json.dumps(draft, sort_keys=True),
+        )
+
+    return max(successes.values(), key=rank)
 
 
 def _definition_filename(name):
@@ -1729,21 +1759,142 @@ def prompt_definition_name(draft, directory):
             print(str(error), file=sys.stderr)
 
 
+def generation_definition(data, definitions, max_records=100000, default_only=False):
+    """Reuse complete matching rules without transferring writes across models."""
+    if default_only:
+        return infer_definition(data, definitions, max_records)
+    candidates = []
+    for donor in definitions:
+        plan = donor.get("creation", {}).get("construction", {})
+        order = plan.get("order")
+        if plan.get("version") != 1 or not isinstance(order, list) or not order:
+            continue
+        if any(not isinstance(label, str) or not isinstance(plan.get(label), dict) for label in order):
+            continue
+        operations = [plan[label].get("operation", label if label == "validate_target" else None) for label in order]
+        supported = {"validate_target", "return_original_if_equal", "decode_representation", "write_global_fields",
+                     "branch_if_tables_equal", "rebuild_fixed_table", "replace_variable_table", "relocate_pointers",
+                     "rewrite_relative_index", "prepare_overlapping_table", "write_overlapping_fields",
+                     "encode_base_representation", "decode_and_compare_target", "remap_references"}
+        required = {"validate_target", "return_original_if_equal", "decode_representation",
+                    "encode_base_representation", "decode_and_compare_target"}
+        if (len(set(order)) != len(order) or not set(operations) <= supported
+                or any(operations.count(op) != 1 for op in required)
+                or "write_global_fields" not in operations):
+            continue
+        for result, representation in zip(inspect_definition(data, donor, max_records), donor["representations"]):
+            if result["status"] != "recognized":
+                continue
+            draft = deepcopy(donor)
+            draft["creation"]["representation"] = representation["name"]
+            resets = draft.setdefault("default_generation", {}).setdefault("globals", {})
+            for name in ("power_on_message_1", "power_on_message_2"):
+                if name in draft["fields"]:
+                    resets[name] = ""
+            try:
+                create_default_codeplug(data, draft)
+            except (GenerationError, DefinitionError):
+                continue
+            score = (len(draft["fields"]) + sum(len(t["fields"]) for t in draft["tables"].values()),
+                     sum(c.get("required", False) and c["status"] == "match" for c in result["checks"]),
+                     json.dumps(draft, sort_keys=True))
+            candidates.append((score, draft))
+    if not candidates:
+        draft = infer_definition(data, definitions, max_records)
+        compatible = []
+        for donor in definitions:
+            if donor.get("tables") != draft.get("tables"):
+                continue
+            if any(draft["fields"].get(name) != field
+                   for name, field in donor.get("fields", {}).items()
+                   if name in draft["fields"]):
+                continue
+            creation = donor.get("creation", {})
+            plan = creation.get("construction", {})
+            if (not isinstance(plan, dict) or plan.get("version") != 1
+                    or not isinstance(plan.get("order"), list)
+                    or not plan["order"]
+                    or not isinstance(creation.get("base_image"), dict)
+                    or not isinstance(creation.get("channel_defaults"), dict)):
+                continue
+            if not any(r.get("decode") == draft["representations"][0].get("decode")
+                       for r in donor.get("representations", [])):
+                continue
+            generated = deepcopy(draft)
+            generated["creation"] = {
+                "base_image": deepcopy(creation["base_image"]),
+                "channel_defaults": deepcopy(creation["channel_defaults"]),
+                "construction": deepcopy(plan),
+                "representation": draft["representations"][0]["name"],
+            }
+            references = generated["creation"]["construction"].get("references", {})
+            if isinstance(references, dict):
+                references["globals"] = [
+                    rule for rule in references.get("globals", [])
+                    if isinstance(rule, dict) and rule.get("field") in generated["fields"]
+                ]
+            try:
+                create_default_codeplug(data, generated)
+            except (GenerationError, DefinitionError, KeyError, TypeError, ValueError):
+                continue
+            compatible.append((json.dumps(generated["creation"], sort_keys=True), generated))
+        if compatible:
+            return max(compatible, key=lambda item: item[0])[1]
+        raise DefinitionGenerationError(
+            "No matching definition supplies executable import/export rules. "
+            "Cannot infer safe write rules from decoded bytes alone. "
+            "Use --default-only only if you want an inspection/reset-only package; "
+            "that package will not support editor import/export.")
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def undeclared_enum_values(image, definition):
+    """Report observed raw enum values without assigning them a meaning."""
+    decoded = DefinitionReader(image, definition).decode_available_fields_and_tables()
+    warnings = []
+
+    def inspect_fields(prefix, schemas, raw_records):
+        for name, schema in schemas.items():
+            enum = schema.get("enum")
+            if not enum:
+                continue
+            counts = {}
+            for record in raw_records:
+                if name not in record:
+                    continue
+                values = record[name] if isinstance(record[name], list) else [record[name]]
+                for value in values:
+                    if str(value) not in enum:
+                        counts[value] = counts.get(value, 0) + 1
+            for value in sorted(counts, key=str):
+                warnings.append(f"{prefix}.{name} has undeclared value {value} in {counts[value]} records.")
+
+    inspect_fields("fields", definition["fields"], [decoded["raw_fields"]])
+    for name, table in definition["tables"].items():
+        inspect_fields(name, table["fields"], [row["raw_values"] for row in decoded["tables"][name]["records"]])
+    return warnings
+
+
 def save_definition_package(directory, name, draft, default):
     """Write one new package exclusively, after validating the entire payload."""
     filename = _definition_filename(name)
     path = Path(directory) / filename
     definition = deepcopy(draft)
-    extension = definition["representations"][0].get("extension", ".bin")
+    creation = deepcopy(definition.get("creation", {}))
+    representation = next((r for r in definition["representations"]
+                           if r["name"] == creation.get("representation")), definition["representations"][0])
+    extension = representation.get("extension", ".bin")
     if not isinstance(extension, str) or not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", extension):
         extension = ".bin"
     template = "templates/default" + extension
     definition.update(id=filename[:-4], definition_version=2)
-    definition["creation"] = {"template": template, "representation": definition["representations"][0]["name"],
-                              "template_bytes": len(default), "template_sha256": hashlib.sha256(default).hexdigest(),
-                              "construction": {"default_generation": "Apply the top-level reset profile to a recognized source. Unmapped settings remain preserved."}}
+    creation.update(template=template, representation=representation["name"],
+                    template_bytes=len(default), template_sha256=hashlib.sha256(default).hexdigest())
+    creation.setdefault("construction", {"default_generation": "Apply the top-level reset profile to a recognized source. Unmapped settings remain preserved."})
+    definition["creation"] = creation
     validate_definition(definition)
-    if inspect_definition(default, definition)[0]["status"] != "recognized":
+    selected = definition["representations"].index(representation)
+    if inspect_definition(default, definition)[selected]["status"] != "recognized":
         raise DefinitionGenerationError("Generated template does not match the new definition")
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
@@ -1779,10 +1930,14 @@ def main(argv=None):
     parser.add_argument("--max-records", type=int, default=100000,
                         help="Maximum total records, scanned slots and array elements per candidate (default: 100000)")
     parser.add_argument("--generate-definition", action="store_true",
-                        help="Combine verified mappings, then prompt for a name and save a new .wcp package")
+                        help="Preserve matching executable import/export rules and save a new .wcp package")
+    parser.add_argument("--default-only", action="store_true",
+                        help="Explicitly generate inspection/reset-only data without editor import/export rules")
     args = parser.parse_args(argv)
     if args.max_records <= 0:
         parser.error("--max-records must be positive")
+    if args.default_only and not args.generate_definition:
+        parser.error("--default-only requires --generate-definition")
     try:
         data = args.codeplug.read_bytes()
         if not args.definitions.is_dir():
@@ -1810,13 +1965,30 @@ def main(argv=None):
             entry["error"] = str(error)
     if args.generate_definition:
         try:
-            draft = infer_definition(data, loaded_definitions, args.max_records)
+            draft = generation_definition(data, loaded_definitions, args.max_records, args.default_only)
+            extension = args.codeplug.suffix
+            if not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", extension):
+                raise DefinitionGenerationError(
+                    "Input filename must have a valid codeplug extension"
+                )
+            representation_name = draft.get("creation", {}).get("representation", draft["representations"][0]["name"])
+            representation = next(r for r in draft["representations"] if r["name"] == representation_name)
+            representation["extension"] = extension
             default = create_default_codeplug(data, draft)
-            image, _ = decode_representation(data, draft["representations"][0])
+            image, _ = decode_representation(data, representation)
+            warnings = undeclared_enum_values(image, draft)
+            if warnings:
+                report["generation_warnings"] = warnings
+                print("Definition is incomplete:", file=sys.stderr)
+                for warning in warnings:
+                    print(warning, file=sys.stderr)
+                print("The definition will still be generated.", file=sys.stderr)
             identity = DefinitionReader(image, draft).globals
             print(f"Compatible mappings found for {draft['recognition']['model_value']}.", file=sys.stderr)
             print(f"Radio name: {identity.get('radio_name')['value']}; radio ID: {identity.get('radio_id')['value']}", file=sys.stderr)
             name = prompt_definition_name(draft, args.definitions)
+            if args.default_only:
+                print("Generating inspection/reset-only package: editor import/export is unavailable.", file=sys.stderr)
             output = save_definition_package(args.definitions, name, draft, default)
             report["generated_definition"] = str(output)
             print(json.dumps(report, indent=2, ensure_ascii=True) if args.json else

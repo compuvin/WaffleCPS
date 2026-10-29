@@ -324,6 +324,29 @@ class OpenGD77DefaultTests(unittest.TestCase):
     def setUp(self):
         self.source, self.definition = package("opengd77-128k")
 
+    def test_eighty_member_zones_use_full_stride_and_reset_without_touching_other_storage(self):
+        data = bytearray(self.source)
+        table = self.definition["tables"]["zones"]
+        self.assertEqual(table["count"], 68)
+        self.assertEqual(table["stride_bytes"], 176)
+        self.assertEqual(table["fields"]["members"]["count"], 80)
+        data[0x8010] = 3
+        fields = {"name": "Second zone", "members": [1] * 80}
+        inspector.write_fields(data, inspector.DefinitionReader(data, self.definition),
+                               table["fields"], fields, 0x8030 + 176, 1)
+        reserved = 0x8030 + 68 * 176
+        data[reserved:reserved + 16] = b"keep-zone-tail!!"
+        checked = inspector.inspect_definition(bytes(data), self.definition)[0]
+        self.assertEqual(checked["status"], "recognized")
+        zone = checked["decoded"]["tables"]["zones"]["records"][1]
+        self.assertEqual(zone["address"], 0x80E0)
+        self.assertEqual(zone["fields"]["name"], "Second zone")
+        self.assertEqual(zone["fields"]["members"], [1] * 80)
+        result = create_default_codeplug(bytes(data), self.definition)
+        self.assertEqual(result[0x80E0:0x8190], bytes(176))
+        self.assertEqual(result[reserved:reserved + 16], b"keep-zone-tail!!")
+        self.assertEqual(result[0xB1B0:], self.source[0xB1B0:])
+
     def test_packaged_default_identity_fields_and_references(self):
         result = create_default_codeplug(self.source, self.definition)
         self.assertEqual(result, self.source)
@@ -335,37 +358,40 @@ class OpenGD77DefaultTests(unittest.TestCase):
         self.assertEqual(decoded["fields"]["radio_name"], "NOCALL")
         self.assertEqual(decoded["fields"]["radio_id"], 1)
         self.assertEqual(result[0xE8:0xEC], b"\0\0\0\1")
-        self.assertEqual(decoded["tables"]["channels"]["selected_indices"], [0])
+        self.assertEqual(decoded["tables"]["channels"]["selected_indices"], [0, 1])
         channel = decoded["tables"]["channels"]["records"][0]["fields"]
         self.assertEqual(channel["name"], "DCH 1")
         self.assertEqual(channel["receive_frequency"], 144025000)
         self.assertEqual(channel["transmit_frequency"], 144025000)
         self.assertEqual(channel["contact_number"], 1)
-        self.assertEqual(decoded["tables"]["base_zones"]["records"][0]["fields"]["members"], [1] + [0] * 15)
-        contact = decoded["tables"]["named_contacts"]["records"][0]["fields"]
+        self.assertEqual(decoded["tables"]["channels"]["records"][1]["fields"]["name"], "ACH 1")
+        self.assertEqual(decoded["tables"]["zones"]["records"][0]["fields"]["members"], [1, 2] + [0] * 78)
+        contact = decoded["tables"]["contacts"]["records"][0]["fields"]
         self.assertEqual((contact["name"], contact["id"], contact["call_type"]), ("Local", 9, "group"))
+        group = decoded["tables"]["receive_groups"]["records"][0]["fields"]
+        self.assertEqual((group["name"], group["stored_count"], group["members"]), ("Local", 2, [1]))
 
     def test_clears_disabled_bodies_and_preserves_unallocated_bitmap_bits_and_unknown_storage(self):
         data = bytearray(self.source)
         channels = self.definition["tables"]["channels"]["segments"]
         at = inspector.integer(channels[-1]["at"]) + 127 * 56
         data[at:at + 56] = b"X" * 56  # Disabled, so not interpreted as channel data.
-        zone_at = 0x8030 + 249 * 48
-        data[zone_at:zone_at + 48] = b"Y" * 48
+        zone_at = 0x8030 + 67 * 176
+        data[zone_at:zone_at + 176] = b"Y" * 176
         data[0x8010 + 31] |= 0xFC  # Six bits beyond the 250 allocated zone slots.
         contact_at = 0x17620 + 1023 * 24
         data[contact_at:contact_at + 24] = b"\0" + b"Z" * 23
         for i in range(1, 5):
             fields = {"name": f"Private {i}", "id": 1234500 + i, "call_type": 1}
             inspector.write_fields(data, inspector.DefinitionReader(data, self.definition),
-                                   self.definition["tables"]["named_contacts"]["fields"], fields,
+                                   self.definition["tables"]["contacts"]["fields"], fields,
                                    0x17620 + 24 * i, i)
         data[0x1EE80:0x1EE8C] = b"opaque-data!"
         before = bytes(data)
         result = create_default_codeplug(before, self.definition)
         self.assertEqual(bytes(data), before)
         self.assertEqual(result[at:at + 56], bytes(56))
-        self.assertEqual(result[zone_at:zone_at + 48], bytes(48))
+        self.assertEqual(result[zone_at:zone_at + 176], bytes(176))
         self.assertEqual(result[contact_at:contact_at + 24], bytes(24))
         self.assertEqual(result[0x17620 + 24:0x17620 + 5 * 24], bytes(4 * 24))
         self.assertEqual(result[0x8010 + 31] & 0xFC, 0xFC)
@@ -383,7 +409,7 @@ class OpenGD77DefaultTests(unittest.TestCase):
                 record["fields"]["name"] = f"DCH {i + 1}"
                 plan["records"].append(record)
             if count == 0:
-                next(p for p in definition["default_generation"]["tables"] if p["table"] == "base_zones")["records"] = []
+                next(p for p in definition["default_generation"]["tables"] if p["table"] == "zones")["records"] = []
             with self.subTest(count=count):
                 result = create_default_codeplug(self.source, definition)
                 checked = inspector.inspect_definition(result, definition)[0]
@@ -405,13 +431,15 @@ class OpenGD77DefaultTests(unittest.TestCase):
         data[0x3780] = 0
         data[0x105E0] = 1
         data[0x8030 + 16:0x8030 + 18] = (513).to_bytes(2, "little")
+        data[0x8030 + 18:0x8030 + 20] = bytes(2)
+        data[0x3790 + 56:0x3790 + 112] = bytes(56)
         checked = inspector.inspect_definition(bytes(data), self.definition)[0]
         self.assertEqual(checked["status"], "recognized", checked.get("errors"))
         self.assertEqual(checked["decoded"]["tables"]["channels"]["selected_indices"], [512])
         result = create_default_codeplug(bytes(data), self.definition)
         checked = inspector.inspect_definition(result, self.definition)[0]
         self.assertEqual(checked["status"], "recognized")
-        self.assertEqual(checked["decoded"]["tables"]["channels"]["selected_indices"], [0])
+        self.assertEqual(checked["decoded"]["tables"]["channels"]["selected_indices"], [0, 1])
         self.assertEqual(result[target_at:target_at + 56], bytes(56))
 
     def test_segment_capacity_and_overlap_are_rejected(self):

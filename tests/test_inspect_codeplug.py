@@ -505,6 +505,61 @@ class InspectorTests(unittest.TestCase):
         self.assertNotIn("radio_id", definition["recognition"].get("required_fields", {}))
 
 
+class ConnectSystemsPowerOnMessageTests(unittest.TestCase):
+    def test_second_line_decodes_without_overlapping_adjacent_settings(self):
+        for model in ("cs750", "cs800"):
+            definition = inspector.load_definition(
+                SCRIPT.parent.parent / "definitions" / f"{model}.wcp")
+            for message in ("PORTABLE 3", "DMR Radio", "", "ABCDEFGHIJKLMNOP"):
+                with self.subTest(model=model, message=message):
+                    data = bytearray(0x2260)
+                    data[0x2220:0x2228] = b"\x12\x34\x56\x78\x9a\xbc\xde\xf0"
+                    data[0x2228:0x2248] = message.encode("utf-16le").ljust(32, b"\0")
+                    data[0x2248:0x2250] = b"NEXTDATA"
+                    reader = inspector.DefinitionReader(bytes(data), definition)
+                    self.assertEqual(reader.globals.get("power_on_message_2")["value"], message)
+
+
+class OpenGd77PowerOnMessageTests(unittest.TestCase):
+    def test_two_lines_decode_independently_with_padding_or_full_width(self):
+        definition = inspector.load_definition(
+            SCRIPT.parent.parent / "definitions" / "opengd77-128k.wcp")
+        for first, second, expected_first, expected_second in (
+                (b"Dah dit dah dit\xff", b"dah dah dit dah\xff",
+                 "Dah dit dah dit", "dah dah dit dah"),
+                (b"ABCDEFGHIJKLMNOP", b"1234567890123456",
+                 "ABCDEFGHIJKLMNOP", "1234567890123456"),
+                (b"\xff" * 16, b"\0" * 16, "", ""),
+                (b"One\0" + b"X" * 12, b"Two\xff" + b"Y" * 12, "One", "Two")):
+            with self.subTest(first=first, second=second):
+                data = bytearray(0x7560)
+                data[0x7540:0x7550] = first
+                data[0x7550:0x7560] = second
+                reader = inspector.DefinitionReader(bytes(data), definition)
+                self.assertEqual(reader.globals.get("power_on_message_1")["value"], expected_first)
+                self.assertEqual(reader.globals.get("power_on_message_2")["value"], expected_second)
+
+
+class Cs750PowerTests(unittest.TestCase):
+    def test_power_decodes_three_levels_without_using_other_bits(self):
+        definition = inspector.load_definition(
+            SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        table = next(t for t in definition["tables"].values()
+                     if "transmit_frequency" in t["fields"])
+        field = table["fields"]["power"]
+        self.assertEqual(inspector.integer(field["offset"]), 8)
+        for other_bits in (0, 0x08, 0xCF):
+            for code, expected in ((0, "low"), (1, "medium"), (2, "high"), (3, 3)):
+                with self.subTest(other_bits=other_bits, code=code):
+                    data = bytearray(32)
+                    data[8] = other_bits | (code << 4)
+                    data[9] = 0xB0
+                    reader = inspector.DefinitionReader(bytes(data), definition)
+                    scope = inspector.Scope(reader, {"power": field}, "test", 0, 0)
+                    self.assertEqual(scope.get("power")["value"], expected)
+                    self.assertEqual(scope.get("power")["raw"], code)
+
+
 class Cs750ContactTests(unittest.TestCase):
     def setUp(self):
         self.definition = inspector.load_definition(SCRIPT.parent.parent / "definitions" / "cs750.wcp")
@@ -532,14 +587,15 @@ class Cs750ContactTests(unittest.TestCase):
         before = bytes(self.data)
         result = self.inspect()
         self.assertEqual(result["status"], "recognized", result.get("errors"))
-        self.assertEqual(result["decoded"]["fields"]["contact_count"], 2)
+        count_field = self.definition["tables"]["contacts"]["count"]["field"]
+        self.assertEqual(result["decoded"]["fields"][count_field], 2)
         table = result["decoded"]["tables"]["contacts"]
         self.assertTrue(table["complete"])
         self.assertEqual([r["address"] for r in table["records"]], [0x44000, 0x44010])
         self.assertEqual([r["fields"] for r in table["records"]], [
-            {"id": 9, "name": "Local 9", "call_type_flags": "group"},
-            {"id": 1234567, "name": "N0CALL . TEST", "call_type_flags": "private"}])
-        self.assertEqual([r["raw_values"]["call_type_flags"] for r in table["records"]], [9, 0])
+            {"id": 9, "name": "Local 9", "call_type": "group"},
+            {"id": 1234567, "name": "N0CALL . TEST", "call_type": "private"}])
+        self.assertEqual([r["raw_values"]["call_type"] for r in table["records"]], [9, 0])
         self.assertEqual(bytes(self.data), before)
 
     def test_unmapped_contact_flags_remain_numeric(self):
@@ -547,8 +603,8 @@ class Cs750ContactTests(unittest.TestCase):
         result = self.inspect()
         self.assertEqual(result["status"], "recognized")
         record = result["decoded"]["tables"]["contacts"]["records"][0]
-        self.assertEqual(record["fields"]["call_type_flags"], 0x81)
-        self.assertEqual(record["raw_values"]["call_type_flags"], 0x81)
+        self.assertEqual(record["fields"]["call_type"], 0x81)
+        self.assertEqual(record["raw_values"]["call_type"], 0x81)
 
     def test_contact_count_must_account_for_file_length(self):
         for count in (1, 3, 0xFFFFFFFF):
@@ -556,7 +612,15 @@ class Cs750ContactTests(unittest.TestCase):
                 self.data[0x9568:0x956C] = count.to_bytes(4, "little")
                 result = self.inspect()
                 self.assertNotEqual(result["status"], "recognized")
-                check = next(c for c in result["checks"] if c["name"] == "relationship 3")
+                count_field = self.definition["tables"]["contacts"]["count"]["field"]
+                relationships = self.definition["layout_checks"]["relationships"]
+                index = next(
+                    i for i, rule in enumerate(relationships, 1)
+                    if rule["left"] == {"image_size": True}
+                    and count_field in inspector.expression_fields(rule["right"])
+                )
+                check = next(c for c in result["checks"]
+                             if c["name"] == f"relationship {index}")
                 self.assertEqual(check["status"], "mismatch")
                 if count > 2:
                     self.assertFalse(result["decoded"]["tables"]["contacts"]["complete"])

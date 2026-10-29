@@ -4,7 +4,7 @@
 #include <QJsonObject>
 #include <QStringList>
 
-// Read-only first stage of the definition engine. No Python or USB dependency.
+// Definition-driven file handling. No Python or USB dependency.
 class CodeplugDefinition
 {
 public:
@@ -13,13 +13,23 @@ public:
     QString id() const;
     QString modelName() const;
     QStringList extensions() const;
+    bool exportExtension(const QByteArray &source, QString *extension, QString *error) const;
+    QString diskProvenance() const;
     QByteArray defaultCodeplug() const;
+    bool defaultForNew() const;
 
     // Model recognition deliberately does not imply structural validation.
     bool matchesModel(const QByteArray &input, QString *error) const;
+    // Decode and validate declared binary fields/tables independently of editor bindings.
+    bool inspect(const QByteArray &input, QJsonObject *result, QString *error) const;
     bool read(const QByteArray &input, ImportedCodeplug *result, QString *error) const;
+    bool write(const QByteArray &source, const ImportedCodeplug &target,
+               const QString &radioName, int radioId,
+               QByteArray *result, QString *error) const;
 
 private:
     QJsonObject m_definition;
     QByteArray m_defaultCodeplug;
+    QString m_diskPath;
+    QByteArray m_definitionSha256;
 };

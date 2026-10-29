@@ -223,6 +223,25 @@ int main(int argc, char *argv[])
     engine.load(QUrl(QStringLiteral("qrc:/qml/Main.qml")));
     if (engine.rootObjects().isEmpty())
         return 2;
+    if (radioMode == "--radio-definition-gate") {
+        QObject *root = engine.rootObjects().constFirst();
+        auto *readButton = root->findChild<QQuickItem *>("readRadioButton");
+        auto *writeButton = root->findChild<QQuickItem *>("writeRadioButton");
+        if (!readButton || !writeButton || !readButton->isEnabled() || !writeButton->isEnabled()) return 40;
+        const QString sample = QCoreApplication::applicationDirPath()
+            + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
+        if (!store.importCodeplugFromFile(sample, "cs800.wcp")) return 41;
+        QCoreApplication::processEvents();
+        if (readButton->isEnabled() || writeButton->isEnabled()) return 42;
+        store.newProject();
+        QCoreApplication::processEvents();
+        if (!readButton->isEnabled() || !writeButton->isEnabled()) return 43;
+        if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug())) return 44;
+        QCoreApplication::processEvents();
+        if (!readButton->isEnabled() || !writeButton->isEnabled() || qmlWarningCount) return 45;
+        qInfo() << "Radio transfer controls follow companion .wrd availability";
+        return 0;
+    }
     if (radioMode == "--contact-import-counts") {
         QString error;
         const auto first = channelOrderFixture(&error);

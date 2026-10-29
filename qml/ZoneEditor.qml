@@ -165,7 +165,7 @@ ColumnLayout {
             channelMode.currentIndex = originalMode
             channelCc.value = channel.colorCode || 0
             channelSlot.currentIndex = channel.timeSlot === 2 ? 1 : 0
-            channelPower.currentIndex = channel.power === "High" ? 0 : channel.power === "Low" ? 1 : -1
+            channelPower.currentIndex = store.powerChoices.indexOf(channel.power)
             contactChoices = store.zoneContactChoices()
             selectedContactIndex = channel.contactIndex
             contactSearch.text = ""
@@ -275,7 +275,7 @@ ColumnLayout {
                         ComboBox {
                             id: channelPower
                             objectName: "zoneChannelPower"
-                            model: ["High", "Low"]
+                            model: store.powerChoices
                             Layout.fillWidth: true
                             displayText: currentIndex < 0 ? "Unknown (unchanged)" : currentText
                         }
@@ -369,12 +369,12 @@ ColumnLayout {
                         const saved = channelDialog.editing
                             ? store.updateSelectedZoneChannel(channelDialog.position, channelName.text, channelRx.text, channelTx.text,
                                 channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : channelPower.currentIndex === 0 ? 1 : 0)
+                                channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText))
                             : channelDialog.choosingExisting
                               ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber)
                               : store.createChannelInSelectedZone(channelName.text, channelRx.text, channelTx.text,
                                   channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                  channelDialog.selectedContactIndex, channelPower.currentIndex === 0)
+                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText))
                         if (saved) channelDialog.close()
                         else channelError.text = "Could not save this channel. Check its name, frequencies, and available capacity."
                     }
