@@ -47,8 +47,9 @@ Item {
                 Label { text: "Find people and talkgroups by name or ID."; color: "#64776c" }
             }
             Item { Layout.fillWidth: true }
-            Button {
+            PageAction {
                 text: typeTabs.currentIndex === 0 ? "Add person" : "Add talkgroup"
+                primary: true
                 onClicked: root.openContactEditor(false)
             }
         }
@@ -56,18 +57,19 @@ Item {
         TabBar {
             id: typeTabs
             Layout.fillWidth: true
+            background: Rectangle { color: "#f7faf7"; radius: 10; border.color: "#dce4df" }
             onCurrentIndexChanged: root.selectedContact = null
-            TabButton {
+            PageTabButton {
                 text: "People (" + root.contacts.filter(contact => !contact.groupCall).length + ")"
                 Accessible.name: "People contacts"
             }
-            TabButton {
+            PageTabButton {
                 text: "Talkgroups (" + root.contacts.filter(contact => contact.groupCall).length + ")"
                 Accessible.name: "Talkgroup contacts"
             }
         }
 
-        TextField {
+        PageField {
             id: searchField
             Layout.fillWidth: true
             placeholderText: typeTabs.currentIndex === 0 ? "Search people by name or ID" : "Search talkgroups by name or ID"
@@ -166,7 +168,7 @@ Item {
                         font.pixelSize: 20
                         color: "#20372e"
                     }
-                    Button {
+                    PageAction {
                         visible: root.selectedContact !== null
                         text: "Edit contact"
                         onClicked: root.openContactEditor(true)
@@ -183,7 +185,7 @@ Item {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: contactDialog
         title: root.editingContact ? "Edit contact" : (typeTabs.currentIndex === 0 ? "Add person" : "Add talkgroup")
         modal: true
@@ -193,11 +195,11 @@ Item {
         footer: RowLayout {
             spacing: 8
             Item { Layout.fillWidth: true }
-            Button {
+            PageAction {
                 text: "Cancel"
                 onClicked: contactDialog.reject()
             }
-            Button {
+            PageAction {
                 text: "Save"
                 highlighted: true
                 onClicked: contactDialog.accept()
@@ -241,9 +243,9 @@ Item {
             spacing: 10
             Label { text: typeTabs.currentIndex === 0 ? "Person · private call" : "Talkgroup · group call"; color: "#64776c" }
             Label { text: "Name or call sign" }
-            TextField { id: nameField; Layout.fillWidth: true; Accessible.name: "Contact name or call sign" }
+            PageField { id: nameField; Layout.fillWidth: true; Accessible.name: "Contact name or call sign" }
             Label { text: "DMR ID" }
-            TextField {
+            PageField {
                 id: idField
                 Layout.fillWidth: true
                 inputMethodHints: Qt.ImhDigitsOnly

@@ -46,6 +46,14 @@ qt_add_resources(wafflecps "qml"
     FILES
         assets/waffle-radio.png
         qml/Main.qml
+        qml/PageAction.qml
+        qml/PageField.qml
+        qml/PageComboBox.qml
+        qml/PageSpinBox.qml
+        qml/PageTabButton.qml
+        qml/PageCheckBox.qml
+        qml/PageChoice.qml
+        qml/PageDialog.qml
         qml/SlotPanel.qml
         qml/ContactsView.qml
         qml/ZoneEditor.qml
@@ -209,7 +217,10 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/PageAction.qml qml/PageField.qml
+              qml/PageComboBox.qml qml/PageSpinBox.qml qml/PageTabButton.qml qml/PageCheckBox.qml
+              qml/PageChoice.qml qml/PageDialog.qml
+              qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
     )
     target_link_libraries(ui_smoke_test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets ZLIB::ZLIB radioreader)

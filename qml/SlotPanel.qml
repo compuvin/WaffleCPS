@@ -74,8 +74,10 @@ Frame {
                 font.pixelSize: 12
             }
 
-            ToolButton {
+            PageAction {
                 text: panel.expanded ? "−" : "+"
+                quiet: true
+                compact: true
                 Accessible.name: panel.expanded ? "Collapse time slot" : "Expand time slot"
                 onClicked: panel.expanded = !panel.expanded
             }
@@ -133,10 +135,11 @@ Frame {
                                 }
                             }
 
-                            ToolButton {
+                            PageAction {
                                 objectName: "removeSlotChannelButton"
                                 property int zonePosition: modelData.zonePosition || 0
                                 text: "Remove"
+                                quiet: true
                                 Accessible.name: "Remove " + modelData.channelName + " from time slot " + panel.slotNumber
                                 onClicked: {
                                     if (panel.importedChannels)
@@ -157,9 +160,10 @@ Frame {
                 width: parent.width
             }
 
-            Button {
+            PageAction {
                 objectName: "addTalkgroupButton"
                 text: "+ Add talkgroup"
+                primary: true
                 width: parent.width
                 enabled: panel.canAdd
                 onClicked: panel.addRequested(panel.slotNumber)

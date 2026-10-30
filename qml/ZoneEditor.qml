@@ -15,7 +15,7 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Label { text: "ZONE · " + editor.channels.length + " / 16 channels"; color: "#64776c"; Layout.fillWidth: true }
-        Button { text: "Rename"; onClicked: { renameField.text = editor.group.name; renameDialog.open() } }
+        PageAction { text: "Rename"; onClicked: { renameField.text = editor.group.name; renameDialog.open() } }
     }
     Label {
         Layout.fillWidth: true
@@ -56,16 +56,17 @@ ColumnLayout {
                     }
                     RowLayout {
                         Item { Layout.fillWidth: true }
-                        Button {
+                        PageAction {
                             objectName: "zoneEditChannelButton"
                             property int zonePosition: modelData.zonePosition
                             text: "Edit"
                             onClicked: channelDialog.openForEdit(modelData)
                         }
-                        Button {
+                        PageAction {
                             objectName: "zoneRemoveChannelButton"
                             property int zonePosition: modelData.zonePosition
                             text: "Remove"
+                            quiet: true
                             onClicked: store.removeSelectedZoneChannel(modelData.zonePosition)
                         }
                     }
@@ -74,16 +75,17 @@ ColumnLayout {
         }
     }
     RowLayout {
-        Button {
+        PageAction {
             objectName: "zoneAddChannelButton"
             text: "+ Add channel"
+            primary: true
             enabled: editor.channels.length < 16
             onClicked: channelDialog.openForAdd()
         }
-        Button { objectName: "zoneOrderChannelsButton"; text: "Order channels"; enabled: editor.channels.length > 1; onClicked: editor.orderRequested() }
+        PageAction { objectName: "zoneOrderChannelsButton"; text: "Order channels"; enabled: editor.channels.length > 1; onClicked: editor.orderRequested() }
     }
 
-    Dialog {
+    PageDialog {
         id: renameDialog
         title: "Rename zone"
         modal: true
@@ -93,15 +95,15 @@ ColumnLayout {
         standardButtons: Dialog.NoButton
         contentItem: ColumnLayout {
             Label { text: "Zone name" }
-            TextField { id: renameField; maximumLength: 16; Layout.fillWidth: true }
+            PageField { id: renameField; maximumLength: 16; Layout.fillWidth: true }
             RowLayout {
                 Item { Layout.fillWidth: true }
-                Button { text: "Cancel"; onClicked: renameDialog.close() }
-                Button { text: "Save"; enabled: renameField.text.trim().length > 0; onClicked: { if (store.renameSelectedZone(renameField.text)) renameDialog.close() } }
+                PageAction { text: "Cancel"; onClicked: renameDialog.close() }
+                PageAction { text: "Save"; primary: true; enabled: renameField.text.trim().length > 0; onClicked: { if (store.renameSelectedZone(renameField.text)) renameDialog.close() } }
             }
         }
     }
-    Dialog {
+    PageDialog {
         id: channelDialog
         objectName: "zoneChannelDialog"
         property bool editing: false
@@ -185,14 +187,15 @@ ColumnLayout {
                 objectName: "zoneChannelTabs"
                 visible: !channelDialog.editing
                 Layout.fillWidth: true
-                TabButton { text: "Existing channel" }
-                TabButton { text: "New channel" }
+                background: Rectangle { color: "#f7faf7"; radius: 10; border.color: "#dce4df" }
+                PageTabButton { text: "Existing channel" }
+                PageTabButton { text: "New channel" }
             }
             ColumnLayout {
                 visible: channelDialog.choosingExisting
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                TextField {
+                PageField {
                     id: channelSearch
                     objectName: "zoneChannelSearch"
                     Layout.fillWidth: true
@@ -218,7 +221,7 @@ ColumnLayout {
                     Keys.onSpacePressed: {
                         if (currentIndex >= 0) channelDialog.selectedChannelNumber = model[currentIndex].number
                     }
-                    delegate: ItemDelegate {
+                    delegate: PageChoice {
                         required property var modelData
                         required property int index
                         objectName: "zoneExistingChannelChoice"
@@ -263,16 +266,16 @@ ColumnLayout {
                     width: parent.width
                     spacing: 8
                     Label { text: "Channel name" }
-                    TextField { id: channelName; objectName: "zoneChannelName"; maximumLength: 16; Layout.fillWidth: true }
+                    PageField { id: channelName; objectName: "zoneChannelName"; maximumLength: 16; Layout.fillWidth: true }
                     Label { text: "Receive frequency (MHz)" }
-                    TextField { id: channelRx; objectName: "zoneChannelRx"; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
+                    PageField { id: channelRx; objectName: "zoneChannelRx"; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
                     Label { text: "Transmit frequency (MHz)" }
-                    TextField { id: channelTx; objectName: "zoneChannelTx"; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
+                    PageField { id: channelTx; objectName: "zoneChannelTx"; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
                     RowLayout {
                         Label { text: "Mode" }
-                        ComboBox { id: channelMode; objectName: "zoneChannelMode"; model: ["Digital", "Analog"]; Layout.fillWidth: true }
+                        PageComboBox { id: channelMode; objectName: "zoneChannelMode"; model: ["Digital", "Analog"]; Layout.fillWidth: true }
                         Label { text: "Power" }
-                        ComboBox {
+                        PageComboBox {
                             id: channelPower
                             objectName: "zoneChannelPower"
                             model: store.powerChoices
@@ -283,9 +286,9 @@ ColumnLayout {
                     RowLayout {
                         visible: channelMode.currentIndex === 0
                         Label { text: "Color code" }
-                        SpinBox { id: channelCc; objectName: "zoneChannelColorCode"; from: 0; to: 15 }
+                        PageSpinBox { id: channelCc; objectName: "zoneChannelColorCode"; from: 0; to: 15 }
                         Label { text: "Time slot" }
-                        ComboBox { id: channelSlot; objectName: "zoneChannelTimeSlot"; model: ["1", "2"] }
+                        PageComboBox { id: channelSlot; objectName: "zoneChannelTimeSlot"; model: ["1", "2"] }
                     }
                     Label { visible: channelMode.currentIndex === 0; text: "Contact" }
                     ColumnLayout {
@@ -299,7 +302,7 @@ ColumnLayout {
                             elide: Text.ElideRight
                             color: "#405b4b"
                         }
-                        TextField {
+                        PageField {
                             id: contactSearch
                             objectName: "zoneContactSearch"
                             Layout.fillWidth: true
@@ -323,7 +326,7 @@ ColumnLayout {
                             Keys.onSpacePressed: {
                                 if (currentIndex >= 0) channelDialog.selectedContactIndex = model[currentIndex].number
                             }
-                            delegate: ItemDelegate {
+                            delegate: PageChoice {
                                 required property var modelData
                                 required property int index
                                 objectName: "zoneContactChoice"
@@ -357,10 +360,11 @@ ColumnLayout {
             Label { id: channelError; visible: text.length > 0; color: "#a33a33"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
             RowLayout {
                 Item { Layout.fillWidth: true }
-                Button { objectName: "zoneChannelCancel"; text: "Cancel"; onClicked: channelDialog.close() }
-                Button {
+                PageAction { objectName: "zoneChannelCancel"; text: "Cancel"; onClicked: channelDialog.close() }
+                PageAction {
                     objectName: "zoneChannelSave"
                     text: channelDialog.editing ? "Save" : "Add channel"
+                    primary: true
                     enabled: channelDialog.choosingExisting ? channelDialog.selectedChannelNumber > 0
                              : channelMode.currentIndex !== 0
                                || (channelDialog.selectedContactIndex > 0

@@ -59,6 +59,95 @@ ApplicationWindow {
         }
     }
 
+    component HeaderMenu: Menu {
+        implicitWidth: 176
+        padding: 6
+        background: Rectangle {
+            color: "#ffffff"
+            radius: 12
+            border.color: "#dce4df"
+        }
+    }
+
+    component HeaderMenuItem: MenuItem {
+        id: menuAction
+        implicitHeight: 38
+        leftPadding: 12
+        rightPadding: 12
+        contentItem: Text {
+            text: menuAction.text
+            color: menuAction.enabled ? "#173d30" : "#839188"
+            font.pixelSize: 14
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 8
+            color: menuAction.hovered ? "#e7f2e9" : "transparent"
+            border.color: menuAction.activeFocus ? "#548d66" : "transparent"
+        }
+    }
+
+    component SidebarAction: Button {
+        id: sideAction
+        implicitHeight: 40
+        font.pixelSize: 14
+        contentItem: Text {
+            text: sideAction.text
+            color: sideAction.enabled ? "#173d30" : "#839188"
+            font: sideAction.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            radius: 10
+            color: sideAction.highlighted ? "#d9ede5"
+                  : sideAction.hovered ? "#f2f7f2" : "#f7faf7"
+            border.color: sideAction.activeFocus ? "#548d66"
+                          : sideAction.highlighted ? "#b8d9c1" : "#dce4df"
+        }
+    }
+
+    component SidebarEntry: ItemDelegate {
+        id: sideEntry
+        implicitHeight: 38
+        contentItem: Text {
+            text: sideEntry.text
+            color: sideEntry.enabled ? "#173d30" : "#839188"
+            font: sideEntry.font
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        background: Rectangle {
+            radius: 10
+            color: sideEntry.highlighted ? "#d9ede5"
+                  : sideEntry.hovered ? "#f2f7f2" : "transparent"
+            border.color: sideEntry.activeFocus ? "#548d66"
+                          : sideEntry.highlighted ? "#b8d9c1" : "transparent"
+        }
+    }
+
+    component PrimaryAction: Button {
+        id: primaryAction
+        implicitHeight: 42
+        leftPadding: 16
+        rightPadding: 16
+        font.pixelSize: 14
+        font.bold: true
+        contentItem: Text {
+            text: primaryAction.text
+            color: "#ffffff"
+            font: primaryAction.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 10
+            color: primaryAction.hovered ? "#1f563e" : "#246448"
+            border.color: primaryAction.activeFocus ? "#a6d5bb" : "transparent"
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -114,32 +203,32 @@ ApplicationWindow {
                     HeaderAction {
                         text: "Project ▾"
                         onClicked: projectMenu.open()
-                        Menu {
+                        HeaderMenu {
                             id: projectMenu
                             y: parent.height
-                            MenuItem { text: "Open"; onClicked: store.openProjectDialog() }
-                            MenuItem { text: "Save"; onClicked: store.saveProjectDialog(false) }
-                            MenuItem { text: "Save As"; onClicked: store.saveProjectDialog(true) }
+                            HeaderMenuItem { text: "Open"; onClicked: store.openProjectDialog() }
+                            HeaderMenuItem { text: "Save"; onClicked: store.saveProjectDialog(false) }
+                            HeaderMenuItem { text: "Save As"; onClicked: store.saveProjectDialog(true) }
                         }
                     }
                     HeaderAction {
                         text: "Codeplug ▾"
                         onClicked: codeplugMenu.open()
-                        Menu {
+                        HeaderMenu {
                             id: codeplugMenu
                             y: parent.height
-                            MenuItem { text: "Import"; onClicked: store.importCodeplugDialog() }
-                            MenuItem { text: "Export"; onClicked: store.exportCodeplugDialog() }
+                            HeaderMenuItem { text: "Import"; onClicked: store.importCodeplugDialog() }
+                            HeaderMenuItem { text: "Export"; onClicked: store.exportCodeplugDialog() }
                         }
                     }
                     HeaderAction {
                         objectName: "radioMenuButton"
                         text: "Radio ▾"
                         onClicked: radioMenu.open()
-                        Menu {
+                        HeaderMenu {
                             id: radioMenu
                             y: parent.height
-                            MenuItem {
+                            HeaderMenuItem {
                                 objectName: "readRadioButton"
                                 text: "Read"
                                 enabled: store.radioTransferAvailable
@@ -150,7 +239,7 @@ ApplicationWindow {
                                         radioReader.start()
                                 }
                             }
-                            MenuItem {
+                            HeaderMenuItem {
                                 objectName: "writeRadioButton"
                                 text: "Write"
                                 enabled: store.radioTransferAvailable
@@ -181,14 +270,14 @@ ApplicationWindow {
                     anchors.margins: 18
                     spacing: 10
 
-                    Button {
+                    SidebarAction {
                         text: "Contacts"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
                         onClicked: { store.leaveZoneEditor(); window.currentSection = "contacts" }
                     }
 
-                    Button {
+                    SidebarAction {
                         objectName: "radioSettingsNav"
                         text: "Radio Settings"
                         Layout.fillWidth: true
@@ -207,7 +296,7 @@ ApplicationWindow {
                     Repeater {
                         model: store.repeaterNames
 
-                        delegate: ItemDelegate {
+                        delegate: SidebarEntry {
                             required property int index
                             required property string modelData
                             Layout.fillWidth: true
@@ -220,7 +309,7 @@ ApplicationWindow {
                         }
                     }
 
-                    Button {
+                    SidebarAction {
                         text: "+ Add repeater"
                         Layout.fillWidth: true
                         onClicked: {
@@ -244,7 +333,7 @@ ApplicationWindow {
                         Layout.topMargin: 8
                     }
 
-                    Button {
+                    SidebarAction {
                         objectName: "createZoneButton"
                         text: "+ Add zone"
                         Layout.fillWidth: true
@@ -253,13 +342,13 @@ ApplicationWindow {
 
                     Item { Layout.fillHeight: true }
 
-                    Button {
+                    SidebarAction {
                         text: "Attach original codeplug"
                         Layout.fillWidth: true
                         onClicked: store.attachSourceDialog()
                     }
 
-                    Button {
+                    SidebarAction {
                         visible: store.sourceCodeplugName.length > 0
                         text: "Import attached codeplug"
                         Layout.fillWidth: true
@@ -270,7 +359,7 @@ ApplicationWindow {
                         text: store.sourceCodeplugName.length > 0
                               ? "Archived source: " + store.sourceCodeplugName
                               : "No source codeplug attached"
-                        color: "#64776c"
+                        color: "#52695d"
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                         font.pixelSize: 11
@@ -302,13 +391,13 @@ ApplicationWindow {
                     anchors.margins: 18
                     spacing: 8
 
-                    Button {
+                    SidebarAction {
                         text: "Contacts"
                         Layout.fillWidth: true
                         highlighted: window.currentSection === "contacts"
                         onClicked: { store.leaveZoneEditor(); window.currentSection = "contacts" }
                     }
-                    Button {
+                    SidebarAction {
                         objectName: "radioSettingsNav"
                         text: "Radio Settings"
                         Layout.fillWidth: true
@@ -325,7 +414,7 @@ ApplicationWindow {
                             spacing: 3
                             Repeater {
                                 model: store.importedRepeaterNames
-                                delegate: ItemDelegate {
+                                delegate: SidebarEntry {
                                     required property int index
                                     required property string modelData
                                     text: modelData
@@ -337,7 +426,7 @@ ApplicationWindow {
                                     }
                                 }
                             }
-                            Button {
+                            SidebarAction {
                                 text: "+ Add repeater"
                                 Layout.fillWidth: true
                                 onClicked: { store.leaveZoneEditor(); editDialog.openForNew() }
@@ -345,7 +434,7 @@ ApplicationWindow {
                             Label { text: "ZONES"; color: "#697c71"; font.bold: true; font.pixelSize: 11; Layout.topMargin: 12 }
                             Repeater {
                                 model: store.importedZoneNames
-                                delegate: ItemDelegate {
+                                delegate: SidebarEntry {
                                     required property int index
                                     required property string modelData
                                     text: modelData
@@ -357,19 +446,19 @@ ApplicationWindow {
                                     }
                                 }
                             }
+                            SidebarAction {
+                                objectName: "createZoneButton"
+                                text: "+ Add zone"
+                                Layout.fillWidth: true
+                                onClicked: createZoneDialog.openForNew()
+                            }
                         }
-                    }
-                    Button {
-                        objectName: "createZoneButton"
-                        text: "+ Add zone"
-                        Layout.fillWidth: true
-                        onClicked: createZoneDialog.openForNew()
                     }
                     Label {
                         text: store.importedCodeplugSummary
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
-                        color: "#64776c"
+                        color: "#52695d"
                         font.pixelSize: 11
                     }
                 }
@@ -408,9 +497,10 @@ ApplicationWindow {
                             text: store.repeaterNames.length > 0 ? "Repeater overview" : "Add a repeater to get started."
                             color: "#718379"
                         }
-                        Button {
+                        PageAction {
                             visible: store.repeaterNames.length === 0
                             text: "+ Add repeater"
+                            primary: true
                             onClicked: editDialog.openForNew()
                         }
                     }
@@ -432,7 +522,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
-                                Button { text: "Edit"; onClicked: editDialog.openForCurrent() }
+                                PageAction { text: "Edit"; onClicked: editDialog.openForCurrent() }
                             }
 
                             RowLayout {
@@ -500,12 +590,12 @@ ApplicationWindow {
 
                     RowLayout {
                         visible: store.repeaterNames.length > 0
-                        Button {
+                        PageAction {
                             objectName: "manualOrderChannelsButton"
                             text: "Order channels"
                             onClicked: channelOrderDialog.openForSelectedRepeater()
                         }
-                        Button {
+                        PageAction {
                             objectName: "manualEditAsZoneButton"
                             text: "Edit as zone (advanced)"
                             onClicked: store.editSelectedRepeaterAsZone()
@@ -529,7 +619,7 @@ ApplicationWindow {
                                     font.pixelSize: 12
                                     Layout.fillWidth: true
                                 }
-                                Button { text: "+ Add simplex"; onClicked: simplexDialog.openForCurrent(false) }
+                                PageAction { text: "+ Add simplex"; primary: true; onClicked: simplexDialog.openForCurrent(false) }
                             }
                             Label {
                                 visible: store.selectedSimplexFrequencies.length === 0
@@ -563,8 +653,9 @@ ApplicationWindow {
                                                       : modelData.mode
                                                 color: "#64776c"
                                             }
-                                            ToolButton {
+                                            PageAction {
                                                 text: "Remove"
+                                                quiet: true
                                                 Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
                                                 onClicked: store.removeSimplexFromSelectedRepeater(index)
                                             }
@@ -625,18 +716,22 @@ ApplicationWindow {
                             anchors.fill: parent
                             spacing: 12
                             Label { text: "Call sign"; font.bold: true; color: "#183b2d" }
-                            TextField {
-                                id: newCallsign
+                            RowLayout {
                                 Layout.fillWidth: true
-                                maximumLength: 16
-                                text: store.radioName
-                                placeholderText: "Enter your call sign"
-                                Accessible.name: "New project call sign"
+                                PageField {
+                                    id: newCallsign
+                                    Layout.fillWidth: true
+                                    maximumLength: 16
+                                    text: store.radioName
+                                    placeholderText: "Enter your call sign"
+                                    Accessible.name: "New project call sign"
+                                }
+                                Item { Layout.preferredWidth: newDmrIdLink.implicitWidth }
                             }
                             Label { text: "DMR radio ID"; font.bold: true; color: "#183b2d" }
                             RowLayout {
                                 Layout.fillWidth: true
-                                TextField {
+                                PageField {
                                     id: newDmrId
                                     Layout.fillWidth: true
                                     text: store.radioId > 0 ? String(store.radioId) : ""
@@ -644,7 +739,8 @@ ApplicationWindow {
                                     inputMethodHints: Qt.ImhDigitsOnly
                                     Accessible.name: "New project DMR radio ID"
                                 }
-                                Button {
+                                PageAction {
+                                    id: newDmrIdLink
                                     text: "Get a DMR ID"
                                     flat: true
                                     font.underline: true
@@ -652,7 +748,7 @@ ApplicationWindow {
                                     onClicked: Qt.openUrlExternally("https://radioid.net/register")
                                 }
                             }
-                            Button {
+                            PrimaryAction {
                                 text: "+ Add repeater"
                                 highlighted: true
                                 Layout.alignment: Qt.AlignRight
@@ -714,7 +810,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
-                                Button { text: "Edit"; onClicked: editDialog.openForImported() }
+                                PageAction { text: "Edit"; onClicked: editDialog.openForImported() }
                             }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -788,7 +884,7 @@ ApplicationWindow {
                     }
                     RowLayout {
                         visible: !importedContent.showZoneEditor
-                        Button {
+                        PageAction {
                             objectName: "orderChannelsButton"
                             text: "Order channels"
                             enabled: (importedContent.group.zones || []).length === 1
@@ -796,7 +892,7 @@ ApplicationWindow {
                             ToolTip.visible: hovered
                             ToolTip.text: "Arrange the radio's channel order for this zone"
                         }
-                        Button {
+                        PageAction {
                             objectName: "importedEditAsZoneButton"
                             text: "Edit as zone (advanced)"
                             onClicked: store.editSelectedRepeaterAsZone()
@@ -825,8 +921,9 @@ ApplicationWindow {
                                     font.pixelSize: 12
                                     Layout.fillWidth: true
                                 }
-                                Button {
+                                PageAction {
                                     text: "+ Add simplex"
+                                    primary: true
                                     enabled: importedContent.group.zoneChannelCount < 16
                                     onClicked: simplexDialog.openForCurrent(true)
                                 }
@@ -862,8 +959,9 @@ ApplicationWindow {
                                                       : modelData.mode
                                                 color: "#64776c"
                                             }
-                                            ToolButton {
+                                            PageAction {
                                                 text: "Remove"
+                                                quiet: true
                                                 Accessible.name: "Remove " + modelData.name + " from additional simplex frequencies"
                                                 onClicked: store.removeSimplexFromSelectedImportedRepeater(
                                                                modelData.zoneInGroup, modelData.zonePosition)
@@ -913,19 +1011,23 @@ ApplicationWindow {
                             Layout.fillWidth: true
                         }
                         Label { text: "Radio name / call sign" }
-                        TextField {
-                            id: radioNameField
-                            objectName: "radioNameField"
+                        RowLayout {
                             Layout.fillWidth: true
-                            maximumLength: 16
-                            text: store.radioName
-                            placeholderText: "Enter your call sign"
-                            Accessible.name: "Radio name or call sign"
+                            PageField {
+                                id: radioNameField
+                                objectName: "radioNameField"
+                                Layout.fillWidth: true
+                                maximumLength: 16
+                                text: store.radioName
+                                placeholderText: "Enter your call sign"
+                                Accessible.name: "Radio name or call sign"
+                            }
+                            Item { Layout.preferredWidth: radioIdLink.implicitWidth }
                         }
                         Label { text: "DMR radio ID" }
                         RowLayout {
                             Layout.fillWidth: true
-                            TextField {
+                            PageField {
                                 id: radioIdField
                                 objectName: "radioIdField"
                                 Layout.fillWidth: true
@@ -934,7 +1036,8 @@ ApplicationWindow {
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 Accessible.name: "DMR radio ID"
                             }
-                            Button {
+                            PageAction {
+                                id: radioIdLink
                                 text: "Get a DMR ID"
                                 flat: true
                                 font.underline: true
@@ -942,9 +1045,10 @@ ApplicationWindow {
                                 onClicked: Qt.openUrlExternally("https://radioid.net/register")
                             }
                         }
-                        Button {
+                        PageAction {
                             objectName: "saveRadioSettingsButton"
                             text: "Save radio settings"
+                            primary: true
                             onClicked: store.updateRadioSettings(radioNameField.text, radioIdField.text)
                         }
                         Item { Layout.fillHeight: true }
@@ -954,7 +1058,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: newRadioDialog
         objectName: "newRadioDialog"
         onOpened: radioSearch.text = ""
@@ -975,7 +1079,7 @@ ApplicationWindow {
                 font.bold: true
                 color: "#173d30"
             }
-            TextField {
+            PageField {
                 id: radioSearch
                 Layout.fillWidth: true
                 placeholderText: "Search radios or definitions"
@@ -1067,7 +1171,7 @@ ApplicationWindow {
                     Label { text: "Start without a radio selected"; color: "#64776c" }
                 }
             }
-            Button {
+            PageAction {
                 text: "Cancel"
                 Layout.alignment: Qt.AlignRight
                 onClicked: newRadioDialog.close()
@@ -1075,7 +1179,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: editDialog
         property bool creating: false
         property bool forImported: false
@@ -1130,15 +1234,15 @@ ApplicationWindow {
             spacing: 10
 
             Label { text: "Name" }
-            TextField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
+            PageField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
             Label { text: "Receive frequency (MHz)" }
-            TextField { id: rxField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
+            PageField { id: rxField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
             Label { text: "Transmit frequency (MHz)" }
-            TextField { id: txField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
+            PageField { id: txField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
             Label { text: "Color code" }
-            SpinBox { id: colorCodeField; from: 0; to: 15 }
+            PageSpinBox { id: colorCodeField; from: 0; to: 15 }
             Label { text: "Transmit power" }
-            ComboBox {
+            PageComboBox {
                 id: powerField
                 objectName: "repeaterPowerField"
                 Layout.fillWidth: true
@@ -1165,8 +1269,8 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button { text: "Cancel"; onClicked: editDialog.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: editDialog.close() }
+                PageAction {
                     text: editDialog.creating ? "Add repeater" : "Save changes"
                     highlighted: true
                     onClicked: {
@@ -1195,7 +1299,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: simplexDialog
         property bool forImported: false
 
@@ -1223,24 +1327,24 @@ ApplicationWindow {
             anchors.fill: parent
             spacing: 9
             Label { text: "Name" }
-            TextField { id: simplexName; Layout.fillWidth: true; maximumLength: 16 }
+            PageField { id: simplexName; Layout.fillWidth: true; maximumLength: 16 }
             Label { text: "Frequency (MHz)" }
-            TextField {
+            PageField {
                 id: simplexFrequency
                 Layout.fillWidth: true
                 inputMethodHints: Qt.ImhFormattedNumbersOnly
                 placeholderText: "446.00000"
             }
-            CheckBox { id: simplexDigital; text: "Digital channel" }
+            PageCheckBox { id: simplexDigital; text: "Digital channel" }
             RowLayout {
                 visible: simplexDigital.checked
                 Label { text: "Color code" }
-                SpinBox { id: simplexColorCode; from: 0; to: 15 }
+                PageSpinBox { id: simplexColorCode; from: 0; to: 15 }
                 Label { text: "Time slot" }
-                SpinBox { id: simplexTimeSlot; from: 1; to: 2 }
+                PageSpinBox { id: simplexTimeSlot; from: 1; to: 2 }
             }
             Label { visible: simplexDialog.forImported && simplexZone.count > 1; text: "Add to zone" }
-            ComboBox {
+            PageComboBox {
                 id: simplexZone
                 visible: simplexDialog.forImported && count > 1
                 Layout.fillWidth: true
@@ -1257,8 +1361,8 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button { text: "Cancel"; onClicked: simplexDialog.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: simplexDialog.close() }
+                PageAction {
                     text: "Add"
                     highlighted: true
                     onClicked: {
@@ -1279,7 +1383,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: addDialog
         objectName: "addTalkgroupDialog"
         property int targetSlot: 1
@@ -1344,7 +1448,7 @@ ApplicationWindow {
                 text: "Talkgroup"
                 font.bold: true
             }
-            TextField {
+            PageField {
                 id: talkgroupSearch
                 objectName: "talkgroupSearch"
                 Layout.fillWidth: true
@@ -1356,27 +1460,37 @@ ApplicationWindow {
                         addDialog.selectedTalkgroup = null
                 }
             }
-            ListView {
-                id: talkgroupChoices
-                objectName: "talkgroupChoices"
+            Frame {
                 visible: !addDialog.creatingTalkgroup
                 Layout.fillWidth: true
                 Layout.preferredHeight: 172
-                clip: true
-                model: addDialog.matchingTalkgroups
-                delegate: ItemDelegate {
-                    objectName: "talkgroupChoice"
-                    required property var modelData
-                    width: ListView.view.width
-                    text: modelData.name + "  ·  ID " + modelData.id
-                    highlighted: addDialog.selectedTalkgroup !== null
-                                 && addDialog.selectedTalkgroup.index === modelData.index
-                    onClicked: {
-                        addDialog.selectedTalkgroup = modelData
-                        talkgroupSearch.text = modelData.name
-                        if (!addDialog.channelNameCustomized)
-                            channelNameField.text = store.suggestedChannelName(modelData.name)
-                        errorLabel.text = ""
+                padding: 1
+                background: Rectangle {
+                    color: "#f7faf7"
+                    radius: 9
+                    border.color: "#cbded0"
+                }
+                ListView {
+                    id: talkgroupChoices
+                    objectName: "talkgroupChoices"
+                    anchors.fill: parent
+                    clip: true
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn }
+                    model: addDialog.matchingTalkgroups
+                    delegate: PageChoice {
+                        objectName: "talkgroupChoice"
+                        required property var modelData
+                        width: ListView.view.width - 12
+                        text: modelData.name + "  ·  ID " + modelData.id
+                        highlighted: addDialog.selectedTalkgroup !== null
+                                     && addDialog.selectedTalkgroup.index === modelData.index
+                        onClicked: {
+                            addDialog.selectedTalkgroup = modelData
+                            talkgroupSearch.text = modelData.name
+                            if (!addDialog.channelNameCustomized)
+                                channelNameField.text = store.suggestedChannelName(modelData.name)
+                            errorLabel.text = ""
+                        }
                     }
                 }
             }
@@ -1394,7 +1508,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 elide: Text.ElideRight
             }
-            Button {
+            PageAction {
                 objectName: "createTalkgroupButton"
                 text: addDialog.creatingTalkgroup ? "Choose an existing talkgroup" : "+ Create new talkgroup"
                 onClicked: {
@@ -1416,7 +1530,7 @@ ApplicationWindow {
                 }
             }
             Label { visible: addDialog.creatingTalkgroup; text: "Talkgroup display name" }
-            TextField {
+            PageField {
                 id: newTalkgroupName
                 objectName: "newTalkgroupName"
                 visible: addDialog.creatingTalkgroup
@@ -1430,7 +1544,7 @@ ApplicationWindow {
                 }
             }
             Label { visible: addDialog.creatingTalkgroup; text: "Talkgroup ID" }
-            TextField {
+            PageField {
                 id: newTalkgroupId
                 objectName: "newTalkgroupId"
                 visible: addDialog.creatingTalkgroup
@@ -1444,7 +1558,7 @@ ApplicationWindow {
                 text: "Channel name"
                 font.bold: true
             }
-            TextField {
+            PageField {
                 id: channelNameField
                 objectName: "channelNameField"
                 Layout.fillWidth: true
@@ -1489,8 +1603,8 @@ ApplicationWindow {
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
-                Button { text: "Cancel"; onClicked: addDialog.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: addDialog.close() }
+                PageAction {
                     objectName: "confirmAddTalkgroup"
                     text: "Add"
                     highlighted: true
@@ -1522,7 +1636,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: duplicateChannelDialog
         property string requestedName: ""
         property string suggestion: ""
@@ -1549,14 +1663,14 @@ ApplicationWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
-                Button {
+                PageAction {
                     text: "Edit name"
                     onClicked: {
                         duplicateChannelDialog.close()
                         channelNameField.forceActiveFocus()
                     }
                 }
-                Button {
+                PageAction {
                     text: "Use suggested name"
                     highlighted: true
                     onClicked: {
@@ -1569,7 +1683,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: radioReadConfirmation
         objectName: "radioReadConfirmation"
         x: Math.round((window.width - width) / 2)
@@ -1586,8 +1700,8 @@ ApplicationWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
-                Button { text: "Cancel"; onClicked: radioReadConfirmation.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: radioReadConfirmation.close() }
+                PageAction {
                     text: "Read from radio"
                     onClicked: {
                         radioReadConfirmation.close()
@@ -1598,7 +1712,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: radioReadProgress
         objectName: "radioReadProgress"
         x: Math.round((window.width - width) / 2)
@@ -1619,7 +1733,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 value: radioReader.progress
             }
-            Button {
+            PageAction {
                 objectName: "cancelRadioReadButton"
                 text: "Cancel"
                 Layout.alignment: Qt.AlignRight
@@ -1636,7 +1750,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: radioWriteConfirmation
         objectName: "radioWriteConfirmation"
         x: Math.round((window.width - width) / 2)
@@ -1653,8 +1767,8 @@ ApplicationWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
-                Button { text: "Cancel"; onClicked: radioWriteConfirmation.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: radioWriteConfirmation.close() }
+                PageAction {
                     objectName: "confirmRadioWriteButton"
                     text: "Write to radio"
                     onClicked: {
@@ -1666,7 +1780,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: radioWriteProgress
         objectName: "radioWriteProgress"
         x: Math.round((window.width - width) / 2)
@@ -1692,7 +1806,7 @@ ApplicationWindow {
         function onCompleted() { Qt.callLater(() => radioWriteComplete.open()) }
     }
 
-    Dialog {
+    PageDialog {
         id: radioWriteComplete
         objectName: "radioWriteComplete"
         modal: true
@@ -1703,7 +1817,7 @@ ApplicationWindow {
         Label { text: "The radio acknowledged every codeplug block." }
     }
 
-    Dialog {
+    PageDialog {
         id: createZoneDialog
         objectName: "createZoneDialog"
         modal: true
@@ -1716,12 +1830,12 @@ ApplicationWindow {
         contentItem: ColumnLayout {
             spacing: 10
             Label { text: "Zone name" }
-            TextField { id: createZoneName; objectName: "createZoneName"; maximumLength: 16; Layout.fillWidth: true }
+            PageField { id: createZoneName; objectName: "createZoneName"; maximumLength: 16; Layout.fillWidth: true }
             Label { id: createZoneError; visible: text.length > 0; color: "#a33a33"; Layout.fillWidth: true; wrapMode: Text.WordWrap }
             RowLayout {
                 Item { Layout.fillWidth: true }
-                Button { text: "Cancel"; onClicked: createZoneDialog.close() }
-                Button {
+                PageAction { text: "Cancel"; onClicked: createZoneDialog.close() }
+                PageAction {
                     objectName: "createZoneSave"
                     text: "Create zone"
                     enabled: createZoneName.text.trim().length > 0
@@ -1738,7 +1852,7 @@ ApplicationWindow {
 
     ListModel { id: channelOrderModel; objectName: "channelOrderModel" }
 
-    Dialog {
+    PageDialog {
         id: channelOrderDialog
         objectName: "channelOrderDialog"
         property string zoneName: ""
@@ -1818,7 +1932,8 @@ ApplicationWindow {
                             elide: Text.ElideRight
                         }
                         Label { text: kind; color: "#64776c" }
-                        ToolButton {
+                        PageAction {
+                            quiet: true
                             objectName: "channelOrderUp"
                             property int rowIndex: index
                             text: "Up"
@@ -1826,7 +1941,8 @@ ApplicationWindow {
                             Accessible.name: "Move " + channelName + " up"
                             onClicked: channelOrderModel.move(index, index - 1, 1)
                         }
-                        ToolButton {
+                        PageAction {
+                            quiet: true
                             objectName: "channelOrderDown"
                             property int rowIndex: index
                             text: "Down"
@@ -1846,12 +1962,12 @@ ApplicationWindow {
             }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
-                Button {
+                PageAction {
                     objectName: "channelOrderCancel"
                     text: "Cancel"
                     onClicked: channelOrderDialog.close()
                 }
-                Button {
+                PageAction {
                     objectName: "channelOrderSave"
                     text: "Save"
                     onClicked: {
@@ -1869,7 +1985,7 @@ ApplicationWindow {
         }
     }
 
-    Dialog {
+    PageDialog {
         id: operationError
         width: Math.min(420, window.width - 32)
         property string message: ""
@@ -1884,7 +2000,7 @@ ApplicationWindow {
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
-            Button {
+            PageAction {
                 text: "OK"
                 Layout.alignment: Qt.AlignRight
                 onClicked: operationError.close()
