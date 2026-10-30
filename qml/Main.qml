@@ -336,7 +336,9 @@ ApplicationWindow {
             } } }
 
             Loader {
-                active: !store.hasImportedCodeplug && !window.clearingProject
+                active: !store.hasImportedCodeplug
+                        && store.repeaterNames.length > 0
+                        && !window.clearingProject
                 visible: active && window.currentSection === "repeaters"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -540,7 +542,8 @@ ApplicationWindow {
             } }
 
             Loader {
-                active: store.hasImportedCodeplug && !window.clearingProject
+                active: (store.hasImportedCodeplug || store.repeaterNames.length === 0)
+                        && !window.clearingProject
                 visible: active && window.currentSection === "repeaters"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -555,7 +558,9 @@ ApplicationWindow {
                     spacing: 16
 
                     Label {
-                        text: "New " + store.radioModel + " project"
+                        text: store.hasImportedCodeplug
+                              ? "New " + store.radioModel + " project"
+                              : "New project"
                         font.pixelSize: 30
                         font.bold: true
                         color: "#183b2d"
@@ -912,6 +917,7 @@ ApplicationWindow {
     Dialog {
         id: newRadioDialog
         objectName: "newRadioDialog"
+        onOpened: radioSearch.text = ""
         modal: true
         width: Math.min(520, window.width - 32)
         height: Math.min(560, window.height - 32)
@@ -929,24 +935,11 @@ ApplicationWindow {
                 font.bold: true
                 color: "#173d30"
             }
-            ItemDelegate {
+            TextField {
+                id: radioSearch
                 Layout.fillWidth: true
-                Layout.preferredHeight: 72
-                Accessible.name: "Blank project"
-                onClicked: {
-                    newRadioDialog.close()
-                    store.newProjectDialog()
-                }
-                background: Rectangle {
-                    radius: 12
-                    color: parent.hovered ? "#e7f2e9" : "#f7faf7"
-                    border.color: "#cbded0"
-                }
-                contentItem: ColumnLayout {
-                    spacing: 2
-                    Label { text: "Blank project"; font.bold: true; color: "#173d30" }
-                    Label { text: "Start without a radio selected"; color: "#64776c" }
-                }
+                placeholderText: "Search radios or definitions"
+                Accessible.name: "Search radios"
             }
             ListView {
                 id: newRadioList
@@ -954,7 +947,11 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 clip: true
                 spacing: 8
-                model: store.newProjectOptions
+                model: store.newProjectOptions.filter(function(option) {
+                    const query = radioSearch.text.trim().toLowerCase()
+                    return option.model.toLowerCase().indexOf(query) !== -1
+                        || option.fileName.toLowerCase().indexOf(query) !== -1
+                })
                 delegate: ItemDelegate {
                     id: radioCard
                     required property var modelData
@@ -973,21 +970,61 @@ ApplicationWindow {
                     }
                     contentItem: ColumnLayout {
                         spacing: 2
-                        Label {
-                            text: radioCard.modelData.model
-                            font.pixelSize: 17
-                            font.bold: true
-                            color: radioCard.enabled ? "#173d30" : "#839188"
-                        }
-                        Label {
-                            text: radioCard.modelData.available
-                                  ? radioCard.modelData.fileName
-                                  : radioCard.modelData.fileName + " · " + radioCard.modelData.reason
-                            color: "#64776c"
-                            elide: Text.ElideRight
+                        RowLayout {
                             Layout.fillWidth: true
+                            spacing: 12
+                            Image {
+                                Layout.preferredWidth: 48
+                                Layout.preferredHeight: 48
+                                fillMode: Image.PreserveAspectFit
+                                source: radioCard.modelData.hasIcon
+                                        ? "image://radioicons/" + radioCard.modelData.fileName
+                                        : "qrc:/assets/waffle-radio.png"
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label {
+                                    text: radioCard.modelData.model
+                                    font.pixelSize: 17
+                                    font.bold: true
+                                    color: radioCard.enabled ? "#173d30" : "#839188"
+                                }
+                                Label {
+                                    text: radioCard.modelData.available
+                                          ? radioCard.modelData.fileName
+                                          : radioCard.modelData.fileName + " · " + radioCard.modelData.reason
+                                    color: "#64776c"
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                            }
                         }
                     }
+                }
+            }
+            Label {
+                visible: newRadioList.count === 0 && radioSearch.text.trim().length > 0
+                text: "No matching radios"
+            }
+            ItemDelegate {
+                objectName: "blankProjectOption"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 72
+                Accessible.name: "Blank project"
+                onClicked: {
+                    newRadioDialog.close()
+                    store.newProjectDialog()
+                }
+                background: Rectangle {
+                    radius: 12
+                    color: parent.hovered ? "#e7f2e9" : "#f7faf7"
+                    border.color: "#cbded0"
+                }
+                contentItem: ColumnLayout {
+                    spacing: 2
+                    Label { text: "Blank project"; font.bold: true; color: "#173d30" }
+                    Label { text: "Start without a radio selected"; color: "#64776c" }
                 }
             }
             Button {

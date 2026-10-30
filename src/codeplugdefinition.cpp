@@ -2073,6 +2073,7 @@ template<class Operation> bool checked(QString *error, Operation operation)
 QString CodeplugDefinition::id() const { return m_definition.value("id").toString(); }
 QString CodeplugDefinition::modelName() const { return m_definition.value("recognition").toObject().value("model_value").toString(); }
 QByteArray CodeplugDefinition::defaultCodeplug() const { return m_defaultCodeplug; }
+QByteArray CodeplugDefinition::iconPng() const { return m_iconPng; }
 bool CodeplugDefinition::defaultForNew() const { return m_definition.value("creation").toObject().value("default_for_new").toBool(); }
 
 QStringList CodeplugDefinition::extensions() const
@@ -2151,6 +2152,7 @@ bool CodeplugDefinition::load(const QString &path, CodeplugDefinition *result, Q
         require(parseError.error == QJsonParseError::NoError && document.isObject(), QStringLiteral("Invalid definition JSON: %1").arg(parseError.errorString()));
         CodeplugDefinition loaded;
         loaded.m_definition = document.object();
+        loaded.m_iconPng = entries.value("icon.png");
         loaded.m_diskPath = diskPath;
         loaded.m_definitionSha256 = QCryptographicHash::hash(entries.value("definition.json"), QCryptographicHash::Sha256).toHex();
         std::fprintf(stdout, "[definitions] Read definition.json from FILE: %s\n[definitions] definition.json SHA-256: %s\n",

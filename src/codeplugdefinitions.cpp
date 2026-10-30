@@ -202,11 +202,20 @@ QVariantList CodeplugDefinitions::newProjectOptions()
         options.append(QVariantMap{
             {QStringLiteral("model"), entry.loaded ? entry.definition.modelName() : entry.fileName},
             {QStringLiteral("fileName"), entry.fileName},
+            {QStringLiteral("hasIcon"), entry.loaded && !entry.definition.iconPng().isEmpty()},
             {QStringLiteral("available"), available},
             {QStringLiteral("reason"), entry.loaded ? entry.editorError : entry.loadError}
         });
     }
     return options;
+}
+
+QByteArray CodeplugDefinitions::iconPng(const QString &definitionFile)
+{
+    for (const auto &entry : catalog().entries)
+        if (entry.loaded && entry.fileName == definitionFile)
+            return entry.definition.iconPng();
+    return {};
 }
 
 bool CodeplugDefinitions::hasCompanionWrd(const QString &definitionFile)

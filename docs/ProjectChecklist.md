@@ -96,7 +96,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [x] Choose and publish an open-source license for WaffleCPS.
 - [ ] Linux support
   - [x] Build and test on Linux.
-  - [ ] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
+  - [x] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
 - [ ] Windows support
   - [ ] Build and test on Windows.
   - [ ] Provide a conventional Windows installer.

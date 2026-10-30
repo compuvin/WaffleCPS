@@ -11,6 +11,7 @@ public:
     static QString definitionForFilter(const QString &filter, QString *error);
     static QString diskLoadReport();
     static QVariantList newProjectOptions();
+    static QByteArray iconPng(const QString &definitionFile);
     static bool hasCompanionWrd(const QString &definitionFile);
     static QString exportFileFilter(const QByteArray &source,
                                     QString *extension, QString *error,

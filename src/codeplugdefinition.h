@@ -16,6 +16,7 @@ public:
     bool exportExtension(const QByteArray &source, QString *extension, QString *error) const;
     QString diskProvenance() const;
     QByteArray defaultCodeplug() const;
+    QByteArray iconPng() const;
     bool defaultForNew() const;
 
     // Model recognition deliberately does not imply structural validation.
@@ -30,6 +31,7 @@ public:
 private:
     QJsonObject m_definition;
     QByteArray m_defaultCodeplug;
+    QByteArray m_iconPng;
     QString m_diskPath;
     QByteArray m_definitionSha256;
 };

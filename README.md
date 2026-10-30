@@ -29,7 +29,7 @@ These views use an imported CS7000 GPS codeplug.
 - Add or remove talkgroups and additional simplex frequencies. When an imported channel is shared with another zone, removing it from the selected zone leaves the shared record available to the other zone.
 - Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
 - Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
-- Export an imported codeplug using its selected definition and preserved source bytes. New currently uses the CS7000 default from its external definition; selecting another radio for New is still pending.
+- Export an imported codeplug using its selected definition and preserved source bytes. New offers the loaded radio definitions and a blank project.
 - Read and write the supported CS7000-M17 Plus over USB. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 
 The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. Direct radio writing has been tested only for the supported CS7000-M17 Plus workflow. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
@@ -69,7 +69,7 @@ Run the automated checks with:
 ctest --test-dir build --output-on-failure
 ```
 
-WaffleCPS uses Qt and CMake, but Windows and macOS builds have not yet been verified or packaged. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
+WaffleCPS uses Qt and CMake. GitHub Actions builds `.deb` packages for Linux amd64 and arm64 and an unsigned macOS arm64 DMG. The macOS job builds the app but does not run its tests; Windows has not been built or packaged. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
 
 ## Project documents
 

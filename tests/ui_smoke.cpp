@@ -2,6 +2,7 @@
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
 #include "../src/radioreader.h"
+#include "../src/codeplugdefinitions.h"
 #include "channel_order_fixture.h"
 
 #include <QApplication>
@@ -16,12 +17,29 @@
 #include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickItem>
+#include <QQuickImageProvider>
 #include <QTimer>
 #include <QUrl>
 #include <QThread>
 #include <QJSValue>
 #include <stdexcept>
 #include <memory>
+
+class TestRadioIconProvider : public QQuickImageProvider
+{
+public:
+    TestRadioIconProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+
+    QImage requestImage(const QString &id, QSize *size, const QSize &requestedSize) override
+    {
+        QImage icon = QImage::fromData(CodeplugDefinitions::iconPng(id), "PNG");
+        if (icon.isNull()) icon.load(QStringLiteral(":/assets/waffle-radio.png"));
+        if (size) *size = icon.size();
+        return requestedSize.isValid()
+            ? icon.scaled(requestedSize, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            : icon;
+    }
+};
 
 int main(int argc, char *argv[])
 {
@@ -212,6 +230,7 @@ int main(int argc, char *argv[])
     QObject::connect(&radioWriter, &RadioWriter::completed, &app, [&] { writeCompleted = true; });
     QObject::connect(&radioWriter, &RadioWriter::failed, &app, [&](const QString &) { writeFailed = true; });
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("radioicons"), new TestRadioIconProvider);
     int qmlWarningCount = 0;
     QObject::connect(&engine, &QQmlEngine::warnings, &app,
                      [&qmlWarningCount](const QList<QQmlError> &warnings) {
@@ -1087,6 +1106,12 @@ int main(int argc, char *argv[])
                     break;
                 }
             }
+        });
+        QTimer::singleShot(200, &app, [&engine, &app] {
+            auto *blank = engine.rootObjects().constFirst()
+                ->findChild<QObject *>(QStringLiteral("blankProjectOption"));
+            if (!blank || !QMetaObject::invokeMethod(blank, "clicked"))
+                app.exit(59);
         });
         QTimer::singleShot(300, &app, [] {
             for (QWidget *widget : QApplication::topLevelWidgets())
