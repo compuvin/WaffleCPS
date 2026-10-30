@@ -194,6 +194,21 @@ QString CodeplugDefinitions::diskLoadReport()
     return report.join(QStringLiteral("\n\n"));
 }
 
+QVariantList CodeplugDefinitions::newProjectOptions()
+{
+    QVariantList options;
+    for (const auto &entry : catalog().entries) {
+        const bool available = entry.loaded && entry.editorError.isEmpty();
+        options.append(QVariantMap{
+            {QStringLiteral("model"), entry.loaded ? entry.definition.modelName() : entry.fileName},
+            {QStringLiteral("fileName"), entry.fileName},
+            {QStringLiteral("available"), available},
+            {QStringLiteral("reason"), entry.loaded ? entry.editorError : entry.loadError}
+        });
+    }
+    return options;
+}
+
 bool CodeplugDefinitions::hasCompanionWrd(const QString &definitionFile)
 {
     for (const auto &entry : catalog().entries)
@@ -253,6 +268,21 @@ QByteArray CodeplugDefinitions::defaultCodeplug(QString *error)
     }
     if (error) error->clear();
     return loaded.entries[defaults.first()].definition.defaultCodeplug();
+}
+
+QByteArray CodeplugDefinitions::defaultCodeplug(const QString &definitionFile, QString *error)
+{
+    const auto &loaded = catalog();
+    if (!loaded.error.isEmpty()) { fail(error, loaded.error); return {}; }
+    for (const auto &entry : loaded.entries) {
+        if (entry.fileName != definitionFile) continue;
+        if (!entry.loaded) { fail(error, entry.loadError); return {}; }
+        if (!entry.editorError.isEmpty()) { fail(error, entry.editorError); return {}; }
+        if (error) error->clear();
+        return entry.definition.defaultCodeplug();
+    }
+    fail(error, QStringLiteral("Selected definition file is not available: %1").arg(definitionFile));
+    return {};
 }
 
 bool CodeplugDefinitions::write(const QByteArray &source, const ImportedCodeplug &target,

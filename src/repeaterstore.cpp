@@ -189,6 +189,28 @@ bool RepeaterStore::updateRadioSettings(const QString &name, const QString &idTe
     setModified(true);
     return true;
 }
+
+bool RepeaterStore::saveNewRadioSettings(const QString &name, const QString &idText)
+{
+    const QString cleanName = name.trimmed();
+    const QString cleanId = idText.trimmed();
+    bool validId = false;
+    const int id = cleanId.isEmpty() ? 0 : cleanId.toInt(&validId);
+
+    if (cleanName.size() > 16)
+        return fail(QStringLiteral("Radio name or call sign must be 1–16 characters."));
+    if (!cleanId.isEmpty()
+        && (!validId || id < 1 || id > 16777215 || cleanId != QString::number(id)))
+        return fail(QStringLiteral("Radio ID must be a number from 1 to 16777215."));
+
+    if (m_radioName != cleanName || m_radioId != id) {
+        m_radioName = cleanName;
+        m_radioId = id;
+        emit radioSettingsChanged();
+        setModified(true);
+    }
+    return true;
+}
 QString RepeaterStore::projectDisplayName() const
 {
     return m_projectPath.isEmpty() ? QStringLiteral("Untitled project") : QFileInfo(m_projectPath).fileName();
@@ -200,6 +222,10 @@ bool RepeaterStore::radioTransferAvailable() const
 {
     return !hasImportedCodeplug() || m_generatedCodeplug
         || CodeplugDefinitions::hasCompanionWrd(m_importedCodeplug.definitionFile);
+}
+QVariantList RepeaterStore::newProjectOptions() const
+{
+    return CodeplugDefinitions::newProjectOptions();
 }
 QString RepeaterStore::importedCodeplugSummary() const
 {
@@ -1307,6 +1333,32 @@ void RepeaterStore::newProjectDialog()
     QTimer::singleShot(100, this, [this] { newProject(); });
 }
 
+bool RepeaterStore::newProjectForDefinition(const QString &definitionFile)
+{
+    QString error;
+    const QByteArray base = CodeplugDefinitions::defaultCodeplug(definitionFile, &error);
+    if (base.isEmpty()) return fail(error);
+    ImportedCodeplug validated;
+    if (!CodeplugDefinitions::read(base, &validated, &error, definitionFile)) return fail(error);
+    if (m_modified && QMessageBox::question(nullptr, tr("Discard unsaved changes?"),
+                                             tr("Creating a new project will discard your unsaved changes."))
+                          != QMessageBox::Yes)
+        return false;
+    validated.channels.clear();
+    validated.contacts.clear();
+    validated.zones.clear();
+    validated.radioName.clear();
+    validated.radioId = 0;
+    if (validated.powerSettings.isEmpty()) validated.powerSettings = {"low", "high"};
+    newProject();
+    m_importedCodeplug = std::move(validated);
+    m_sourceCodeplug = base;
+    rebuildImportedGroups();
+    emit radioSettingsChanged();
+    emit projectChanged();
+    return true;
+}
+
 bool RepeaterStore::addRepeater(const QString &name, const QString &rxFrequency,
                                 const QString &txFrequency, int colorCode, bool highPower)
 {
@@ -2233,7 +2285,10 @@ QByteArray RepeaterStore::exportCodeplugBytes()
 {
     QString writeError;
     const QByteArray source = hasImportedCodeplug() && !m_generatedCodeplug
-        ? m_sourceCodeplug : CodeplugDefinitions::defaultCodeplug(&writeError);
+        ? m_sourceCodeplug
+        : hasImportedCodeplug()
+            ? CodeplugDefinitions::defaultCodeplug(m_importedCodeplug.definitionFile, &writeError)
+            : CodeplugDefinitions::defaultCodeplug(&writeError);
     if (source.isEmpty()) {
         fail(QStringLiteral("The codeplug export base is unavailable: %1").arg(writeError));
         return {};
@@ -2254,18 +2309,21 @@ QByteArray RepeaterStore::exportCodeplugBytes()
 
 void RepeaterStore::exportCodeplugDialog()
 {
-    QString title = tr("Export CS7000 codeplug");
+    QString title = tr("Export codeplug");
     QString extension = QStringLiteral(".rdbx");
     QString filter = tr("CS7000 codeplugs (*.rdbx)");
-    if (hasImportedCodeplug() && !m_generatedCodeplug) {
+    if (hasImportedCodeplug()) {
         QString error;
-        filter = CodeplugDefinitions::exportFileFilter(m_sourceCodeplug, &extension, &error,
+        const QByteArray source = m_generatedCodeplug
+            ? CodeplugDefinitions::defaultCodeplug(m_importedCodeplug.definitionFile, &error)
+            : m_sourceCodeplug;
+        if (source.isEmpty()) { fail(error); return; }
+        filter = CodeplugDefinitions::exportFileFilter(source, &extension, &error,
                                                        m_importedCodeplug.definitionFile);
         if (filter.isEmpty()) {
             fail(error);
             return;
         }
-        title = tr("Export codeplug");
         QMessageBox::information(nullptr, tr("Export definition read from file"),
                                  tr("Export model: %1\n\n%2")
                                      .arg(m_importedCodeplug.model, CodeplugDefinitions::diskLoadReport()));

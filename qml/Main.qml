@@ -87,7 +87,7 @@ ApplicationWindow {
                     Layout.preferredWidth: 1
                     Layout.preferredHeight: implicitHeight
                     spacing: 6
-                    Button { text: "New"; onClicked: store.newProjectDialog() }
+                    Button { text: "New"; onClicked: newRadioDialog.open() }
                     Button { text: "Open"; onClicked: store.openProjectDialog() }
                     Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
                     Button {
@@ -545,9 +545,85 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 sourceComponent: Component { Item {
+                property bool showNewProject: store.importedRepeaterNames.length === 0
+                                              && store.importedZoneNames.length === 0
+
+                ColumnLayout {
+                    visible: parent.showNewProject
+                    anchors.centerIn: parent
+                    width: Math.min(580, parent.width - 48)
+                    spacing: 16
+
+                    Label {
+                        text: "New " + store.radioModel + " project"
+                        font.pixelSize: 30
+                        font.bold: true
+                        color: "#183b2d"
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+                    Label {
+                        text: "Enter your radio details, then add a repeater to get started."
+                        color: "#718379"
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+                    Frame {
+                        Layout.fillWidth: true
+                        padding: 22
+                        background: Rectangle {
+                            color: "#ffffff"
+                            radius: 16
+                            border.color: "#dce4df"
+                        }
+                        ColumnLayout {
+                            anchors.fill: parent
+                            spacing: 12
+                            Label { text: "Call sign"; font.bold: true; color: "#183b2d" }
+                            TextField {
+                                id: newCallsign
+                                Layout.fillWidth: true
+                                maximumLength: 16
+                                text: store.radioName
+                                placeholderText: "Enter your call sign"
+                                Accessible.name: "New project call sign"
+                            }
+                            Label { text: "DMR radio ID"; font.bold: true; color: "#183b2d" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                TextField {
+                                    id: newDmrId
+                                    Layout.fillWidth: true
+                                    text: store.radioId > 0 ? String(store.radioId) : ""
+                                    placeholderText: "Enter your DMR radio ID"
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                    Accessible.name: "New project DMR radio ID"
+                                }
+                                Button {
+                                    text: "Get a DMR ID"
+                                    flat: true
+                                    font.underline: true
+                                    palette.buttonText: "#1c6e9a"
+                                    onClicked: Qt.openUrlExternally("https://radioid.net/register")
+                                }
+                            }
+                            Button {
+                                text: "+ Add repeater"
+                                highlighted: true
+                                Layout.alignment: Qt.AlignRight
+                                onClicked: {
+                                    if (store.saveNewRadioSettings(newCallsign.text, newDmrId.text))
+                                        editDialog.openForNew()
+                                }
+                            }
+                        }
+                    }
+                }
+
                 ScrollView {
                 id: importedWorkspace
                 anchors.fill: parent
+                visible: !parent.showNewProject
                 clip: true
 
                 ColumnLayout {
@@ -802,14 +878,24 @@ ApplicationWindow {
                             Accessible.name: "Radio name or call sign"
                         }
                         Label { text: "DMR radio ID" }
-                        TextField {
-                            id: radioIdField
-                            objectName: "radioIdField"
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: store.radioId > 0 ? String(store.radioId) : ""
-                            placeholderText: "Enter your DMR radio ID"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            Accessible.name: "DMR radio ID"
+                            TextField {
+                                id: radioIdField
+                                objectName: "radioIdField"
+                                Layout.fillWidth: true
+                                text: store.radioId > 0 ? String(store.radioId) : ""
+                                placeholderText: "Enter your DMR radio ID"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                Accessible.name: "DMR radio ID"
+                            }
+                            Button {
+                                text: "Get a DMR ID"
+                                flat: true
+                                font.underline: true
+                                palette.buttonText: "#1c6e9a"
+                                onClicked: Qt.openUrlExternally("https://radioid.net/register")
+                            }
                         }
                         Button {
                             objectName: "saveRadioSettingsButton"
@@ -819,6 +905,95 @@ ApplicationWindow {
                         Item { Layout.fillHeight: true }
                     }
                 }
+            }
+        }
+    }
+
+    Dialog {
+        id: newRadioDialog
+        objectName: "newRadioDialog"
+        modal: true
+        width: Math.min(520, window.width - 32)
+        height: Math.min(560, window.height - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "New project"
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: 14
+
+            Label {
+                text: "Choose a radio"
+                font.pixelSize: 22
+                font.bold: true
+                color: "#173d30"
+            }
+            ItemDelegate {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 72
+                Accessible.name: "Blank project"
+                onClicked: {
+                    newRadioDialog.close()
+                    store.newProjectDialog()
+                }
+                background: Rectangle {
+                    radius: 12
+                    color: parent.hovered ? "#e7f2e9" : "#f7faf7"
+                    border.color: "#cbded0"
+                }
+                contentItem: ColumnLayout {
+                    spacing: 2
+                    Label { text: "Blank project"; font.bold: true; color: "#173d30" }
+                    Label { text: "Start without a radio selected"; color: "#64776c" }
+                }
+            }
+            ListView {
+                id: newRadioList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 8
+                model: store.newProjectOptions
+                delegate: ItemDelegate {
+                    id: radioCard
+                    required property var modelData
+                    width: newRadioList.width - 8
+                    height: 76
+                    enabled: modelData.available
+                    Accessible.name: modelData.model + " radio"
+                    onClicked: {
+                        if (store.newProjectForDefinition(modelData.fileName))
+                            newRadioDialog.close()
+                    }
+                    background: Rectangle {
+                        radius: 12
+                        color: radioCard.hovered && radioCard.enabled ? "#e7f2e9" : "#f7faf7"
+                        border.color: radioCard.hovered && radioCard.enabled ? "#548d66" : "#cbded0"
+                    }
+                    contentItem: ColumnLayout {
+                        spacing: 2
+                        Label {
+                            text: radioCard.modelData.model
+                            font.pixelSize: 17
+                            font.bold: true
+                            color: radioCard.enabled ? "#173d30" : "#839188"
+                        }
+                        Label {
+                            text: radioCard.modelData.available
+                                  ? radioCard.modelData.fileName
+                                  : radioCard.modelData.fileName + " · " + radioCard.modelData.reason
+                            color: "#64776c"
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+            }
+            Button {
+                text: "Cancel"
+                Layout.alignment: Qt.AlignRight
+                onClicked: newRadioDialog.close()
             }
         }
     }

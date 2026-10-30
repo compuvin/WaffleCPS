@@ -33,6 +33,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(bool modified READ modified NOTIFY projectChanged)
     Q_PROPERTY(bool hasImportedCodeplug READ hasImportedCodeplug NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool radioTransferAvailable READ radioTransferAvailable NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(QVariantList newProjectOptions READ newProjectOptions CONSTANT)
     Q_PROPERTY(QString importedCodeplugSummary READ importedCodeplugSummary NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QStringList importedRepeaterNames READ importedRepeaterNames NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool editingAsZone READ editingAsZone NOTIFY importedSelectionChanged)
@@ -68,6 +69,7 @@ public:
     bool modified() const;
     bool hasImportedCodeplug() const;
     bool radioTransferAvailable() const;
+    QVariantList newProjectOptions() const;
     QString importedCodeplugSummary() const;
     QStringList importedRepeaterNames() const;
     QStringList importedZoneNames() const;
@@ -125,6 +127,8 @@ public:
     Q_INVOKABLE bool reorderSelectedImportedZone(const QVariantList &channelNumbers);
     Q_INVOKABLE void newProject();
     Q_INVOKABLE void newProjectDialog();
+    Q_INVOKABLE bool newProjectForDefinition(const QString &definitionFile);
+    Q_INVOKABLE bool saveNewRadioSettings(const QString &name, const QString &idText);
     Q_INVOKABLE bool updateRadioSettings(const QString &name, const QString &idText);
     Q_INVOKABLE void exportCodeplugDialog();
 
