@@ -18,6 +18,12 @@ I want to participate in development, understand the code, and personally test c
 
 Do not automatically continue to the next development task.
 
+## Git commits
+
+- When I ask you to commit, run `git add -A` so the commit includes all changed and new files that Git does not ignore.
+- Review `git status` before committing and confirm the working tree is clean afterward.
+- Do not leave eligible files uncommitted. If a file cannot be included, explain why before committing.
+
 ## Scope and Existing Code
 
 - Never revert my changes without permission.

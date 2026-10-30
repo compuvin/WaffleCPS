@@ -35,6 +35,30 @@ ApplicationWindow {
     title: store.projectDisplayName + (store.modified ? " *" : "") + " — WaffleCPS"
     color: "#f2f5f1"
 
+    component HeaderAction: Button {
+        id: action
+        property bool primary: false
+        implicitHeight: 38
+        leftPadding: 14
+        rightPadding: 14
+        font.pixelSize: 14
+        font.bold: true
+        contentItem: Text {
+            text: action.text
+            font: action.font
+            color: action.primary ? "#173d30" : "#f2f8f3"
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 9
+            color: action.primary
+                   ? (action.hovered ? "#d6eada" : "#e9f4eb")
+                   : (action.hovered ? "#315d4b" : "transparent")
+            border.color: action.activeFocus ? "#a6d5bb" : (action.primary ? "#b8d9c1" : "transparent")
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -51,72 +75,88 @@ ApplicationWindow {
                 anchors.rightMargin: 24
                 spacing: 14
 
-                Image {
-                    source: "qrc:/assets/waffle-radio.png"
-                    Layout.preferredWidth: 42
-                    Layout.preferredHeight: 42
-                    fillMode: Image.PreserveAspectFit
-                    Accessible.name: "Waffle and portable radio"
-                }
-
-                Label {
-                    text: "WaffleCPS"
-                    color: "white"
-                    font.pixelSize: 22
-                    font.bold: true
-                }
-
-                Rectangle {
-                    width: 92
-                    height: 24
-                    radius: 12
-                    color: "#315d4b"
-
+                RowLayout {
+                    spacing: 10
+                    Image {
+                        source: "qrc:/assets/waffle-radio.png"
+                        Layout.preferredWidth: 42
+                        Layout.preferredHeight: 42
+                        fillMode: Image.PreserveAspectFit
+                        Accessible.name: "Waffle and portable radio"
+                    }
                     Label {
-                        anchors.centerIn: parent
-                        text: "PROTOTYPE"
-                        color: "#d7eee0"
-                        font.pixelSize: 10
+                        text: "WaffleCPS"
+                        color: "white"
+                        font.pixelSize: 22
                         font.bold: true
                     }
+                    Rectangle {
+                        Layout.preferredWidth: 92
+                        Layout.preferredHeight: 24
+                        radius: 12
+                        color: "#315d4b"
+                        Label {
+                            anchors.centerIn: parent
+                            text: "PROTOTYPE"
+                            color: "#d7eee0"
+                            font.pixelSize: 10
+                            font.bold: true
+                        }
+                    }
                 }
 
-                Flow {
+                Item { Layout.fillWidth: true }
+
+                RowLayout {
                     id: headerActions
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    Layout.preferredHeight: implicitHeight
-                    spacing: 6
-                    Button { text: "New"; onClicked: newRadioDialog.open() }
-                    Button { text: "Open"; onClicked: store.openProjectDialog() }
-                    Button { text: "Import codeplug"; onClicked: store.importCodeplugDialog() }
-                    Button {
-                        objectName: "readRadioButton"
-                        text: "Read from radio"
-                        enabled: store.radioTransferAvailable
-                        onClicked: {
-                            if (!store.radioTransferAvailable) return
-                            if (store.modified)
-                                radioReadConfirmation.open()
-                            else
-                                radioReader.start()
+                    spacing: 8
+                    HeaderAction { text: "New"; primary: true; onClicked: newRadioDialog.open() }
+                    HeaderAction {
+                        text: "Project ▾"
+                        onClicked: projectMenu.open()
+                        Menu {
+                            id: projectMenu
+                            y: parent.height
+                            MenuItem { text: "Open"; onClicked: store.openProjectDialog() }
+                            MenuItem { text: "Save"; onClicked: store.saveProjectDialog(false) }
+                            MenuItem { text: "Save As"; onClicked: store.saveProjectDialog(true) }
                         }
                     }
-                    Button {
-                        objectName: "writeRadioButton"
-                        text: "Write to radio"
-                        enabled: store.radioTransferAvailable
-                        onClicked: {
-                            if (store.radioTransferAvailable) radioWriteConfirmation.open()
+                    HeaderAction {
+                        text: "Codeplug ▾"
+                        onClicked: codeplugMenu.open()
+                        Menu {
+                            id: codeplugMenu
+                            y: parent.height
+                            MenuItem { text: "Import"; onClicked: store.importCodeplugDialog() }
+                            MenuItem { text: "Export"; onClicked: store.exportCodeplugDialog() }
                         }
                     }
-                    Button { text: "Save"; onClicked: store.saveProjectDialog(false) }
-                    Button { text: "Save As"; onClicked: store.saveProjectDialog(true) }
-                    Button {
-                        text: "Export"
-                        ToolTip.text: "Export CS7000 codeplug"
-                        ToolTip.visible: hovered
-                        onClicked: store.exportCodeplugDialog()
+                    HeaderAction {
+                        objectName: "radioMenuButton"
+                        text: "Radio ▾"
+                        onClicked: radioMenu.open()
+                        Menu {
+                            id: radioMenu
+                            y: parent.height
+                            MenuItem {
+                                objectName: "readRadioButton"
+                                text: "Read"
+                                enabled: store.radioTransferAvailable
+                                onClicked: {
+                                    if (store.modified)
+                                        radioReadConfirmation.open()
+                                    else
+                                        radioReader.start()
+                                }
+                            }
+                            MenuItem {
+                                objectName: "writeRadioButton"
+                                text: "Write"
+                                enabled: store.radioTransferAvailable
+                                onClicked: radioWriteConfirmation.open()
+                            }
+                        }
                     }
                 }
             }

@@ -725,13 +725,14 @@ int main(int argc, char *argv[])
     }
     if (exerciseWrite) {
         QObject *root = engine.rootObjects().constFirst();
+        auto *menuButton = root->findChild<QQuickItem *>("radioMenuButton");
         auto *button = root->findChild<QQuickItem *>("writeRadioButton");
         auto *confirm = root->findChild<QObject *>("radioWriteConfirmation");
         auto *accept = root->findChild<QObject *>("confirmRadioWriteButton");
         auto *dialog = root->findChild<QObject *>("radioWriteProgress");
         auto *complete = root->findChild<QObject *>("radioWriteComplete");
         auto *readButton = root->findChild<QQuickItem *>("readRadioButton");
-        if (!button || !confirm || !accept || !dialog || !complete || !readButton) return 20;
+        if (!menuButton || !button || !confirm || !accept || !dialog || !complete || !readButton) return 20;
         const auto before = store.exportCodeplugBytes();
         if (before.isEmpty()) return 19;
         const bool modified = store.modified();
@@ -740,6 +741,7 @@ int main(int argc, char *argv[])
         QObject::connect(&timer, &QTimer::timeout, &app, [&] { ++beats; });
         timer.start(10);
         QTimer::singleShot(50, &app, [&] {
+            QMetaObject::invokeMethod(menuButton, "clicked");
             QMetaObject::invokeMethod(button, "clicked");
             if (!confirm->property("visible").toBool() || radioWriter.busy()) { app.exit(21); return; }
             QMetaObject::invokeMethod(accept, "clicked");
@@ -776,24 +778,26 @@ int main(int argc, char *argv[])
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         window->resize(800, 720);
         QObject *root = engine.rootObjects().constFirst();
+        auto *menuButton = root->findChild<QQuickItem *>(QStringLiteral("radioMenuButton"));
         auto *button = root->findChild<QQuickItem *>(QStringLiteral("readRadioButton"));
         QObject *dialog = root->findChild<QObject *>(QStringLiteral("radioReadProgress"));
         QObject *confirmation = root->findChild<QObject *>(QStringLiteral("radioReadConfirmation"));
         QObject *cancel = root->findChild<QObject *>(QStringLiteral("cancelRadioReadButton"));
-        if (!button || !dialog || !confirmation || !cancel) return 10;
+        if (!menuButton || !button || !dialog || !confirmation || !cancel) return 10;
         int heartbeats = 0;
         bool readStarted = false;
         QTimer heartbeat;
         QObject::connect(&heartbeat, &QTimer::timeout, &app, [&] { ++heartbeats; });
         heartbeat.start(10);
         QTimer::singleShot(50, &app, [&] {
-            const QPointF position = button->mapToScene(QPointF(0, 0));
-            if (position.x() < 0 || position.x() + button->width() > window->width()) {
+            const QPointF position = menuButton->mapToScene(QPointF(0, 0));
+            if (position.x() < 0 || position.x() + menuButton->width() > window->width()) {
                 qCritical() << "Radio button overflows toolbar at minimum window width";
                 app.exit(11);
                 return;
             }
             store.addContact(QStringLiteral("Pending contact"), 1234567, false);
+            QMetaObject::invokeMethod(menuButton, "clicked");
             QMetaObject::invokeMethod(button, "clicked");
             if (!confirmation->property("visible").toBool() || radioReader.busy()) {
                 qCritical() << "Unsaved project was not confirmed before reading";
@@ -802,6 +806,7 @@ int main(int argc, char *argv[])
             }
             QMetaObject::invokeMethod(confirmation, "close");
             store.newProject();
+            QMetaObject::invokeMethod(menuButton, "clicked");
             QMetaObject::invokeMethod(button, "clicked");
             readStarted = true;
         });
