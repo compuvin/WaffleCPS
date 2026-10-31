@@ -236,7 +236,7 @@ ApplicationWindow {
                                     if (store.modified)
                                         radioReadConfirmation.open()
                                     else
-                                        radioReader.start()
+                                        radioReader.start(store.radioDefinitionPath())
                                 }
                             }
                             HeaderMenuItem {
@@ -1705,7 +1705,7 @@ ApplicationWindow {
                     text: "Read from radio"
                     onClicked: {
                         radioReadConfirmation.close()
-                        if (store.radioTransferAvailable) radioReader.start()
+                        if (store.radioTransferAvailable) radioReader.start(store.radioDefinitionPath())
                     }
                 }
             }
@@ -1761,7 +1761,8 @@ ApplicationWindow {
         standardButtons: Dialog.NoButton
         contentItem: ColumnLayout {
             Label {
-                text: "Replace the connected CS7000-M17 Plus codeplug with this project's settings? Keep the radio connected and powered on until writing finishes. Writing cannot be cancelled once started."
+                text: "Replace the connected " + (store.radioModel.length ? store.radioModel : "radio")
+                      + " codeplug with this project's settings? Keep the radio connected and powered on until writing finishes. Writing cannot be cancelled once started."
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -1773,7 +1774,7 @@ ApplicationWindow {
                     text: "Write to radio"
                     onClicked: {
                         radioWriteConfirmation.close()
-                        if (store.radioTransferAvailable) radioWriter.start(store.exportCodeplugBytes())
+                        if (store.radioTransferAvailable) radioWriter.start(store.exportCodeplugBytes(), store.radioDefinitionPath())
                     }
                 }
             }

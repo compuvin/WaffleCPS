@@ -1,5 +1,6 @@
 #include "../src/radiocodeplug.h"
 #include "../src/radioreader.h"
+#include "../src/cs7000usb.h"
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
 #include "../src/ziparchive.h"

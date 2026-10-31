@@ -2260,6 +2260,71 @@ bool CodeplugDefinition::read(const QByteArray &input, ImportedCodeplug *result,
     });
 }
 
+bool CodeplugDefinition::decodedImage(const QByteArray &input, QByteArray *result, QString *error) const
+{
+    return checked(error, [&] {
+        require(result, QStringLiteral("Missing decoded image output."));
+        QSet<QByteArray> images;
+        QByteArray selected;
+        QStringList reasons;
+        for (const auto &entry : m_definition.value("representations").toArray()) {
+            try {
+                const QByteArray image = decode(input, entry.toObject());
+                Decoder(image, m_definition).recognize();
+                const QByteArray digest = QCryptographicHash::hash(image, QCryptographicHash::Sha256);
+                images.insert(digest);
+                selected = image;
+            } catch (const std::exception &exception) {
+                reasons.append(QString::fromUtf8(exception.what()));
+            }
+        }
+        require(images.size() == 1, QStringLiteral("No unique decoded radio image: %1").arg(reasons.join("; ")));
+        *result = std::move(selected);
+    });
+}
+
+bool CodeplugDefinition::encodeRadioImage(const QByteArray &decoded, QByteArray *result,
+                                          QString *extension, QString *error) const
+{
+    return checked(error, [&] {
+        require(result && extension, QStringLiteral("Missing radio image encoding output."));
+        Decoder(decoded, m_definition).recognize();
+        QJsonObject selected;
+        const QString preferred = m_definition.value("creation").toObject().value("representation").toString();
+        int available = 0;
+        for (const QJsonValue &entry : m_definition.value("representations").toArray()) {
+            const QJsonObject representation = entry.toObject();
+            if (representation.value("extension").toString().isEmpty()) continue;
+            ++available;
+            if (representation.value("name") == preferred || selected.isEmpty())
+                selected = representation;
+        }
+        require(!selected.isEmpty(), QStringLiteral("No file representation is available for radio import."));
+        require(available == 1 || selected.value("name") == preferred,
+                QStringLiteral("Select a file representation for radio import in creation.representation."));
+        const QJsonObject rule = selected.value("decode").toObject();
+        QByteArray encoded = decoded;
+        if (rule.value("operation") == QJsonValue("repeating_xor")) {
+            const qint64 offset = integer(rule.value("mask_input_offset"));
+            const qint64 size = integer(rule.value("mask_bytes"));
+            require(size > 0 && offset >= 0 && offset <= m_defaultCodeplug.size()
+                    && size <= m_defaultCodeplug.size() - offset,
+                    QStringLiteral("Default codeplug lacks the file encoding mask."));
+            const QByteArray mask = m_defaultCodeplug.mid(offset, size);
+            qint64 phase = rule.contains("mask_phase_at_input_zero")
+                ? integer(rule.value("mask_phase_at_input_zero")) % size : 0;
+            if (phase < 0) phase += size;
+            for (qsizetype i = 0; i < encoded.size(); ++i)
+                encoded[i] = decoded[i] ^ mask[(i % size + phase) % size];
+        } else require(rule.value("operation") == QJsonValue("identity"),
+                       QStringLiteral("Unsupported file representation encoding."));
+        require(decode(encoded, selected) == decoded,
+                QStringLiteral("Encoded radio image did not decode unchanged."));
+        *result = std::move(encoded);
+        *extension = selected.value("extension").toString();
+    });
+}
+
 bool CodeplugDefinition::write(const QByteArray &source, const ImportedCodeplug &target,
                               const QString &radioName, int radioId, QByteArray *result, QString *error) const
 {

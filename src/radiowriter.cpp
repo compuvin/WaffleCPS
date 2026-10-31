@@ -1,8 +1,12 @@
 #include "radiowriter.h"
-#include "codeplugreader.h"
+#include "codeplugdefinition.h"
+#include "radiodefinition.h"
+#include <QDir>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QThread>
 #include <memory>
+#include <cstdio>
 
 RadioWriter::RadioWriter(QObject *parent, WriteOperation write)
     : QObject(parent), m_write(std::move(write)) {}
@@ -15,38 +19,51 @@ RadioWriter::~RadioWriter()
     }
 }
 
-void RadioWriter::start(const QByteArray &encoded)
+void RadioWriter::start(const QByteArray &encoded, const QString &definitionPath)
 {
     if (busy() || encoded.isEmpty()) return;
-    // Freeze and validate the complete exported image before entering programming mode.
-    ImportedCodeplug checked;
+    RadioDefinition radioDefinition;
+    CodeplugDefinition codeplugDefinition;
+    QByteArray decoded;
     QString error;
-    if (!CodeplugReader::read(encoded, &checked, &error)) {
+    if (definitionPath.isEmpty() || !RadioDefinition::load(definitionPath, &radioDefinition, &error)) {
+        emit failed(error.isEmpty() ? tr("No radio definition selected.") : error);
+        return;
+    }
+    std::fprintf(stdout, "[radio definitions] Write uses FILE: %s\n", qUtf8Printable(radioDefinition.sourcePath()));
+    std::fflush(stdout);
+    const QString wcpPath = QFileInfo(definitionPath).dir().filePath(
+        QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp"));
+    if (!CodeplugDefinition::load(wcpPath, &codeplugDefinition, &error)
+        || !radioDefinition.compatibleWithCodeplug(codeplugDefinition.document(), &error)
+        || !codeplugDefinition.decodedImage(encoded, &decoded, &error)) {
         emit failed(error);
         return;
     }
-    Cs7000Usb::Bytes image(size_t(encoded.size()));
-    for (qsizetype i = 0; i < encoded.size(); ++i)
-        image[size_t(i)] = uint8_t(encoded[i]) ^ uint8_t(encoded[0x300 + i % 256]);
-    try { Cs7000Usb::planWrite(image); }
-    catch (const std::exception &exception) {
-        emit failed(QString::fromUtf8(exception.what()));
+    ImportedCodeplug checked;
+    if (!codeplugDefinition.read(decoded, &checked, &error)) {
+        emit failed(error);
         return;
     }
+    RadioExecutor::Bytes image(size_t(decoded.size()));
+    for (qsizetype i = 0; i < decoded.size(); ++i) image[size_t(i)] = uint8_t(decoded[i]);
     m_status = tr("Connecting to radio…");
     m_progress = 0;
     auto result = std::make_shared<QString>();
-    m_thread = QThread::create([this, image = std::move(image), result] {
+    m_thread = QThread::create([this, image = std::move(image), radioDefinition,
+                                codeplugDocument = codeplugDefinition.document(), result] {
         try {
-            m_write(image, [this](const std::string &region, uint32_t done, uint32_t total) {
+            const auto progress = [this](const std::string &region, uint32_t done, uint32_t total) {
                 QMetaObject::invokeMethod(this, [this, region, done, total] {
                     m_status = tr("Writing %1: block %2 of %3")
-                        .arg(region == "main" ? tr("radio settings") : tr("contacts"))
+                        .arg(QString::fromStdString(region))
                         .arg(done).arg(total);
                     m_progress = total ? double(done) / total : 0;
                     emit progressChanged();
                 }, Qt::QueuedConnection);
-            });
+            };
+            if (m_write) m_write(image, progress);
+            else RadioExecutor::write(radioDefinition, codeplugDocument, image, progress);
         } catch (const std::exception &exception) {
             *result = QString::fromUtf8(exception.what());
         }

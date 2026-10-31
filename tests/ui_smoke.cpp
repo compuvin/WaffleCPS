@@ -2,6 +2,7 @@
 #include "../src/repeaterstore.h"
 #include "../src/cs7000default.h"
 #include "../src/radioreader.h"
+#include "../src/cs7000usb.h"
 #include "../src/codeplugdefinitions.h"
 #include "channel_order_fixture.h"
 
@@ -760,6 +761,7 @@ int main(int argc, char *argv[])
         QObject::connect(&poll, &QTimer::timeout, &app, [&] {
             if (!writeStarted || radioWriter.busy()) return;
             const bool success = radioMode == "--write-success";
+            if (success && writeCompleted && !complete->property("visible").toBool()) return;
             if (writeCompleted != success || writeFailed == success || beats < 10
                 || dialog->property("visible").toBool() || !button->isEnabled()
                 || complete->property("visible").toBool() != success

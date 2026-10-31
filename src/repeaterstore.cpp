@@ -220,8 +220,14 @@ bool RepeaterStore::modified() const { return m_modified; }
 bool RepeaterStore::hasImportedCodeplug() const { return !m_importedCodeplug.model.isEmpty(); }
 bool RepeaterStore::radioTransferAvailable() const
 {
-    return !hasImportedCodeplug() || m_generatedCodeplug
-        || CodeplugDefinitions::hasCompanionWrd(m_importedCodeplug.definitionFile);
+    const QString definitionFile = hasImportedCodeplug()
+        ? m_importedCodeplug.definitionFile : CodeplugDefinitions::defaultDefinitionFile();
+    return CodeplugDefinitions::hasCompanionWrd(definitionFile);
+}
+QString RepeaterStore::radioDefinitionPath() const
+{
+    return CodeplugDefinitions::companionWrdPath(
+        hasImportedCodeplug() ? m_importedCodeplug.definitionFile : CodeplugDefinitions::defaultDefinitionFile());
 }
 QVariantList RepeaterStore::newProjectOptions() const
 {
@@ -2097,6 +2103,11 @@ bool RepeaterStore::importRadioCodeplug(const QByteArray &bytes)
     QString error;
     if (!CodeplugDefinitions::read(bytes, &imported, &error))
         return fail(tr("Could not import radio codeplug: %1").arg(error));
+    QByteArray fileSource;
+    QString fileExtension;
+    if (!CodeplugDefinitions::encodeRadioImage(bytes, imported.definitionFile,
+                                                &fileSource, &fileExtension, &error))
+        return fail(tr("Could not prepare radio codeplug for file export: %1").arg(error));
     emit aboutToResetProject();
     m_generatedCodeplug = false;
     m_zoneClassificationPending = false;
@@ -2105,8 +2116,8 @@ bool RepeaterStore::importRadioCodeplug(const QByteArray &bytes)
     m_manualContacts.clear();
     m_selectedIndex = 0;
     m_projectPath.clear();
-    m_sourceCodeplug = bytes;
-    m_sourceCodeplugName = QStringLiteral("radio-read.rdbx");
+    m_sourceCodeplug = fileSource;
+    m_sourceCodeplugName = QStringLiteral("radio-read") + fileExtension;
     m_generatedCodeplug = false;
     m_zoneClassificationPending = false;
     m_advancedZoneIndex = -1;

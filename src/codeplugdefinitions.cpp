@@ -48,6 +48,7 @@ struct Catalog {
     QVector<int> defaultDefinitions;
     QStringList rejected;
     QString error;
+    QString directoryPath;
 
     Catalog()
     {
@@ -64,6 +65,7 @@ struct Catalog {
             error = QStringLiteral("The definitions folder was not found. Place it beside Waffle or set WAFFLE_DEFINITIONS_DIR.");
             return;
         }
+        directoryPath = directory.absolutePath();
         logDefinition(QStringLiteral("Loading .wcp files from disk directory: %1").arg(directory.absolutePath()));
         const auto files = directory.entryList({QStringLiteral("*.wcp")}, QDir::Files, QDir::Name);
         for (const auto &name : files) {
@@ -226,6 +228,22 @@ bool CodeplugDefinitions::hasCompanionWrd(const QString &definitionFile)
     return false;
 }
 
+QString CodeplugDefinitions::companionWrdPath(const QString &definitionFile)
+{
+    if (!hasCompanionWrd(definitionFile)) return {};
+    return QDir(catalog().directoryPath).absoluteFilePath(QFileInfo(definitionFile).completeBaseName() + ".wrd");
+}
+
+QString CodeplugDefinitions::defaultDefinitionFile()
+{
+    const auto &loaded = catalog();
+    QVector<int> defaults;
+    for (int index : loaded.defaultDefinitions)
+        if (loaded.entries[index].definition.defaultForNew()) defaults.append(index);
+    if (defaults.isEmpty()) defaults = loaded.defaultDefinitions;
+    return defaults.size() == 1 ? loaded.entries[defaults.first()].fileName : QString();
+}
+
 QString CodeplugDefinitions::exportFileFilter(const QByteArray &source,
                                             QString *extension, QString *error,
                                             const QString &definitionFile)
@@ -261,6 +279,16 @@ bool CodeplugDefinitions::read(const QByteArray &bytes, ImportedCodeplug *result
     *result = std::move(imported);
     if (error) error->clear();
     return true;
+}
+
+bool CodeplugDefinitions::encodeRadioImage(const QByteArray &decoded, const QString &definitionFile,
+                                           QByteArray *encoded, QString *extension, QString *error)
+{
+    const auto *entry = select(decoded, definitionFile, error);
+    if (!entry) return false;
+    QByteArray image;
+    if (!entry->definition.decodedImage(decoded, &image, error)) return false;
+    return entry->definition.encodeRadioImage(image, encoded, extension, error);
 }
 
 QByteArray CodeplugDefinitions::defaultCodeplug(QString *error)

@@ -1,12 +1,15 @@
 #include "radiodefinition.h"
 
+#include <QCryptographicHash>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QRegularExpression>
 #include <QSet>
+#include <cstdio>
 
 namespace {
 bool fail(QString *error, const QString &message)
@@ -43,10 +46,412 @@ bool hexBytes(const QJsonValue &value)
     return value.isString() && pattern.match(value.toString()).hasMatch();
 }
 
+bool hexBytesOrEmpty(const QJsonValue &value)
+{
+    return value.isString() && (value.toString().isEmpty() || hexBytes(value));
+}
+
+bool unsignedValue(const QJsonValue &value, quint32 *result)
+{
+    bool ok = false;
+    quint64 number = 0;
+    if (value.isDouble()) {
+        const double n = value.toDouble();
+        if (n < 0 || n > 4294967295.0 || n != quint32(n)) return false;
+        number = quint32(n);
+    } else if (value.isString()) {
+        const QString text = value.toString();
+        number = text.toULongLong(&ok, text.startsWith(QStringLiteral("0x"), Qt::CaseInsensitive) ? 16 : 10);
+        if (!ok || number > 4294967295ULL) return false;
+    } else return false;
+    *result = quint32(number);
+    return true;
+}
+
+int typeBytes(const QString &type)
+{
+    if (type == QStringLiteral("u8")) return 1;
+    if (type == QStringLiteral("u16le") || type == QStringLiteral("u16be")) return 2;
+    if (type == QStringLiteral("u32le") || type == QStringLiteral("u32be")) return 4;
+    return 0;
+}
+
+bool offsetExpression(const QJsonValue &value)
+{
+    quint32 offset = 0;
+    if (unsignedValue(value, &offset)) return true;
+    const QJsonObject expression = value.toObject();
+    const QJsonArray add = expression.value(QStringLiteral("add")).toArray();
+    if (expression.size() != 1 || add.isEmpty()) return false;
+    bool length = false;
+    for (const QJsonValue &term : add) {
+        if (unsignedValue(term, &offset)) continue;
+        const QJsonObject reference = term.toObject();
+        if (reference.size() != 1 || reference.value(QStringLiteral("length_of")) != QStringLiteral("payload")
+            || length) return false;
+        length = true;
+    }
+    return length;
+}
+
 bool fieldReference(const QJsonValue &value)
 {
     const QJsonObject object = value.toObject();
     return object.size() == 1 && !object.value(QStringLiteral("field")).toString().isEmpty();
+}
+
+bool trueField(const QJsonObject &object, const char *name)
+{
+    return object.value(QLatin1String(name)) == QJsonValue(true);
+}
+
+bool falseField(const QJsonObject &object, const char *name)
+{
+    return object.value(QLatin1String(name)) == QJsonValue(false);
+}
+
+bool validateTransportRules(const QJsonObject &root, QString *error)
+{
+    const QJsonObject usb = root.value(QStringLiteral("usb")).toObject();
+    const QJsonObject lifecycle = usb.value(QStringLiteral("interface_lifecycle")).toObject();
+    quint16 vendor = 0, product = 0;
+    quint8 in = 0, out = 0;
+    if (!wordValue(usb.value(QStringLiteral("vendor_id")), &vendor)
+        || !wordValue(usb.value(QStringLiteral("product_id")), &product)
+        || !byteValue(usb.value(QStringLiteral("bulk_in_endpoint")), &in)
+        || !byteValue(usb.value(QStringLiteral("bulk_out_endpoint")), &out)
+        || usb.value(QStringLiteral("interface_number")).toInt(-1) < 0
+        || usb.value(QStringLiteral("interface_number")).toInt() > 255
+        || usb.value(QStringLiteral("alternate_setting")).toInt(-1) < 0
+        || usb.value(QStringLiteral("alternate_setting")).toInt() > 255
+        || usb.value(QStringLiteral("maximum_packet_bytes")).toInt() < 1
+        || usb.value(QStringLiteral("maximum_packet_bytes")).toInt() > 65535
+        || !trueField(lifecycle, "detach_kernel_driver_if_active")
+        || !trueField(lifecycle, "claim_interface")
+        || !trueField(lifecycle, "release_interface")
+        || !trueField(lifecycle, "reattach_if_detached"))
+        return fail(error, QStringLiteral("Radio USB interface or lifecycle is incomplete."));
+    quint8 interfaceClass = 0, interfaceSubclass = 0, interfaceProtocol = 0;
+    if (!byteValue(usb.value(QStringLiteral("interface_class")), &interfaceClass)
+        || !byteValue(usb.value(QStringLiteral("interface_subclass")), &interfaceSubclass)
+        || !byteValue(usb.value(QStringLiteral("interface_protocol")), &interfaceProtocol)
+        || !(in & 0x80) || (out & 0x80) || in == out)
+        return fail(error, QStringLiteral("Radio USB interface descriptors are invalid."));
+    const QJsonObject transport = root.value(QStringLiteral("bulk_only_transport")).toObject();
+    const QJsonObject cbw = transport.value(QStringLiteral("cbw")).toObject();
+    const QJsonObject tag = cbw.value(QStringLiteral("tag_rule")).toObject();
+    const QJsonObject csw = transport.value(QStringLiteral("csw")).toObject();
+    const QJsonObject cswChecks = csw.value(QStringLiteral("checks")).toObject();
+    if (cbw.value(QStringLiteral("bytes")).toInt() < 1
+        || cbw.value(QStringLiteral("bytes")).toInt() > 4096
+        || tag.value(QStringLiteral("initial")).toInt(-1) < 0
+        || tag.value(QStringLiteral("increment")).toInt() < 1
+        || tag.value(QStringLiteral("wrap_modulus")).toDouble() != 4294967296.0
+        || csw.value(QStringLiteral("bytes")).toInt() < 1
+        || csw.value(QStringLiteral("bytes")).toInt() > 4096
+        || !trueField(cswChecks, "signature_matches")
+        || !trueField(cswChecks, "tag_matches_cbw")
+        || !trueField(cswChecks, "data_bytes_plus_residue_matches_cbw")
+        || cswChecks.value(QStringLiteral("success_status")).toInt(-1) < 0
+        || cswChecks.value(QStringLiteral("success_residue")).toInt(-1) < 0)
+        return fail(error, QStringLiteral("Radio CBW/CSW validation rules are incomplete."));
+    const QJsonArray cbwFields = cbw.value(QStringLiteral("fields")).toArray();
+    QSet<QString> cbwParameters;
+    int cdbBytes = -1;
+    bool signatureFound = false;
+    for (const QJsonValue &entry : cbwFields) {
+        const QJsonObject field = entry.toObject();
+        const int offset = field.value(QStringLiteral("offset")).toInt(-1);
+        const QString parameter = field.value(QStringLiteral("parameter")).toString();
+        const QString type = field.value(QStringLiteral("type")).toString();
+        int width = 0;
+        if (offset < 0 || !entry.isObject())
+            return fail(error, QStringLiteral("Invalid CBW field offset."));
+        if (field.contains(QStringLiteral("hex"))) {
+            if (!parameter.isEmpty() || !hexBytes(field.value(QStringLiteral("hex"))))
+                return fail(error, QStringLiteral("Invalid CBW signature field."));
+            width = field.value(QStringLiteral("hex")).toString().split(' ').size();
+            signatureFound = true;
+        } else if (parameter == QStringLiteral("cdb")) {
+            cdbBytes = field.value(QStringLiteral("bytes")).toInt(-1);
+            width = cdbBytes;
+            if (typeBytes(type) || cdbBytes < 1 || cdbBytes > 16)
+                return fail(error, QStringLiteral("Invalid CBW command descriptor."));
+        } else {
+            if (!parameter.isEmpty() && parameter != QStringLiteral("tag")
+                && parameter != QStringLiteral("data_bytes") && parameter != QStringLiteral("direction"))
+                return fail(error, QStringLiteral("Unsupported CBW parameter."));
+            width = typeBytes(type);
+            quint32 constant = 0;
+            if (width == 0 || (parameter.isEmpty()
+                && !unsignedValue(field.value(QStringLiteral("value")), &constant)))
+                return fail(error, QStringLiteral("Invalid CBW numeric field."));
+        }
+        if (offset + width > cbw.value(QStringLiteral("bytes")).toInt())
+            return fail(error, QStringLiteral("CBW field exceeds wrapper."));
+        if (!parameter.isEmpty()) {
+            if (cbwParameters.contains(parameter))
+                return fail(error, QStringLiteral("Duplicate CBW parameter."));
+            cbwParameters.insert(parameter);
+        }
+    }
+    if (!signatureFound || cdbBytes < 1 || cbwParameters != QSet<QString>{QStringLiteral("tag"),
+        QStringLiteral("data_bytes"), QStringLiteral("direction"), QStringLiteral("cdb")})
+        return fail(error, QStringLiteral("CBW fields are incomplete."));
+    const QJsonObject cswSignature = csw.value(QStringLiteral("signature")).toObject();
+    const int signatureOffset = cswSignature.value(QStringLiteral("offset")).toInt(-1);
+    if (signatureOffset < 0 || !hexBytes(cswSignature.value(QStringLiteral("hex")))
+        || signatureOffset + cswSignature.value(QStringLiteral("hex")).toString().split(' ').size()
+            > csw.value(QStringLiteral("bytes")).toInt())
+        return fail(error, QStringLiteral("CSW signature field is invalid."));
+    for (const QString &name : {QStringLiteral("tag"), QStringLiteral("residue"), QStringLiteral("status")}) {
+        const QJsonObject field = csw.value(name).toObject();
+        const int offset = field.value(QStringLiteral("offset")).toInt(-1);
+        const int width = typeBytes(field.value(QStringLiteral("type")).toString());
+        if (offset < 0 || width == 0 || offset + width > csw.value(QStringLiteral("bytes")).toInt())
+            return fail(error, QStringLiteral("CSW field is invalid: %1").arg(name));
+    }
+    const QJsonObject commands = transport.value(QStringLiteral("commands")).toObject();
+    const QJsonObject send = commands.value(QStringLiteral("send_frame")).toObject();
+    const QJsonObject fetch = commands.value(QStringLiteral("fetch_response")).toObject();
+    quint8 sendDirection = 0, fetchDirection = 0;
+    if (!hexBytes(send.value(QStringLiteral("cdb_hex")))
+        || !hexBytes(fetch.value(QStringLiteral("cdb_hex")))
+        || send.value(QStringLiteral("cdb_hex")).toString().split(' ').size() != cdbBytes
+        || fetch.value(QStringLiteral("cdb_hex")).toString().split(' ').size() != cdbBytes
+        || !byteValue(send.value(QStringLiteral("direction")), &sendDirection)
+        || !byteValue(fetch.value(QStringLiteral("direction")), &fetchDirection)
+        || sendDirection != 0 || fetchDirection != 0x80
+        || send.value(QStringLiteral("data")).toObject().value(QStringLiteral("parameter"))
+            != QJsonValue(QStringLiteral("request_frame"))
+        || send.value(QStringLiteral("data_bytes")).toObject().value(QStringLiteral("length_of"))
+            != QJsonValue(QStringLiteral("request_frame"))
+        || fetch.value(QStringLiteral("data_bytes")).toObject().value(QStringLiteral("parameter"))
+            != QJsonValue(QStringLiteral("fetch_bytes")))
+        return fail(error, QStringLiteral("Radio transport commands are incomplete."));
+    const QJsonObject frame = root.value(QStringLiteral("frame")).toObject();
+    const QJsonArray frameFields = frame.value(QStringLiteral("fields")).toArray();
+    const QJsonObject frameChecks = frame.value(QStringLiteral("checks")).toObject();
+    const QJsonObject responseChecks = frame.value(QStringLiteral("response_checks")).toObject();
+    quint8 responseMask = 0, success = 0;
+    if (frameFields.size() != 7
+        || !trueField(frameChecks, "delimiters_match_fields")
+        || !trueField(frameChecks, "length_matches_fields")
+        || !trueField(frameChecks, "checksum_matches_fields")
+        || !byteValue(responseChecks.value(QStringLiteral("class_or_mask")), &responseMask)
+        || !byteValue(responseChecks.value(QStringLiteral("success_value")), &success)
+        || !trueField(responseChecks, "command_matches_request")
+        || responseChecks.value(QStringLiteral("minimum_payload_bytes")).toInt() < 1
+        || responseChecks.value(QStringLiteral("success_payload_offset")).toInt(-1) < 0
+        || responseChecks.value(QStringLiteral("success_payload_offset")).toInt()
+            >= responseChecks.value(QStringLiteral("minimum_payload_bytes")).toInt())
+        return fail(error, QStringLiteral("Radio frame validation rules are incomplete."));
+    const QJsonObject startField = frameFields.at(0).toObject();
+    const QJsonObject classField = frameFields.at(1).toObject();
+    const QJsonObject commandField = frameFields.at(2).toObject();
+    const QJsonObject lengthField = frameFields.at(3).toObject();
+    const QJsonObject payloadField = frameFields.at(4).toObject();
+    const QJsonObject checksumField = frameFields.at(5).toObject();
+    const QJsonObject endField = frameFields.at(6).toObject();
+    quint32 startValue = 0, endValue = 0, modulus = 0;
+    const int startOffset = startField.value(QStringLiteral("offset")).toInt(-1);
+    const int classOffset = classField.value(QStringLiteral("offset")).toInt(-1);
+    const int commandOffset = commandField.value(QStringLiteral("offset")).toInt(-1);
+    const int lengthOffset = lengthField.value(QStringLiteral("offset")).toInt(-1);
+    const int payloadOffset = payloadField.value(QStringLiteral("offset")).toInt(-1);
+    const QString lengthType = lengthField.value(QStringLiteral("type")).toString();
+    const QString checksumType = checksumField.value(QStringLiteral("type")).toString();
+    if (startOffset < 0 || classOffset < 0 || commandOffset < 0 || lengthOffset < 0
+        || payloadOffset < 0 || startOffset >= payloadOffset || classOffset >= payloadOffset
+        || commandOffset >= payloadOffset || lengthOffset + typeBytes(lengthType) > payloadOffset
+        || startField.value(QStringLiteral("type")) != QStringLiteral("u8")
+        || classField.value(QStringLiteral("type")) != QStringLiteral("u8")
+        || commandField.value(QStringLiteral("type")) != QStringLiteral("u8")
+        || typeBytes(lengthType) < 2 || typeBytes(checksumType) < 1
+        || endField.value(QStringLiteral("type")) != QStringLiteral("u8")
+        || !unsignedValue(startField.value(QStringLiteral("value")), &startValue) || startValue > 255
+        || !unsignedValue(endField.value(QStringLiteral("value")), &endValue) || endValue > 255
+        || classField.value(QStringLiteral("parameter")) != QStringLiteral("class")
+        || commandField.value(QStringLiteral("parameter")) != QStringLiteral("command")
+        || lengthField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("length")
+        || lengthField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("parameter"))
+            != QStringLiteral("payload")
+        || payloadField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("copy")
+        || payloadField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("parameter"))
+            != QStringLiteral("payload")
+        || !offsetExpression(checksumField.value(QStringLiteral("offset")))
+        || !offsetExpression(endField.value(QStringLiteral("offset")))
+        || checksumField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("sum_modulo")
+        || checksumField.value(QStringLiteral("derived")).toObject().value(QStringLiteral("parameter"))
+            != QStringLiteral("payload")
+        || !unsignedValue(checksumField.value(QStringLiteral("derived")).toObject()
+                              .value(QStringLiteral("modulus")), &modulus) || modulus == 0)
+        return fail(error, QStringLiteral("Radio frame field layout is unsupported."));
+    const QJsonObject polling = root.value(QStringLiteral("polling")).toObject();
+    const QJsonObject empty = polling.value(QStringLiteral("empty_response")).toObject();
+    const QJsonObject nonempty = polling.value(QStringLiteral("nonempty_response")).toObject();
+    const QJsonObject timeout = polling.value(QStringLiteral("timeout")).toObject();
+    if (polling.value(QStringLiteral("delay_before_each_fetch_ms")).toInt(-1) < 0
+        || polling.value(QStringLiteral("bulk_transfer_timeout_ms")).toInt() < 1
+        || empty.value(QStringLiteral("all_bytes_equal")).toInt(-1) < 0
+        || !trueField(empty, "validate_csw") || !trueField(empty, "continue_polling")
+        || !trueField(nonempty, "validate_frame") || !trueField(nonempty, "validate_command_fields")
+        || !trueField(nonempty, "validate_csw") || !trueField(timeout, "fail_on_poll_limit")
+        || !falseField(timeout, "publish_partial_image"))
+        return fail(error, QStringLiteral("Radio polling rules are incomplete."));
+    return true;
+}
+
+bool validateReadRules(const QJsonObject &methods, QString *error)
+{
+    const QJsonObject identify = methods.value(QStringLiteral("identify")).toObject();
+    const QJsonArray probes = identify.value(QStringLiteral("sequence")).toArray();
+    bool expectsModel = false;
+    if (probes.isEmpty() || !hexBytes(identify.value(QStringLiteral("model_response")).toObject()
+                                                   .value(QStringLiteral("expected_hex"))))
+        return fail(error, QStringLiteral("Radio identification is incomplete."));
+    const QJsonObject modelResponse = identify.value(QStringLiteral("model_response")).toObject();
+    const int modelOffset = modelResponse.value(QStringLiteral("frame_offset")).toInt(-1);
+    const int modelBytes = modelResponse.value(QStringLiteral("bytes")).toInt(-1);
+    if (modelOffset < 0 || modelBytes < 1
+        || modelResponse.value(QStringLiteral("expected_hex")).toString().split(' ').size() != modelBytes)
+        return fail(error, QStringLiteral("Radio model response field is invalid."));
+    for (const QJsonValue &value : probes) {
+        const QJsonObject probe = value.toObject();
+        quint8 deviceClass = 0, command = 0;
+        const QString expected = probe.value(QStringLiteral("expected")).toString();
+        if (!byteValue(probe.value(QStringLiteral("class")), &deviceClass)
+            || !byteValue(probe.value(QStringLiteral("command")), &command)
+            || probe.value(QStringLiteral("repeat")).toInt() < 1
+            || probe.value(QStringLiteral("fetch_bytes")).toInt() < 1
+            || probe.value(QStringLiteral("poll_limit_per_repeat")).toInt() < 1
+            || !hexBytesOrEmpty(probe.value(QStringLiteral("payload_hex")))
+            || (expected != QStringLiteral("empty_polls") && expected != QStringLiteral("model_response")))
+            return fail(error, QStringLiteral("Invalid radio identification probe."));
+        if (expected == QStringLiteral("model_response")
+            && modelOffset + modelBytes > probe.value(QStringLiteral("fetch_bytes")).toInt())
+            return fail(error, QStringLiteral("Radio model response exceeds fetch size."));
+        expectsModel |= expected == QStringLiteral("model_response");
+    }
+    if (!expectsModel) return fail(error, QStringLiteral("Radio identification does not check the model."));
+    const QJsonObject setup = identify.value(QStringLiteral("setup")).toObject();
+    quint8 setupClass = 0, setupCommand = 0;
+    if (!byteValue(setup.value(QStringLiteral("class")), &setupClass)
+        || !byteValue(setup.value(QStringLiteral("command")), &setupCommand)
+        || !hexBytesOrEmpty(setup.value(QStringLiteral("payload_hex")))
+        || setup.value(QStringLiteral("fetch_bytes")).toInt() < 1
+        || setup.value(QStringLiteral("poll_limit")).toInt() < 1
+        || !hexBytes(setup.value(QStringLiteral("expected_response_hex")))
+        || setup.value(QStringLiteral("expected_response_hex")).toString().split(' ').size()
+            != setup.value(QStringLiteral("fetch_bytes")).toInt())
+        return fail(error, QStringLiteral("Radio setup exchange is incomplete."));
+    const QJsonObject block = methods.value(QStringLiteral("read_block")).toObject();
+    const QJsonObject selector = block.value(QStringLiteral("selector")).toObject();
+    const QJsonArray rules = selector.value(QStringLiteral("rules_in_priority_order")).toArray();
+    quint16 mask = 0;
+    if (rules.isEmpty() || !wordValue(selector.value(QStringLiteral("index_mask")), &mask)
+        || selector.value(QStringLiteral("maximum_block_index")).toInt(-1) < 0)
+        return fail(error, QStringLiteral("Radio read selector rules are incomplete."));
+    bool fallback = false;
+    for (const QJsonValue &value : rules) {
+        const QJsonObject rule = value.toObject();
+        const QJsonObject condition = rule.value(QStringLiteral("when")).toObject();
+        if (condition.isEmpty() || fallback)
+            return fail(error, QStringLiteral("Invalid radio read selector order."));
+        for (auto it = condition.begin(); it != condition.end(); ++it) {
+            if (it.key() == QStringLiteral("block_index")) {
+                if (!it.value().isDouble() || it.value().toInt(-1) < 0) return fail(error, QStringLiteral("Invalid block index condition."));
+            } else if (it.key() == QStringLiteral("region")) {
+                if (!block.value(QStringLiteral("region_commands")).toObject().contains(it.value().toString()))
+                    return fail(error, QStringLiteral("Unknown read selector region."));
+            } else if (it.key() == QStringLiteral("last_block")) {
+                if (it.value() != QJsonValue(true)) return fail(error, QStringLiteral("Invalid last-block condition."));
+            } else if (it.key() == QStringLiteral("otherwise")) {
+                if (condition.size() != 1 || it.value() != QJsonValue(true))
+                    return fail(error, QStringLiteral("Invalid fallback selector condition."));
+                fallback = true;
+            } else return fail(error, QStringLiteral("Unknown radio read selector condition."));
+        }
+        quint16 valueNumber = 0;
+        if (rule.contains(QStringLiteral("value")) == rule.contains(QStringLiteral("or_with_block_index"))
+            || !wordValue(rule.value(rule.contains(QStringLiteral("value")) ? QStringLiteral("value")
+                                                                          : QStringLiteral("or_with_block_index")), &valueNumber))
+            return fail(error, QStringLiteral("Invalid read selector value."));
+    }
+    if (!fallback) return fail(error, QStringLiteral("Radio read selector has no fallback."));
+    const QJsonObject checks = block.value(QStringLiteral("response")).toObject()
+        .value(QStringLiteral("checks")).toObject();
+    quint8 requestClass = 0;
+    const int blockBytes = block.value(QStringLiteral("block_bytes")).toInt();
+    const int fetchBytes = block.value(QStringLiteral("fetch_bytes")).toInt();
+    const QJsonArray payload = block.value(QStringLiteral("request_payload")).toArray();
+    if (!byteValue(block.value(QStringLiteral("request_class")), &requestClass)
+        || blockBytes < 1 || blockBytes > 65536 || fetchBytes < 1
+        || block.value(QStringLiteral("poll_limit")).toInt() < 1 || payload.isEmpty())
+        return fail(error, QStringLiteral("Radio read block request is incomplete."));
+    bool hasSelector = false;
+    for (const QJsonValue &value : payload) {
+        const QJsonObject field = value.toObject();
+        const int offset = field.value(QStringLiteral("payload_offset")).toInt(-1);
+        const int width = typeBytes(field.value(QStringLiteral("type")).toString());
+        const QString parameter = field.value(QStringLiteral("parameter")).toString();
+        quint32 constant = 0;
+        if (offset < 0 || width < 1 || offset + width > 65535
+            || (!parameter.isEmpty() && parameter != QStringLiteral("selector"))
+            || (parameter.isEmpty() && !unsignedValue(field.value(QStringLiteral("value")), &constant)))
+            return fail(error, QStringLiteral("Unsupported radio read request payload field."));
+        hasSelector |= parameter == QStringLiteral("selector");
+    }
+    if (!hasSelector) return fail(error, QStringLiteral("Radio read request has no selector."));
+    const QJsonObject response = block.value(QStringLiteral("response")).toObject();
+    const QJsonObject responseFields = response.value(QStringLiteral("fields")).toObject();
+    const QJsonObject successField = responseFields.value(QStringLiteral("success")).toObject();
+    const QJsonObject indexField = responseFields.value(QStringLiteral("block_index")).toObject();
+    const QJsonObject sizeField = responseFields.value(QStringLiteral("region_size")).toObject();
+    const QJsonObject dataField = responseFields.value(QStringLiteral("data")).toObject();
+    quint32 successValue = 0;
+    for (const QJsonObject &field : {successField, indexField, sizeField}) {
+        const int offset = field.value(QStringLiteral("frame_offset")).toInt(-1);
+        const int width = typeBytes(field.value(QStringLiteral("type")).toString());
+        if (offset < 0 || width < 1 || offset + width > fetchBytes)
+            return fail(error, QStringLiteral("Radio read response field exceeds fetch size."));
+    }
+    if (!unsignedValue(successField.value(QStringLiteral("expected")), &successValue)
+        || dataField.value(QStringLiteral("frame_offset")).toInt(-1) < 0
+        || dataField.value(QStringLiteral("bytes")).toInt(-1) != blockBytes
+        || dataField.value(QStringLiteral("frame_offset")).toInt() + blockBytes > fetchBytes
+        || response.value(QStringLiteral("payload_bytes")).toInt() < 1)
+        return fail(error, QStringLiteral("Radio read response layout is incomplete."));
+    if (!trueField(checks, "block_index_matches_selector_mask")
+        || checks.value(QStringLiteral("region_size_minimum")).toInt() < 1
+        || checks.value(QStringLiteral("region_size_maximum")).toInt() < 1
+        || checks.value(QStringLiteral("region_size_minimum")).toInt()
+            > checks.value(QStringLiteral("region_size_maximum")).toInt()
+        || !trueField(checks, "region_size_matches_previous")
+        || !trueField(checks, "block_within_region"))
+        return fail(error, QStringLiteral("Radio read response checks are incomplete."));
+    const QJsonObject read = methods.value(QStringLiteral("read_codeplug")).toObject();
+    const QJsonObject assembly = read.value(QStringLiteral("assembly")).toObject();
+    const QJsonArray order = assembly.value(QStringLiteral("region_order")).toArray();
+    const QJsonArray operations = read.value(QStringLiteral("operations")).toArray();
+    if (order.size() != operations.size() - 1
+        || assembly.value(QStringLiteral("block_placement")) != QJsonValue(QStringLiteral("region_base_plus_block_index"))
+        || assembly.value(QStringLiteral("valid_bytes_per_block")) != QJsonValue(QStringLiteral("clamp_to_region_end"))
+        || !trueField(assembly, "require_every_block_once")
+        || assembly.value(QStringLiteral("representation")).toString().isEmpty())
+        return fail(error, QStringLiteral("Radio read assembly is incomplete."));
+    for (int i = 0; i < order.size(); ++i)
+        if (order.at(i) != operations.at(i + 1).toObject().value(QStringLiteral("region")))
+            return fail(error, QStringLiteral("Radio read assembly order differs from operations."));
+    const QJsonObject cancel = methods.value(QStringLiteral("cancel_read")).toObject();
+    if (!trueField(cancel, "finish_active_exchange") || !trueField(cancel, "check_before_next_request")
+        || cancel.value(QStringLiteral("cleanup")) != QJsonValue(QStringLiteral("interface_lifecycle"))
+        || !falseField(cancel, "publish_partial_image"))
+        return fail(error, QStringLiteral("Radio cancellation rules are incomplete."));
+    return true;
 }
 
 bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QString *error)
@@ -128,23 +533,46 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
         || !wordValue(request.value(QStringLiteral("other_selector_or")), &other)
         || !regions.contains(finalRegion.value(QStringLiteral("region")).toString())
         || !wordValue(finalRegion.value(QStringLiteral("value")), &final)
-        || payload.size() != 4
-        || payload.at(0).toObject().value(QStringLiteral("type")) != QJsonValue(QStringLiteral("u16be"))
-        || payload.at(0).toObject().value(QStringLiteral("parameter")) != QJsonValue(QStringLiteral("selector"))
-        || payload.at(1).toObject().value(QStringLiteral("type")) != QJsonValue(QStringLiteral("u32be"))
-        || payload.at(1).toObject().value(QStringLiteral("parameter")) != QJsonValue(QStringLiteral("extent"))
-        || !hexBytes(payload.at(2).toObject().value(QStringLiteral("hex")))
-        || payload.at(3).toObject().value(QStringLiteral("parameter")) != QJsonValue(QStringLiteral("image_block"))
-        || payload.at(3).toObject().value(QStringLiteral("bytes")).toInt() != blockBytes)
+        || payload.isEmpty())
         return fail(error, QStringLiteral("Invalid radio write request format."));
+    bool hasImageBlock = false;
+    bool hasSelector = false;
+    bool hasExtent = false;
+    for (const QJsonValue &value : payload) {
+        const QJsonObject field = value.toObject();
+        const QString parameter = field.value(QStringLiteral("parameter")).toString();
+        quint32 constant = 0;
+        if (!value.isObject()) return fail(error, QStringLiteral("Invalid write payload field."));
+        if (field.contains(QStringLiteral("hex"))) {
+            if (field.size() != 1 || !hexBytes(field.value(QStringLiteral("hex"))))
+                return fail(error, QStringLiteral("Invalid write payload constant bytes."));
+        } else if (parameter == QStringLiteral("image_block")) {
+            if (field.value(QStringLiteral("bytes")).toInt() != blockBytes)
+                return fail(error, QStringLiteral("Write image block size differs from plan."));
+            hasImageBlock = true;
+        } else if (parameter == QStringLiteral("selector") || parameter == QStringLiteral("extent")) {
+            if (!typeBytes(field.value(QStringLiteral("type")).toString()))
+                return fail(error, QStringLiteral("Unsupported write payload integer type."));
+            hasSelector |= parameter == QStringLiteral("selector");
+            hasExtent |= parameter == QStringLiteral("extent");
+        } else if (field.contains(QStringLiteral("value"))) {
+            if (!typeBytes(field.value(QStringLiteral("type")).toString())
+                || !unsignedValue(field.value(QStringLiteral("value")), &constant))
+                return fail(error, QStringLiteral("Invalid write payload integer constant."));
+        } else return fail(error, QStringLiteral("Unknown write payload parameter."));
+    }
+    if (!hasImageBlock || !hasSelector || !hasExtent)
+        return fail(error, QStringLiteral("Write payload lacks image block, selector, or extent."));
     const QJsonObject ack = plan.value(QStringLiteral("acknowledgement")).toObject();
     quint16 mask = 0;
     if (ack.value(QStringLiteral("fetch_bytes")).toInt() < 1
         || ack.value(QStringLiteral("poll_limit")).toInt() < 1
         || ack.value(QStringLiteral("payload_bytes")).toInt() < 1
         || ack.value(QStringLiteral("index_offset")).toInt(-1) < 0
-        || ack.value(QStringLiteral("index_offset")).toInt(-1) + 2 > ack.value(QStringLiteral("fetch_bytes")).toInt()
-        || ack.value(QStringLiteral("index_type")) != QJsonValue(QStringLiteral("u16be"))
+        || typeBytes(ack.value(QStringLiteral("index_type")).toString()) < 1
+        || ack.value(QStringLiteral("index_offset")).toInt(-1)
+            + typeBytes(ack.value(QStringLiteral("index_type")).toString())
+            > ack.value(QStringLiteral("fetch_bytes")).toInt()
         || !wordValue(ack.value(QStringLiteral("index_mask")), &mask)
         || ack.value(QStringLiteral("duplicate")) != QJsonValue(QStringLiteral("skip_previous")))
         return fail(error, QStringLiteral("Invalid radio write acknowledgement format."));
@@ -155,9 +583,27 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
 bool RadioDefinition::load(const QString &path, RadioDefinition *out, QString *error)
 {
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly)) {
+        std::fprintf(stdout, "[radio definitions] ERROR opening FILE: %s\n", qUtf8Printable(path));
+        std::fflush(stdout);
         return fail(error, QStringLiteral("Cannot read radio definition: %1").arg(path));
-    return fromJson(file.readAll(), out, error);
+    }
+    const QByteArray json = file.readAll();
+    const QString absolutePath = QFileInfo(file).absoluteFilePath();
+    const QByteArray hash = QCryptographicHash::hash(json, QCryptographicHash::Sha256).toHex();
+    std::fprintf(stdout, "[radio definitions] Reading FILE: %s\n[radio definitions] JSON SHA-256: %s\n",
+                 qUtf8Printable(absolutePath), hash.constData());
+    std::fflush(stdout);
+    if (!fromJson(json, out, error)) {
+        std::fprintf(stdout, "[radio definitions] ERROR loading FILE: %s: %s\n",
+                     qUtf8Printable(absolutePath), error ? qUtf8Printable(*error) : "invalid definition");
+        std::fflush(stdout);
+        return false;
+    }
+    out->m_sourcePath = absolutePath;
+    std::fprintf(stdout, "[radio definitions] Loaded ID: %s\n", qUtf8Printable(out->m_document.value(QStringLiteral("id")).toString()));
+    std::fflush(stdout);
+    return true;
 }
 
 bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QString *error)
@@ -173,6 +619,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         || root.value(QStringLiteral("id")).toString().isEmpty())
         return fail(error, QStringLiteral("Unsupported radio definition identity or version."));
     const QJsonObject methods = root.value(QStringLiteral("methods")).toObject();
+    if (!validateTransportRules(root, error) || !validateReadRules(methods, error)) return false;
     const QJsonObject read = methods.value(QStringLiteral("read_codeplug")).toObject();
     const QJsonArray operations = read.value(QStringLiteral("operations")).toArray();
     const QJsonObject regionCommands = methods.value(QStringLiteral("read_block")).toObject()
@@ -233,6 +680,33 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         return fail(error, QStringLiteral("Radio read plan does not cover every declared region."));
     out->m_readOperations = std::move(parsed);
     out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
+    out->m_document = root;
+    out->m_sourcePath.clear();
+    if (error) error->clear();
+    return true;
+}
+
+bool RadioDefinition::compatibleWithCodeplug(const QJsonObject &codeplugDocument, QString *error) const
+{
+    if (m_document.value(QStringLiteral("id")) != codeplugDocument.value(QStringLiteral("id")))
+        return fail(error, QStringLiteral("Radio and codeplug definitions have different IDs."));
+    const QJsonObject methods = m_document.value(QStringLiteral("methods")).toObject();
+    const QString readName = methods.value(QStringLiteral("read_codeplug")).toObject()
+        .value(QStringLiteral("assembly")).toObject().value(QStringLiteral("representation")).toString();
+    const QString writeName = m_writePlan.value(QStringLiteral("representation")).toString();
+    bool readFound = false, writeFound = writeName.isEmpty();
+    for (const QJsonValue &value : codeplugDocument.value(QStringLiteral("representations")).toArray()) {
+        const QJsonObject representation = value.toObject();
+        const QString name = representation.value(QStringLiteral("name")).toString();
+        if (name != readName && name != writeName) continue;
+        if (representation.value(QStringLiteral("decode")).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("identity"))
+            return fail(error, QStringLiteral("Radio transfer representation is not a decoded image: %1").arg(name));
+        readFound |= name == readName;
+        writeFound |= name == writeName;
+    }
+    if (!readFound || !writeFound)
+        return fail(error, QStringLiteral("Radio transfer representation is absent from the codeplug definition."));
     if (error) error->clear();
     return true;
 }

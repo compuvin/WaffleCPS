@@ -1,9 +1,13 @@
 #include "radioreader.h"
-#include "radiocodeplug.h"
+#include "codeplugdefinition.h"
+#include "codeplugdefinitions.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QThread>
 #include <memory>
+#include <cstdio>
 
 RadioReader::RadioReader(QObject *parent, ReadOperation read)
     : QObject(parent), m_read(std::move(read)) {}
@@ -17,32 +21,55 @@ RadioReader::~RadioReader()
     }
 }
 
-void RadioReader::start()
+void RadioReader::start(const QString &definitionPath)
 {
     if (busy()) return;
+    RadioDefinition definition;
+    if (!m_read) {
+        QString error;
+        if (definitionPath.isEmpty() || !RadioDefinition::load(definitionPath, &definition, &error)) {
+            emit failed(error.isEmpty() ? tr("No radio definition selected.") : error);
+            return;
+        }
+        const QString wcpPath = QFileInfo(definitionPath).dir().filePath(
+            QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp"));
+        CodeplugDefinition codeplug;
+        if (!CodeplugDefinition::load(wcpPath, &codeplug, &error)
+            || !definition.compatibleWithCodeplug(codeplug.document(), &error)) {
+            emit failed(error);
+            return;
+        }
+        std::fprintf(stdout, "[radio definitions] Read uses FILE: %s\n", qUtf8Printable(definition.sourcePath()));
+        std::fflush(stdout);
+    }
     m_cancelled.store(false);
     m_progress = 0;
     m_status = tr("Connecting to radio…");
     struct Result { QByteArray encoded; QString error; };
     const auto result = std::make_shared<Result>();
-    m_thread = QThread::create([this, result] {
+    m_thread = QThread::create([this, result, definition, definitionPath] {
         try {
             const auto progress = [this](const std::string &region, uint32_t completed, uint32_t total) {
                 QMetaObject::invokeMethod(this, [this, region, completed, total] {
                     if (m_cancelled.load()) return;
                     m_status = tr("Reading %1: block %2 of %3")
-                        .arg(region == "main" ? tr("radio settings") : tr("contacts"))
+                        .arg(QString::fromStdString(region))
                         .arg(completed).arg(total);
-                    // Main and contact regions are separate phases with separate totals.
+                    // Each declared region reports its own block total.
                     m_progress = total ? double(completed) / total : 0;
                     emit progressChanged();
                 }, Qt::QueuedConnection);
             };
-            const auto bytes = m_read(progress, m_cancelled);
+            const auto bytes = m_read ? m_read(progress, m_cancelled)
+                : RadioExecutor::read(definition, progress, m_cancelled);
             if (m_cancelled.load()) return;
-            const QByteArray raw(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size()));
-            radioCodeplugFromRaw(raw, &result->encoded, &result->error);
-        } catch (const Cs7000Usb::Cancelled &) {
+            result->encoded = QByteArray(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size()));
+            ImportedCodeplug checked;
+            const QString wcpName = definitionPath.isEmpty() ? QString()
+                : QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp");
+            if (!CodeplugDefinitions::read(result->encoded, &checked, &result->error, wcpName))
+                result->encoded.clear();
+        } catch (const RadioExecutor::Cancelled &) {
             // Cancellation leaves the currently open project intact.
         } catch (const std::exception &error) {
             result->error = QString::fromUtf8(error.what());

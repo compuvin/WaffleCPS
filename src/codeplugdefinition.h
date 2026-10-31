@@ -24,6 +24,10 @@ public:
     // Decode and validate declared binary fields/tables independently of editor bindings.
     bool inspect(const QByteArray &input, QJsonObject *result, QString *error) const;
     bool read(const QByteArray &input, ImportedCodeplug *result, QString *error) const;
+    bool decodedImage(const QByteArray &input, QByteArray *result, QString *error) const;
+    bool encodeRadioImage(const QByteArray &decoded, QByteArray *result,
+                          QString *extension, QString *error) const;
+    const QJsonObject &document() const { return m_definition; }
     bool write(const QByteArray &source, const ImportedCodeplug &target,
                const QString &radioName, int radioId,
                QByteArray *result, QString *error) const;

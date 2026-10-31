@@ -24,8 +24,13 @@ public:
     bool canWrite() const { return !m_writePlan.isEmpty(); }
     const QVector<RadioReadOperation> &readOperations() const { return m_readOperations; }
     const QJsonObject &writePlan() const { return m_writePlan; }
+    const QJsonObject &document() const { return m_document; }
+    QString sourcePath() const { return m_sourcePath; }
+    bool compatibleWithCodeplug(const QJsonObject &codeplugDocument, QString *error) const;
 
 private:
     QVector<RadioReadOperation> m_readOperations;
     QJsonObject m_writePlan;
+    QJsonObject m_document;
+    QString m_sourcePath;
 };

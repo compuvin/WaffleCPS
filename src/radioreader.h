@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cs7000usb.h"
+#include "radioexecutor.h"
 #include <QObject>
 #include <QByteArray>
 #include <QString>
@@ -16,14 +16,14 @@ class RadioReader : public QObject {
     Q_PROPERTY(double progress READ progress NOTIFY progressChanged)
 
 public:
-    using ReadOperation = std::function<Cs7000Usb::Bytes(
-        const Cs7000Usb::Progress &, const std::atomic_bool &)>;
-    explicit RadioReader(QObject *parent = nullptr, ReadOperation read = Cs7000Usb::read);
+    using ReadOperation = std::function<RadioExecutor::Bytes(
+        const RadioExecutor::Progress &, const std::atomic_bool &)>;
+    explicit RadioReader(QObject *parent = nullptr, ReadOperation read = {});
     ~RadioReader() override;
     bool busy() const { return m_thread != nullptr; }
     QString status() const { return m_status; }
     double progress() const { return m_progress; }
-    Q_INVOKABLE void start();
+    Q_INVOKABLE void start(const QString &definitionPath = {});
     Q_INVOKABLE void cancel();
 signals:
     void stateChanged();

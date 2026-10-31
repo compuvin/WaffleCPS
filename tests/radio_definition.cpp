@@ -36,6 +36,12 @@ int main(int argc, char **argv)
         check(ZipArchive::read(QStringLiteral(WAFFLE_SOURCE_DIR "/definitions/cs7000-m17-plus.wcp"),
                                &wcpEntries, &error), "Cannot open companion codeplug definition");
         const QJsonObject wcp = QJsonDocument::fromJson(wcpEntries.value(QStringLiteral("definition.json"))).object();
+        check(definition.compatibleWithCodeplug(wcp, &error),
+              "Packaged radio and codeplug definitions are incompatible");
+        QJsonObject mismatchedCodeplug = wcp;
+        mismatchedCodeplug.insert(QStringLiteral("id"), QStringLiteral("different-radio"));
+        check(!definition.compatibleWithCodeplug(mismatchedCodeplug, &error),
+              "Mismatched radio and codeplug IDs were accepted");
         const QJsonObject writePlan = definition.writePlan();
         check(writePlan.value(QStringLiteral("codeplug_definition_id")) == wcp.value(QStringLiteral("id")),
               "Write plan targets a different codeplug definition");
@@ -62,6 +68,58 @@ int main(int argc, char **argv)
         QFile file(path);
         check(file.open(QIODevice::ReadOnly), "Cannot open packaged radio definition");
         const QJsonObject original = QJsonDocument::fromJson(file.readAll()).object();
+        const auto expectDocumentRejected = [&](const QJsonObject &root, const char *message) {
+            RadioDefinition candidate;
+            QString detail;
+            check(!RadioDefinition::fromJson(QJsonDocument(root).toJson(), &candidate, &detail)
+                  && !detail.isEmpty(), message);
+        };
+        QJsonObject invalidTransport = original;
+        QJsonObject transport = invalidTransport.value(QStringLiteral("bulk_only_transport")).toObject();
+        QJsonObject csw = transport.value(QStringLiteral("csw")).toObject();
+        QJsonObject cswChecks = csw.value(QStringLiteral("checks")).toObject();
+        cswChecks.insert(QStringLiteral("tag_matches_cbw"), false);
+        csw.insert(QStringLiteral("checks"), cswChecks);
+        transport.insert(QStringLiteral("csw"), csw);
+        invalidTransport.insert(QStringLiteral("bulk_only_transport"), transport);
+        expectDocumentRejected(invalidTransport, "Missing CSW tag check was accepted");
+
+        QJsonObject missingCbw = original;
+        transport = missingCbw.value(QStringLiteral("bulk_only_transport")).toObject();
+        QJsonObject cbw = transport.value(QStringLiteral("cbw")).toObject();
+        QJsonArray cbwFields = cbw.value(QStringLiteral("fields")).toArray();
+        cbwFields.removeAt(3);
+        cbw.insert(QStringLiteral("fields"), cbwFields);
+        transport.insert(QStringLiteral("cbw"), cbw);
+        missingCbw.insert(QStringLiteral("bulk_only_transport"), transport);
+        expectDocumentRejected(missingCbw, "Missing CBW direction field was accepted");
+
+        QJsonObject malformedFrame = original;
+        QJsonObject frame = malformedFrame.value(QStringLiteral("frame")).toObject();
+        QJsonArray frameFields = frame.value(QStringLiteral("fields")).toArray();
+        QJsonObject checksum = frameFields.at(5).toObject();
+        checksum.insert(QStringLiteral("offset"), QJsonObject{{QStringLiteral("unknown"), 5}});
+        frameFields.replace(5, checksum);
+        frame.insert(QStringLiteral("fields"), frameFields);
+        malformedFrame.insert(QStringLiteral("frame"), frame);
+        expectDocumentRejected(malformedFrame, "Unknown frame offset expression was accepted");
+
+        QJsonObject invalidSelector = original;
+        QJsonObject selectorMethods = invalidSelector.value(QStringLiteral("methods")).toObject();
+        QJsonObject readBlock = selectorMethods.value(QStringLiteral("read_block")).toObject();
+        QJsonObject selector = readBlock.value(QStringLiteral("selector")).toObject();
+        QJsonArray rules = selector.value(QStringLiteral("rules_in_priority_order")).toArray();
+        QJsonObject rule = rules.at(1).toObject();
+        QJsonObject condition = rule.value(QStringLiteral("when")).toObject();
+        condition.insert(QStringLiteral("unknown_condition"), true);
+        rule.insert(QStringLiteral("when"), condition);
+        rules.replace(1, rule);
+        selector.insert(QStringLiteral("rules_in_priority_order"), rules);
+        readBlock.insert(QStringLiteral("selector"), selector);
+        selectorMethods.insert(QStringLiteral("read_block"), readBlock);
+        invalidSelector.insert(QStringLiteral("methods"), selectorMethods);
+        expectDocumentRejected(invalidSelector, "Unknown selector condition was accepted");
+
         const auto expectRejected = [&](const QJsonArray &operations, const char *message) {
             QJsonObject root = original;
             QJsonObject methods = root.value(QStringLiteral("methods")).toObject();

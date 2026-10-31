@@ -69,6 +69,7 @@ public:
     bool modified() const;
     bool hasImportedCodeplug() const;
     bool radioTransferAvailable() const;
+    Q_INVOKABLE QString radioDefinitionPath() const;
     QVariantList newProjectOptions() const;
     QString importedCodeplugSummary() const;
     QStringList importedRepeaterNames() const;
