@@ -27,6 +27,7 @@ target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb PkgConfig::LIBUSB c
 
 if(APPLE)
     add_executable(radio-read-probe tools/radio_read_probe.cpp)
+    target_include_directories(radio-read-probe PRIVATE src)
     target_link_libraries(radio-read-probe PRIVATE radioreader codeplugdefinition Qt6::Core)
 endif()
 
