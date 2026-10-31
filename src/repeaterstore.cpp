@@ -2335,9 +2335,6 @@ void RepeaterStore::exportCodeplugDialog()
             fail(error);
             return;
         }
-        QMessageBox::information(nullptr, tr("Export definition read from file"),
-                                 tr("Export model: %1\n\n%2")
-                                     .arg(m_importedCodeplug.model, CodeplugDefinitions::diskLoadReport()));
     }
     QString path = QFileDialog::getSaveFileName(
         nullptr, title, QStringLiteral("wafflecps-export") + extension, filter);

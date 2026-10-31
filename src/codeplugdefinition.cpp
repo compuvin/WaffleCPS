@@ -603,12 +603,12 @@ public:
             return int(value);
         };
         ImportedCodeplug result;
-        result.model = model();
+        const auto recognition = definition.value("recognition").toObject();
+        result.model = recognition.value("display_model").toString(model());
         result.channelCapacity = int(integer(editor.limits.value("channels").toObject().value("maximum")));
         result.contactCapacity = int(integer(editor.limits.value("contacts").toObject().value("maximum")));
         result.zoneCapacity = int(integer(editor.limits.value("zones").toObject().value("maximum")));
         result.zoneMemberCapacity = int(integer(editor.limits.value("zone_members_maximum")));
-        const auto recognition = definition.value("recognition").toObject();
         const QString version = recognition.value("cps_version_field").toString(recognition.value("version_field").toString());
         if (!version.isEmpty()) result.cpsVersion = field(globals, version).raw.toString();
         result.radioName = read("radio", "radio_name", {}, -1).mapped.toString().trimmed();
@@ -1579,6 +1579,7 @@ private:
                 auto scope = reader.recordScope(table, row.address, row.index);
                 const auto values = reader.field(scope, r.value("field").toString()).raw.toList();
                 QVariantList mapped;
+                const bool implicitCount = !r.contains("count_field");
                 for (const auto &value : values) {
                     const qint64 physical = add(numeric(value), -base);
                     if (maps[role].contains(physical)) mapped.append(add(maps[role][physical], base));
@@ -1588,8 +1589,14 @@ private:
                 require(step > 0, "Invalid reference-list stride.");
                 for (int i = 0; i < values.size(); ++i)
                     writeScalar(image, add(address, multiply(i, step)), schema, qint64(0), {});
-                writeField(image, table, r.value("count_field").toString(), row.address, row.index, add(qint64(mapped.size()), r.contains("count_bias") ? integer(r.value("count_bias")) : 0));
-                writeField(image, table, r.value("field").toString(), row.address, row.index, mapped);
+                if (implicitCount) {
+                    for (int i = 0; i < values.size(); ++i)
+                        writeScalar(image, add(address, multiply(i, step)), schema,
+                                    i < mapped.size() ? mapped[i] : QVariant(qint64(0)), {});
+                } else {
+                    writeField(image, table, r.value("count_field").toString(), row.address, row.index, add(qint64(mapped.size()), r.contains("count_bias") ? integer(r.value("count_bias")) : 0));
+                    writeField(image, table, r.value("field").toString(), row.address, row.index, mapped);
+                }
             }
         }
         for (const auto &entry : rule.value("globals").toArray()) {
@@ -1897,7 +1904,7 @@ private:
                     const auto f = fieldSchema(x.value("table").toString(), x.value("field").toString());
                     require(f.contains("count") && f.contains("reference"), "Reference list lacks count or reference schema.");
                     editor->roleForTable(f.value("reference").toObject().value("table").toString());
-                    fieldSchema(x.value("table").toString(), x.value("count_field").toString());
+                    if (x.contains("count_field")) fieldSchema(x.value("table").toString(), x.value("count_field").toString());
                 }
                 for (const auto &v : r.value("globals").toArray()) {
                     const auto x = object(v, "reference global"); keys(x, {"field", "target_role", "on_removed"});
@@ -2071,7 +2078,11 @@ template<class Operation> bool checked(QString *error, Operation operation)
 } // namespace
 
 QString CodeplugDefinition::id() const { return m_definition.value("id").toString(); }
-QString CodeplugDefinition::modelName() const { return m_definition.value("recognition").toObject().value("model_value").toString(); }
+QString CodeplugDefinition::modelName() const
+{
+    const auto recognition = m_definition.value("recognition").toObject();
+    return recognition.value("display_model").toString(recognition.value("model_value").toString());
+}
 QByteArray CodeplugDefinition::defaultCodeplug() const { return m_defaultCodeplug; }
 QByteArray CodeplugDefinition::iconPng() const { return m_iconPng; }
 bool CodeplugDefinition::defaultForNew() const { return m_definition.value("creation").toObject().value("default_for_new").toBool(); }
@@ -2105,7 +2116,7 @@ bool CodeplugDefinition::exportExtension(const QByteArray &source,
             try {
                 const auto image = decode(source, representation);
                 Decoder reader(image, m_definition);
-                if (reader.model() != modelName()) continue;
+                if (reader.model() != m_definition.value("recognition").toObject().value("model_value").toString()) continue;
                 reader.imported();
                 const auto digest = QCryptographicHash::hash(image, QCryptographicHash::Sha256);
                 if (images.contains(digest)) continue;
@@ -2246,7 +2257,7 @@ bool CodeplugDefinition::read(const QByteArray &input, ImportedCodeplug *result,
         for (const auto &r : m_definition.value("representations").toArray()) {
             try {
                 const auto image = decode(input, r.toObject());
-                if (Decoder(image, m_definition).model() != modelName()) continue;
+                if (Decoder(image, m_definition).model() != m_definition.value("recognition").toObject().value("model_value").toString()) continue;
                 const auto digest = QCryptographicHash::hash(image, QCryptographicHash::Sha256);
                 if (decodedImages.contains(digest)) continue;
                 auto candidate = Decoder(image, m_definition).imported();

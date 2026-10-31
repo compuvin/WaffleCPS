@@ -72,7 +72,7 @@ print(json.dumps(decoded))
                     ImportedCodeplug plug; plug.definitionFile = "sentinel";
                     const bool imported = CodeplugDefinitions::read(definition.defaultCodeplug(), &plug, &error, file);
                     if (file == "cs7000-m17-plus.wcp" || file == "cs750.wcp"
-                        || file == "cs800.wcp" || file == "opengd77-128k.wcp") {
+                        || file == "cs800.wcp" || file == "md380.wcp" || file == "opengd77-128k.wcp") {
                         check(imported && plug.definitionFile == file, "Import lost selected definition: " + error);
                         if (file == "cs800.wcp") {
                             QFile sample(QStringLiteral(WAFFLE_SOURCE_DIR) + "/Codeplugs/CS800-KB1JDX 2017-01-22.rdb");

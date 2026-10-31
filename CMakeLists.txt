@@ -131,6 +131,11 @@ if(BUILD_TESTING)
     target_link_libraries(cs750_roundtrip_test PRIVATE codeplugdefinition Qt6::Gui Qt6::Widgets)
     target_compile_definitions(cs750_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME cs750_roundtrip COMMAND cs750_roundtrip_test)
+
+    qt_add_executable(md380_roundtrip_test tests/md380_roundtrip.cpp)
+    target_link_libraries(md380_roundtrip_test PRIVATE codeplugdefinition)
+    target_compile_definitions(md380_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME md380_roundtrip COMMAND md380_roundtrip_test)
     add_executable(codeplug_definition_test
         tests/codeplug_definition.cpp tests/channel_order_fixture.h
         src/codeplugreader.cpp src/codeplugreader.h
