@@ -473,16 +473,21 @@ int main(int argc, char *argv[])
             if (!store.importCodeplugFromFile(path)) { app.exit(43); return; }
             QTimer::singleShot(200, &app, [&] {
                 if (root->property("clearingProject").toBool()) { app.exit(44); return; }
-                QTimer::singleShot(80, &app, [] {
-                    for (auto *widget : QApplication::topLevelWidgets())
-                        if (auto *box = qobject_cast<QMessageBox *>(widget)) box->button(QMessageBox::Yes)->click();
-                });
                 for (auto *object : root->findChildren<QObject *>())
                     if (object->property("text").toString() == "New") {
                         QMetaObject::invokeMethod(object, "clicked");
                         clickedNew = true;
                         break;
                     }
+                QTimer::singleShot(80, &app, [root] {
+                    if (auto *blank = root->findChild<QObject *>(QStringLiteral("blankProjectOption")))
+                        QMetaObject::invokeMethod(blank, "clicked");
+                });
+                QTimer::singleShot(160, &app, [] {
+                    for (auto *widget : QApplication::topLevelWidgets())
+                        if (auto *box = qobject_cast<QMessageBox *>(widget))
+                            if (auto *yes = box->button(QMessageBox::Yes)) yes->click();
+                });
             });
         });
         QTimer completion;

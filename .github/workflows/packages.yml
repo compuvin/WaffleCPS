@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install dependencies
-        run: brew install cmake ninja pkgconf qtbase qtdeclarative qttools libusb
+        run: brew install cmake ninja pkgconf qtbase qtdeclarative qttools qtsvg libusb
       - name: Build app bundle
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -75,6 +75,9 @@ jobs:
           cp "$(brew --prefix libusb)/lib/libusb-1.0.0.dylib" "$app/Contents/Frameworks/"
           install_name_tool -change "$libusb_link" \
             "@executable_path/../Frameworks/libusb-1.0.0.dylib" "$executable"
+          codesign --force --sign - "$app/Contents/Frameworks/libusb-1.0.0.dylib"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           hdiutil create -volname WaffleCPS -srcfolder "$app" \
             -ov -format UDZO WaffleCPS-macos-arm64.dmg
       - uses: actions/upload-artifact@v6

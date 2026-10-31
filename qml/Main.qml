@@ -231,7 +231,7 @@ ApplicationWindow {
                             HeaderMenuItem {
                                 objectName: "readRadioButton"
                                 text: "Read"
-                                enabled: store.radioTransferAvailable
+                                enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
                                 onClicked: {
                                     if (store.modified)
                                         radioReadConfirmation.open()
@@ -242,7 +242,7 @@ ApplicationWindow {
                             HeaderMenuItem {
                                 objectName: "writeRadioButton"
                                 text: "Write"
-                                enabled: store.radioTransferAvailable
+                                enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
                                 onClicked: radioWriteConfirmation.open()
                             }
                         }
