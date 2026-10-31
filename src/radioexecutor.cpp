@@ -232,14 +232,22 @@ public:
             result = libusb_kernel_driver_active(handle, interfaceNumber);
             require(result >= 0 || result == LIBUSB_ERROR_NOT_SUPPORTED,
                     "Could not inspect radio USB driver");
+#ifdef __APPLE__
+            int claimResult = libusb_claim_interface(handle, interfaceNumber);
+            if (claimResult == 0) {
+                claimed = true;
+            } else
+#endif
             if (result == 1) {
                 result = libusb_detach_kernel_driver(handle, interfaceNumber);
                 require(result == 0, "Could not detach radio USB driver");
                 detached = true;
             }
-            result = libusb_claim_interface(handle, interfaceNumber);
-            require(result == 0, "Could not claim radio USB interface");
-            claimed = true;
+            if (!claimed) {
+                result = libusb_claim_interface(handle, interfaceNumber);
+                require(result == 0, "Could not claim radio USB interface");
+                claimed = true;
+            }
             const int alternate = int(number(usb.value(QStringLiteral("alternate_setting"))));
             if (alternate != 0) {
                 result = libusb_set_interface_alt_setting(handle, interfaceNumber, alternate);
