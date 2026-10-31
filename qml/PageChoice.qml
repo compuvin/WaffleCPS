@@ -3,6 +3,7 @@ import QtQuick.Controls
 
 ItemDelegate {
     id: choice
+    palette.highlightedText: "#173d30"
     background: Rectangle {
         radius: 9
         color: choice.highlighted ? "#d9ede5" : choice.hovered ? "#f2f7f2" : "transparent"

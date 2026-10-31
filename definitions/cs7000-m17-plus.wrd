@@ -112,6 +112,12 @@
       }
     },
     "read_codeplug": {
+      "operations": [
+        {"operation": "identify"},
+        {"operation": "read_region", "region": "main", "command": "0x10", "discover_size_from": "region_size"},
+        {"operation": "read_region", "region": "contacts", "command": "0x2C", "discover_size_from": "region_size",
+         "first_block_size_check": {"offset": 4, "type": "u32le"}}
+      ],
       "sequence": [
         "Perform identify and its setup exchange",
         "Read main block zero and obtain main_size from response region_size",
@@ -137,7 +143,42 @@
       "partial_image": "Do not publish a partial image as a complete codeplug.",
       "radio_exit_program_mode": null
     },
-    "write_codeplug": null,
+    "write_codeplug": {
+      "codeplug_definition_id": "cs7000-m17-plus",
+      "representation": "decoded_radio_image",
+      "operations": [
+        {"operation": "validate_codeplug"},
+        {"operation": "identify", "method": "identify", "include_read_setup": false},
+        {"operation": "write_setup", "class": "0x05", "command": "0x14", "fetch_bytes": 10,
+         "poll_limit": 30, "expected_response_hex": "A1 85 14 00 02 01 00 00 01 A4"},
+        {"operation": "write_region", "region": "main"},
+        {"operation": "write_region", "region": "contacts"}
+      ],
+      "block_bytes": 2048,
+      "block_source": "full_image",
+      "require_full_block": true,
+      "regions": {
+        "main": {"command": "0x11", "start": 0, "size": {"field": "contact_region_start"},
+                 "selection": "all_blocks", "extent": "region_size"},
+        "contacts": {"command": "0x2D", "start": {"field": "contact_region_start"},
+                     "size": {"field": "contact_region_size"},
+                     "selection": {"operation": "table_blocks", "tables": ["contact_index", "contacts"],
+                                   "header_bytes": 8},
+                     "extent": "selected_records_end"}
+      },
+      "request": {"class": "0x05", "first_selector": "0x0000",
+                  "other_selector_or": "0xC000",
+                  "final_region_selector_or": {"region": "contacts", "value": "0x4000"},
+                  "payload": [
+                    {"type": "u16be", "parameter": "selector"},
+                    {"type": "u32be", "parameter": "extent"},
+                    {"hex": "08 00"},
+                    {"parameter": "image_block", "bytes": 2048}
+                  ]},
+      "acknowledgement": {"fetch_bytes": 11, "poll_limit": 30, "payload_bytes": 3,
+                          "index_offset": 6, "index_type": "u16be", "index_mask": "0x3FFF",
+                          "duplicate": "skip_previous"}
+    },
     "exit_program_mode": null
   }
 }

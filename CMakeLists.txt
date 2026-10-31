@@ -20,7 +20,8 @@ target_link_libraries(cs7000-read PRIVATE cs7000usb)
 add_library(radioreader STATIC
     src/radioreader.cpp src/radioreader.h
     src/radiowriter.cpp src/radiowriter.h
-    src/radiocodeplug.cpp src/radiocodeplug.h)
+    src/radiocodeplug.cpp src/radiocodeplug.h
+    src/radiodefinition.cpp src/radiodefinition.h)
 target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb)
 
 add_library(codeplugdefinition STATIC
@@ -105,6 +106,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(radio_definition_test tests/radio_definition.cpp)
+    target_link_libraries(radio_definition_test PRIVATE radioreader codeplugdefinition)
+    target_compile_definitions(radio_definition_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME radio_definition COMMAND radio_definition_test)
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
         src/repeaterstore.cpp src/repeaterstore.h
