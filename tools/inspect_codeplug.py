@@ -1540,7 +1540,8 @@ def _assemble_definition(bundles, representation, aliases):
         table_map = dict(aliases)
         table_map.update(bundle["roots"])
         for name in bundle["tables"]:
-            table_map[name] = role if name == bundle["root"] else role + "__" + _base_mapping_name(name)
+            table_map[name] = (role if name == bundle["root"] else name if name in ("receive_groups", "scan_lists")
+                               else role + "__" + _base_mapping_name(name))
         for name in sorted(bundle["fields"]):
             mapped = _remap_mapping(source["fields"][name], field_map, table_map)
             if field_map[name] in draft["fields"] and draft["fields"][field_map[name]] != mapped:
@@ -1783,9 +1784,21 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
                 or "write_global_fields" not in operations):
             continue
         for result, representation in zip(inspect_definition(data, donor, max_records), donor["representations"]):
-            if result["status"] != "recognized":
+            failed_checks = [c for c in result.get("checks", []) if c["required"] and c["status"] != "match"]
+            model_only = (result["status"] == "partial" and not result.get("errors")
+                          and result.get("decoded", {}).get("tables")
+                          and all(table["complete"] for table in result["decoded"]["tables"].values())
+                          and len(failed_checks) == 1 and failed_checks[0]["category"] == "recognition"
+                          and failed_checks[0]["name"] == "model"
+                          and isinstance(failed_checks[0].get("actual"), str)
+                          and bool(failed_checks[0]["actual"].strip()))
+            if result["status"] != "recognized" and not model_only:
                 continue
             draft = deepcopy(donor)
+            if model_only:
+                draft["recognition"]["model_value"] = failed_checks[0]["actual"]
+                draft["recognition"].pop("display_model", None)
+                draft["recognition"]["rule"] = "Match the observed model and the declared format and layout checks."
             draft["creation"]["representation"] = representation["name"]
             resets = draft.setdefault("default_generation", {}).setdefault("globals", {})
             for name in ("power_on_message_1", "power_on_message_2"):
