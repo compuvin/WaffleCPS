@@ -59,23 +59,28 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF -DCMAKE_PREFIX_PATH="$(brew --prefix)"
-          cmake --build build --target wafflecps -j 2
+          cmake --build build --target wafflecps radio-read-probe -j 2
       - name: Create DMG
         run: |
           set -euo pipefail
           app="build/wafflecps.app"
           test -d "$app"
           mkdir -p "$app/Contents/definitions" "$app/Contents/Frameworks" "$app/Contents/Resources"
+          helper="$app/Contents/MacOS/radio-read-probe"
+          cp build/radio-read-probe "$helper"
           cp definitions/*.wcp definitions/*.wrd "$app/Contents/definitions/"
           cp LICENSE "$app/Contents/Resources/"
-          "$(brew --prefix)/bin/macdeployqt" "$app" -qmldir=qml
+          "$(brew --prefix)/bin/macdeployqt" "$app" -qmldir=qml -executable="$helper"
           executable="$app/Contents/MacOS/wafflecps"
-          libusb_link="$(otool -L "$executable" | awk '/libusb-1.0.*dylib/ {print $1; exit}')"
-          test -n "$libusb_link"
           cp "$(brew --prefix libusb)/lib/libusb-1.0.0.dylib" "$app/Contents/Frameworks/"
-          install_name_tool -change "$libusb_link" \
-            "@executable_path/../Frameworks/libusb-1.0.0.dylib" "$executable"
+          for binary in "$executable" "$helper"; do
+            libusb_link="$(otool -L "$binary" | awk '/libusb-1.0.*dylib/ {print $1; exit}')"
+            test -n "$libusb_link"
+            install_name_tool -change "$libusb_link" \
+              "@executable_path/../Frameworks/libusb-1.0.0.dylib" "$binary"
+          done
           codesign --force --sign - "$app/Contents/Frameworks/libusb-1.0.0.dylib"
+          codesign --force --sign - "$helper"
           codesign --force --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           hdiutil create -volname WaffleCPS -srcfolder "$app" \

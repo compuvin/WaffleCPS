@@ -10,6 +10,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickImageProvider>
+#include <QQuickStyle>
 #include <QUrl>
 
 class RadioIconProvider : public QQuickImageProvider
@@ -31,6 +32,9 @@ public:
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+#ifdef __APPLE__
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
+#endif
     QApplication::setApplicationName(QStringLiteral("WaffleCPS"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/waffle-radio.png")));
 
