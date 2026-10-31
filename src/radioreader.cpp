@@ -1,6 +1,9 @@
 #include "radioreader.h"
 #include "codeplugdefinition.h"
 #include "codeplugdefinitions.h"
+#ifdef __APPLE__
+#include "macradiotransfer.h"
+#endif
 
 #include <QDir>
 #include <QFileInfo>
@@ -61,7 +64,11 @@ void RadioReader::start(const QString &definitionPath)
                 }, Qt::QueuedConnection);
             };
             const auto bytes = m_read ? m_read(progress, m_cancelled)
+#ifdef __APPLE__
+                : MacRadioTransfer::read(definitionPath, progress, m_cancelled);
+#else
                 : RadioExecutor::read(definition, progress, m_cancelled);
+#endif
             if (m_cancelled.load()) return;
             result->encoded = QByteArray(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size()));
             ImportedCodeplug checked;

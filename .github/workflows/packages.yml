@@ -59,15 +59,15 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF -DCMAKE_PREFIX_PATH="$(brew --prefix)"
-          cmake --build build --target wafflecps radio-read-probe -j 2
+          cmake --build build --target wafflecps radio-transfer-helper -j 2
       - name: Create DMG
         run: |
           set -euo pipefail
           app="build/wafflecps.app"
           test -d "$app"
           mkdir -p "$app/Contents/definitions" "$app/Contents/Frameworks" "$app/Contents/Resources"
-          helper="$app/Contents/MacOS/radio-read-probe"
-          cp build/radio-read-probe "$helper"
+          helper="$app/Contents/MacOS/radio-transfer-helper"
+          cp build/radio-transfer-helper "$helper"
           cp definitions/*.wcp definitions/*.wrd "$app/Contents/definitions/"
           cp LICENSE "$app/Contents/Resources/"
           "$(brew --prefix)/bin/macdeployqt" "$app" -qmldir=qml -executable="$helper"

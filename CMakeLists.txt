@@ -26,9 +26,10 @@ add_library(radioreader STATIC
 target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb PkgConfig::LIBUSB codeplugdefinition)
 
 if(APPLE)
-    add_executable(radio-read-probe tools/radio_read_probe.cpp)
-    target_include_directories(radio-read-probe PRIVATE src)
-    target_link_libraries(radio-read-probe PRIVATE radioreader codeplugdefinition Qt6::Core)
+    target_sources(radioreader PRIVATE src/macradiotransfer.cpp src/macradiotransfer.h)
+    add_executable(radio-transfer-helper tools/radio_transfer_helper.cpp)
+    target_include_directories(radio-transfer-helper PRIVATE src)
+    target_link_libraries(radio-transfer-helper PRIVATE radioreader codeplugdefinition Qt6::Core)
 endif()
 
 add_library(codeplugdefinition STATIC

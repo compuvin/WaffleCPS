@@ -1,6 +1,9 @@
 #include "radiowriter.h"
 #include "codeplugdefinition.h"
 #include "radiodefinition.h"
+#ifdef __APPLE__
+#include "macradiotransfer.h"
+#endif
 #include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
@@ -63,7 +66,13 @@ void RadioWriter::start(const QByteArray &encoded, const QString &definitionPath
                 }, Qt::QueuedConnection);
             };
             if (m_write) m_write(image, progress);
-            else RadioExecutor::write(radioDefinition, codeplugDocument, image, progress);
+            else {
+#ifdef __APPLE__
+                MacRadioTransfer::write(radioDefinition.sourcePath(), image, progress);
+#else
+                RadioExecutor::write(radioDefinition, codeplugDocument, image, progress);
+#endif
+            }
         } catch (const std::exception &exception) {
             *result = QString::fromUtf8(exception.what());
         }
