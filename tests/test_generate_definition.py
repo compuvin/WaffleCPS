@@ -138,9 +138,12 @@ class DefinitionInferenceTests(unittest.TestCase):
         invalid["creation"]["construction"]["contacts"]["operation"] = "invented_operation"
         different = deepcopy(donor)
         different["recognition"]["model_value"] = "DIFFERENT RADIO"
-        for rejected in (reset_only, invalid, different):
+        for rejected in (reset_only, invalid):
             with self.assertRaisesRegex(inspector.DefinitionGenerationError, "No matching definition supplies executable"):
                 inspector.generation_definition(source, [rejected])
+        model_variant = inspector.generation_definition(source, [different])
+        self.assertEqual(model_variant["recognition"]["model_value"], donor["recognition"]["model_value"])
+        self.assertEqual(model_variant["creation"]["construction"], donor["creation"]["construction"])
 
     def test_cli_refuses_reset_only_without_prompt_or_output(self):
         source, donors, _ = fixture()

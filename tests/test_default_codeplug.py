@@ -110,7 +110,7 @@ class DefaultGeneratorTests(unittest.TestCase):
         self.assertEqual(source, synthetic()[0])
         source, definition = package("cs750")
         changed = deepcopy(definition)
-        zone = next(p for p in changed["default_generation"]["tables"] if p["table"] == "zone_slots")
+        zone = next(p for p in changed["default_generation"]["tables"] if p["table"] == "zones")
         zone["records"][0]["fields"]["members"] = [1]
         with self.assertRaisesRegex(GenerationError, "array length"):
             create_default_codeplug(source, changed)
@@ -143,11 +143,12 @@ class DefaultGeneratorTests(unittest.TestCase):
                 decoded = checked["decoded"]
                 self.assertEqual(decoded["fields"]["radio_name"], "NOCALL")
                 self.assertEqual(decoded["fields"]["radio_id"], 1)
-                self.assertEqual(decoded["fields"]["contact_count"], 1)
+                contact_count = "contacts__contact_count" if model == "cs750" else "contact_count"
+                self.assertEqual(decoded["fields"][contact_count], 1)
                 self.assertEqual(decoded["tables"]["contacts"]["records"][0]["fields"]["id"], 9)
-                channels = "channel_slots" if model == "cs750" else "channels"
-                self.assertEqual(len(decoded["tables"][channels]["records"]), 2)
-                self.assertEqual([r["fields"]["name"] for r in decoded["tables"]["channel_names"]["records"]], ["ACH 1", "DCH 1"])
+                self.assertEqual(len(decoded["tables"]["channels"]["records"]), 2)
+                channel_names = "channels__channel_names" if model == "cs750" else "channel_names"
+                self.assertEqual([r["fields"]["name"] for r in decoded["tables"][channel_names]["records"]], ["ACH 1", "DCH 1"])
                 self.assertEqual(len(decoded["tables"]["receive_groups"]["records"]), 1)
                 self.assertEqual(len(decoded["tables"]["scan_lists"]["records"]), 1)
                 self.assertTrue(all(c["status"] == "match" for c in checked["checks"] if c["category"] == "references"))
@@ -170,9 +171,11 @@ class DefaultGeneratorTests(unittest.TestCase):
             source, definition = package(model)
             empty = deepcopy(definition)
             for plan in empty["default_generation"]["tables"]:
-                if plan["table"] in ("scan_list_index", "scan_lists", "receive_group_index", "receive_groups", "receive_group_members"):
+                if plan["table"] in ("scan_list_index", "channels__scan_list_index", "scan_lists",
+                                     "receive_group_index", "channels__receive_group_index", "receive_groups",
+                                     "receive_group_members"):
                     plan["records"] = []
-                if plan["table"] in ("channel_slots", "channels"):
+                if plan["table"] == "channels":
                     plan["records"][1]["fields"]["receive_group_index"] = 0
             with self.subTest(model=model):
                 result = create_default_codeplug(source, empty)
@@ -190,7 +193,7 @@ class DefaultGeneratorTests(unittest.TestCase):
             decoded = decode(source, definition)
             result = inspector.inspect_definition(source, definition)[0]["decoded"]["tables"]
             cases = []
-            channel = result["channel_slots" if model == "cs750" else "channels"]["records"][1]["address"]
+            channel = result["channels"]["records"][1]["address"]
             cases.append((channel + 22, b"\xFA", "receive_group_index"))
             scan = result["scan_lists"]["records"][0]["address"]
             cases.append((scan + 66, b"\xFF\x7F", "scan_lists.members"))
@@ -274,9 +277,9 @@ class DefaultGeneratorTests(unittest.TestCase):
         checked = inspector.inspect_definition(source, definition)[0]
         self.assertEqual(checked["status"], "recognized")
         decoded = checked["decoded"]
-        self.assertEqual(decoded["fields"]["scan_list_count"], 1)
-        self.assertEqual(decoded["fields"]["scan_list_slot_count"], 1)
-        self.assertEqual(decoded["tables"]["scan_list_index"]["address"], 0x33502)
+        self.assertEqual(decoded["fields"]["channels__scan_list_count"], 1)
+        self.assertEqual(decoded["fields"]["channels__scan_list_slot_count"], 1)
+        self.assertEqual(decoded["tables"]["channels__scan_list_index"]["address"], 0x33502)
         self.assertEqual([r["address"] for r in decoded["tables"]["scan_lists"]["records"]], [0x2C000])
         self.assertEqual(int.from_bytes(source[0x33500:0x33502], "little"), 1)
 

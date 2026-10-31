@@ -135,7 +135,7 @@ if(BUILD_TESTING)
     qt_add_executable(md380_roundtrip_test tests/md380_roundtrip.cpp)
     target_link_libraries(md380_roundtrip_test PRIVATE codeplugdefinition)
     target_compile_definitions(md380_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    add_test(NAME md380_roundtrip COMMAND md380_roundtrip_test)
+    add_test(NAME RequiresCodeplug-md380_roundtrip COMMAND md380_roundtrip_test)
     add_executable(codeplug_definition_test
         tests/codeplug_definition.cpp tests/channel_order_fixture.h
         src/codeplugreader.cpp src/codeplugreader.h
@@ -157,7 +157,7 @@ if(BUILD_TESTING)
     add_executable(definition_disk_test tests/definition_disk.cpp)
     target_link_libraries(definition_disk_test PRIVATE codeplugdefinition)
     target_compile_definitions(definition_disk_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    add_test(NAME definition_disk COMMAND definition_disk_test)
+    add_test(NAME RequiresCodeplug-definition_disk COMMAND definition_disk_test)
 
     add_executable(radio_write_protocol_test tests/radio_write_protocol.cpp)
     target_link_libraries(radio_write_protocol_test PRIVATE cs7000usb)
@@ -222,7 +222,7 @@ if(BUILD_TESTING)
         src/ziparchive.h
     )
     target_link_libraries(codeplug_import_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
-    add_test(NAME codeplug_import COMMAND codeplug_import_test)
+    add_test(NAME RequiresCodeplug-codeplug_import COMMAND codeplug_import_test)
 
     qt_add_executable(ui_smoke_test
         tests/ui_smoke.cpp
@@ -302,8 +302,8 @@ if(BUILD_TESTING)
         add_test(NAME ui_radio_${flow} COMMAND ui_smoke_test --demo --radio-${flow})
         set_tests_properties(ui_radio_${flow} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endforeach()
-    add_test(NAME ui_radio_definition_gate COMMAND ui_smoke_test --demo --radio-definition-gate)
-    set_tests_properties(ui_radio_definition_gate PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    add_test(NAME RequiresCodeplug-ui_radio_definition_gate COMMAND ui_smoke_test --demo --radio-definition-gate)
+    set_tests_properties(RequiresCodeplug-ui_radio_definition_gate PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     foreach(target IN ITEMS zone_editor_test channel_order_test radio_import_test
                             project_roundtrip_test codeplug_import_test ui_smoke_test)
         target_link_libraries(${target} PRIVATE codeplugdefinition)

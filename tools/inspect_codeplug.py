@@ -1764,6 +1764,12 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
     """Reuse complete matching rules without transferring writes across models."""
     if default_only:
         return infer_definition(data, definitions, max_records)
+    supported = {"validate_target", "return_original_if_equal", "decode_representation", "write_global_fields",
+                 "branch_if_tables_equal", "rebuild_fixed_table", "replace_variable_table", "relocate_pointers",
+                 "rewrite_relative_index", "prepare_overlapping_table", "write_overlapping_fields",
+                 "encode_base_representation", "decode_and_compare_target", "remap_references"}
+    required = {"validate_target", "return_original_if_equal", "decode_representation",
+                "encode_base_representation", "decode_and_compare_target"}
     candidates = []
     for donor in definitions:
         plan = donor.get("creation", {}).get("construction", {})
@@ -1773,12 +1779,6 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
         if any(not isinstance(label, str) or not isinstance(plan.get(label), dict) for label in order):
             continue
         operations = [plan[label].get("operation", label if label == "validate_target" else None) for label in order]
-        supported = {"validate_target", "return_original_if_equal", "decode_representation", "write_global_fields",
-                     "branch_if_tables_equal", "rebuild_fixed_table", "replace_variable_table", "relocate_pointers",
-                     "rewrite_relative_index", "prepare_overlapping_table", "write_overlapping_fields",
-                     "encode_base_representation", "decode_and_compare_target", "remap_references"}
-        required = {"validate_target", "return_original_if_equal", "decode_representation",
-                    "encode_base_representation", "decode_and_compare_target"}
         if (len(set(order)) != len(order) or not set(operations) <= supported
                 or any(operations.count(op) != 1 for op in required)
                 or "write_global_fields" not in operations):
@@ -1829,6 +1829,14 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
                     or not plan["order"]
                     or not isinstance(creation.get("base_image"), dict)
                     or not isinstance(creation.get("channel_defaults"), dict)):
+                continue
+            order = plan["order"]
+            if any(not isinstance(label, str) or not isinstance(plan.get(label), dict) for label in order):
+                continue
+            operations = [plan[label].get("operation", label if label == "validate_target" else None) for label in order]
+            if (len(set(order)) != len(order) or not set(operations) <= supported
+                    or any(operations.count(op) != 1 for op in required)
+                    or "write_global_fields" not in operations):
                 continue
             if not any(r.get("decode") == draft["representations"][0].get("decode")
                        for r in donor.get("representations", [])):
