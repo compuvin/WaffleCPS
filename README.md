@@ -2,7 +2,7 @@
 
 WaffleCPS is an early desktop editor for DMR codeplugs. It organizes programming around repeaters, time slots, and talkgroups so you can see how you will use a radio without working through a traditional channel table.
 
-The application is under active development. It reads external `.wcp` definitions for codeplug file import and export. Definitions are included for CS7000-M17 Plus, CS750, CS800, and OpenGD77. Waffle can read and write a supported CS7000-M17 Plus over USB. Other imported definitions have no radio transfer controls unless a matching `.wrd` file is present.
+The application is under active development. It reads external `.wcp` definitions for codeplug file import and export. Definitions are included for CS7000-M17 Plus, CS700/CS701, CS750, CS800, MD-380, and OpenGD77. Waffle can read and write a supported CS7000-M17 Plus over USB. Other imported definitions have no radio transfer controls unless a matching `.wrd` file is present.
 
 ## Screenshots
 
@@ -22,7 +22,7 @@ These views use an imported CS7000 GPS codeplug.
 
 ## What works today
 
-- Import codeplug files using a selected `.wcp` definition, or detect a definition from file contents. The included definitions cover CS7000 (`.rdbx`), CS750 and CS800 (`.rdb`), and OpenGD77 (`.g77`). Compatibility depends on the model and file layout declared by each definition.
+- Import codeplug files using a selected `.wcp` definition, or detect a definition from file contents. The included definitions cover CS7000 (`.rdbx`), CS700/CS701 and MD-380 (`.rdt`), CS750 and CS800 (`.rdb`), and OpenGD77 (`.g77`). Compatibility depends on the model and file layout declared by each definition.
 - Browse imported repeaters, zones, channels, and contacts. A zone with one repeater frequency pair and color code appears as a repeater, even if it also contains simplex frequencies. Separate zones remain separate entries.
 - View each repeater's frequencies, color code, transmit power, time slots, and additional simplex frequencies. The channel name appears above its talkgroup name and ID, matching the radio's idle versus receive/transmit display behavior.
 - Search people and talkgroups in separate contact tabs. Add a repeater talkgroup from the group contact list or create one in the same flow, with a separate name for its radio channel.
@@ -66,8 +66,10 @@ For supported CS7000-M17 Plus radios, **Read from radio** downloads the complete
 Run the automated checks with:
 
 ```sh
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure -E '^RequiresCodeplug-'
 ```
+
+Run without `-E` when the required local samples are present in `Codeplugs/`.
 
 WaffleCPS uses Qt and CMake. GitHub Actions builds `.deb` packages for Linux amd64 and arm64 and an unsigned macOS arm64 DMG. The macOS job builds the app but does not run its tests; Windows has not been built or packaged. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
 

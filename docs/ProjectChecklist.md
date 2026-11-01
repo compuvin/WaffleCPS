@@ -94,7 +94,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [x] Add radio read/write with backup, validation, and recovery safeguards. [Radio operations and backups](RadioOperations.md)
 - [x] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse. [Research and license notes](DMRProjectResearch.md)
 - [x] Choose and publish an open-source license for WaffleCPS.
-- [ ] Linux support
+- [x] Linux support
   - [x] Build and test on Linux.
   - [x] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
 - [ ] Windows support
@@ -111,9 +111,9 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 
 Treat each model and firmware variant as a separate compatibility target. File import, file export, and direct radio communication need their own verification for each target.
 
-- [ ] Connect Systems CS7000 GPS — owned radio; the codeplug used for current import work came from this radio, which runs the same firmware as the Plus.
-- [ ] Connect Systems CS700 — owned radio.
-- [ ] Connect Systems CS701 — owned radio.
+- [x] Connect Systems CS7000 GPS — owned radio; the codeplug used for current import work came from this radio, which runs the same firmware as the Plus.
+- [x] Connect Systems CS700 — owned radio.
+- [x] Connect Systems CS701 — owned radio.
 - [ ] Connect Systems CS750 — public sample codeplugs listed in the research note; no owned radio identified.
 - [ ] Connect Systems CS800 — owned radio.
 - [ ] Connect Systems CS800D — owned radio.

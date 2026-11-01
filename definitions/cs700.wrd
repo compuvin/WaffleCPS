@@ -1,0 +1,156 @@
+{
+  "definition_type": "radio_read",
+  "definition_version": 1,
+  "id": "cs700",
+  "notation": {
+    "numbers": "JSON integers are decimal; strings beginning with 0x are hexadecimal. Offsets and lengths are bytes. Hex byte strings contain space-separated pairs.",
+    "source": "CS700 write sequence and read exit based on vendor CPS USB captures; WaffleCPS hardware behavior still requires testing."
+  },
+  "usb": {
+    "vendor_id": "0x0483",
+    "product_id": "0xDF11",
+    "interface_number": 0,
+    "alternate_setting": 0,
+    "operating_mode": "CS700 running its application, connected for codeplug programming.",
+    "interface_lifecycle": {
+      "claim_interface": true,
+      "release_interface": true
+    }
+  },
+  "dfu_control_transport": {
+    "out_request_type": "0x21",
+    "in_request_type": "0xA1",
+    "interface_index": 0,
+    "requests": {
+      "detach": 0,
+      "download": 1,
+      "upload": 2,
+      "get_status": 3,
+      "clear_status": 4,
+      "get_state": 5,
+      "abort": 6
+    },
+    "get_status": {
+      "value": 0,
+      "response_bytes": 6,
+      "status_offset": 0,
+      "success_status": 0,
+      "poll_timeout_offsets": [1, 2, 3],
+      "poll_timeout_type": "u24le",
+      "state_offset": 4,
+      "states": {
+        "idle": 2,
+        "download_sync": 3,
+        "download_busy": 4,
+        "download_idle": 5,
+        "upload_idle": 9,
+        "error": 10
+      }
+    },
+    "commands": {
+      "enter_programming_mode": {"request": "download", "value": 0, "data_hex": "91 01"},
+      "exit_program_mode": {"request": "download", "value": 0, "data_hex": "91 05"},
+      "finish_write": {"request": "download", "value": 0, "data_hex": ""},
+      "identify": {"request": "download", "value": 0, "data_hex": "A2 01"},
+      "select_codeplug_bank": {"request": "download", "value": 0, "data_hex": "A2 02"},
+      "prepare_codeplug_1": {"request": "download", "value": 0, "data_hex": "A2 03"},
+      "prepare_codeplug_2": {"request": "download", "value": 0, "data_hex": "A2 04"},
+      "prepare_codeplug_3": {"request": "download", "value": 0, "data_hex": "A2 07"},
+      "set_address": {"request": "download", "value": 0, "data": [{"hex": "21"}, {"type": "u32le", "parameter": "address"}]},
+      "erase_block": {"request": "download", "value": 0, "data": [{"hex": "41"}, {"type": "u32le", "parameter": "address"}]}
+    },
+    "command_completion": {
+      "after_download": ["get_status", "delay_ms:100", "get_status"],
+      "require_state": "download_idle",
+      "then": "enter_dfu_idle",
+      "fail_on_nonzero_status": true
+    },
+    "write_command_completion": {
+      "after_download": ["get_status", "wait_poll_timeout", "clear_status", "get_status", "clear_status", "get_status"],
+      "require_state": "idle",
+      "then": "enter_dfu_idle",
+      "fail_on_nonzero_status": false
+    },
+    "block_completion": {
+      "after_download": ["get_status", "wait_poll_timeout", "clear_status", "get_status", "clear_status", "get_status"],
+      "require_state": "idle",
+      "fail_on_nonzero_status": false
+    },
+    "enter_dfu_idle": {
+      "state_actions": {
+        "0": "detach", "1": "wait", "2": "ready", "3": "abort",
+        "4": "wait", "5": "abort", "6": "abort", "7": "abort",
+        "8": "wait", "9": "clear_status", "10": "clear_status"
+      },
+      "wait_ms": 100,
+      "maximum_attempts": 100
+    },
+    "transfer_timeout_ms": 6000
+  },
+  "methods": {
+    "read_codeplug": {
+      "operations": [
+        {"operation": "enter_dfu_idle"},
+        {"operation": "command", "name": "enter_programming_mode"},
+        {"operation": "command", "name": "select_codeplug_bank", "repeat": 2},
+        {"operation": "command", "name": "prepare_codeplug_1"},
+        {"operation": "command", "name": "prepare_codeplug_2"},
+        {"operation": "command", "name": "prepare_codeplug_3"},
+        {"operation": "command", "name": "set_address", "address": 0},
+        {"operation": "read_blocks", "first_block_number": 2, "block_count": 256,
+         "block_bytes": 1024, "request": "upload", "status_after_each_block": true,
+         "require_full_block": true, "placement": "ascending_block_number"},
+        {"operation": "exit_program_mode", "status_after": "allow_disconnect"}
+      ],
+      "assembly": {
+        "operation": "replace_payload_in_template",
+        "bytes": 262144,
+        "representation": "dfuse_rdt",
+        "wcp_representation": "dfuse_rdt",
+        "wcp_payload_offset": 549,
+        "wcp_payload_bytes": 262144,
+        "wcp_wrapper_bytes": 262709,
+        "wcp_suffix_bytes": 16
+      }
+    },
+    "write_codeplug": {
+      "codeplug_definition_id": "cs700",
+      "representation": "dfuse_rdt",
+      "source": {"image_bytes": 262709, "magic_ascii": "DfuSe",
+                 "payload_offset": 549, "payload_bytes": 262144,
+                 "suffix_bytes": 16},
+      "operations": [
+        {"operation": "validate_codeplug"},
+        {"operation": "enter_dfu_idle"},
+        {"operation": "command", "name": "enter_programming_mode", "repeat": 2},
+        {"operation": "command", "name": "identify"},
+        {"operation": "upload", "value": 0, "bytes": 32, "status_after": true},
+        {"operation": "enter_dfu_idle"},
+        {"operation": "command", "name": "select_codeplug_bank"},
+        {"operation": "upload", "value": 0, "bytes": 4, "status_after": true},
+        {"operation": "enter_dfu_idle"},
+        {"operation": "command", "name": "prepare_codeplug_1"},
+        {"operation": "command", "name": "prepare_codeplug_2"},
+        {"operation": "command", "name": "prepare_codeplug_3"},
+        {"operation": "erase_blocks", "command": "erase_block",
+         "addresses": [0, 65536, 131072, 196608]},
+        {"operation": "command", "name": "set_address", "address": 0},
+        {"operation": "write_blocks", "first_block_number": 2, "block_count": 64,
+         "block_bytes": 1024, "request": "download", "source": "payload", "source_offset": 0},
+        {"operation": "command", "name": "set_address", "address": 65536},
+        {"operation": "write_blocks", "first_block_number": 2, "block_count": 64,
+         "block_bytes": 1024, "request": "download", "source": "payload", "source_offset": 65536},
+        {"operation": "command", "name": "set_address", "address": 131072},
+        {"operation": "write_blocks", "first_block_number": 2, "block_count": 64,
+         "block_bytes": 1024, "request": "download", "source": "payload", "source_offset": 131072},
+        {"operation": "command", "name": "set_address", "address": 196608},
+        {"operation": "write_blocks", "first_block_number": 2, "block_count": 64,
+         "block_bytes": 1024, "request": "download", "source": "payload", "source_offset": 196608},
+        {"operation": "exit_program_mode", "command": "finish_write", "status_after": "allow_disconnect"}
+      ]
+    },
+    "cancel_read": {"check_before_next_block": true, "publish_partial_image": false,
+                    "cleanup": "interface_lifecycle"},
+    "exit_program_mode": {"command": "exit_program_mode"}
+  }
+}

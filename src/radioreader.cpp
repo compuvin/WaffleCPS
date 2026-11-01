@@ -1,6 +1,7 @@
 #include "radioreader.h"
 #include "codeplugdefinition.h"
 #include "codeplugdefinitions.h"
+#include "radioimage.h"
 #ifdef __APPLE__
 #include "macradiotransfer.h"
 #endif
@@ -28,6 +29,7 @@ void RadioReader::start(const QString &definitionPath)
 {
     if (busy()) return;
     RadioDefinition definition;
+    QByteArray radioTemplate;
     if (!m_read) {
         QString error;
         if (definitionPath.isEmpty() || !RadioDefinition::load(definitionPath, &definition, &error)) {
@@ -42,6 +44,7 @@ void RadioReader::start(const QString &definitionPath)
             emit failed(error);
             return;
         }
+        if (definition.usesDfu()) radioTemplate = codeplug.defaultCodeplug();
         std::fprintf(stdout, "[radio definitions] Read uses FILE: %s\n", qUtf8Printable(definition.sourcePath()));
         std::fflush(stdout);
     }
@@ -50,7 +53,7 @@ void RadioReader::start(const QString &definitionPath)
     m_status = tr("Connecting to radio…");
     struct Result { QByteArray encoded; QString error; };
     const auto result = std::make_shared<Result>();
-    m_thread = QThread::create([this, result, definition, definitionPath] {
+    m_thread = QThread::create([this, result, definition, definitionPath, radioTemplate] {
         try {
             const auto progress = [this](const std::string &region, uint32_t completed, uint32_t total) {
                 QMetaObject::invokeMethod(this, [this, region, completed, total] {
@@ -70,7 +73,8 @@ void RadioReader::start(const QString &definitionPath)
                 : RadioExecutor::read(definition, progress, m_cancelled);
 #endif
             if (m_cancelled.load()) return;
-            result->encoded = QByteArray(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size()));
+            result->encoded = assembleRadioImage(definition, radioTemplate,
+                QByteArray(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size())));
             ImportedCodeplug checked;
             const QString wcpName = definitionPath.isEmpty() ? QString()
                 : QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp");

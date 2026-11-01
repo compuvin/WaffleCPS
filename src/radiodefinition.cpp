@@ -7,6 +7,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QMap>
 #include <QRegularExpression>
 #include <QSet>
 #include <cstdio>
@@ -108,6 +109,280 @@ bool trueField(const QJsonObject &object, const char *name)
 bool falseField(const QJsonObject &object, const char *name)
 {
     return object.value(QLatin1String(name)) == QJsonValue(false);
+}
+
+bool validateDfuRules(const QJsonObject &root, QString *error)
+{
+    if (root.contains(QStringLiteral("bulk_only_transport")))
+        return fail(error, QStringLiteral("A radio definition must select one USB transport."));
+    const QJsonObject usb = root.value(QStringLiteral("usb")).toObject();
+    const QJsonObject transport = root.value(QStringLiteral("dfu_control_transport")).toObject();
+    const QJsonObject requests = transport.value(QStringLiteral("requests")).toObject();
+    const QJsonObject commands = transport.value(QStringLiteral("commands")).toObject();
+    const QJsonObject status = transport.value(QStringLiteral("get_status")).toObject();
+    const QJsonObject idle = transport.value(QStringLiteral("enter_dfu_idle")).toObject();
+    quint16 vendor = 0, product = 0;
+    quint8 direction = 0;
+    if (!wordValue(usb.value(QStringLiteral("vendor_id")), &vendor)
+        || !wordValue(usb.value(QStringLiteral("product_id")), &product)
+        || !byteValue(transport.value(QStringLiteral("out_request_type")), &direction)
+        || direction != 0x21
+        || !byteValue(transport.value(QStringLiteral("in_request_type")), &direction)
+        || direction != 0xA1
+        || vendor == 0 || product == 0
+        || usb.value(QStringLiteral("interface_number")).toInt(-1) < 0
+        || usb.value(QStringLiteral("interface_number")).toInt() > 255
+        || usb.value(QStringLiteral("alternate_setting")).toInt(-1) < 0
+        || usb.value(QStringLiteral("alternate_setting")).toInt() > 255
+        || transport.value(QStringLiteral("interface_index")).toInt(-1) != usb.value(QStringLiteral("interface_number")).toInt(-2)
+        || !trueField(usb.value(QStringLiteral("interface_lifecycle")).toObject(), "claim_interface")
+        || !trueField(usb.value(QStringLiteral("interface_lifecycle")).toObject(), "release_interface")
+        || transport.value(QStringLiteral("transfer_timeout_ms")).toInt() < 1
+        || transport.value(QStringLiteral("transfer_timeout_ms")).toInt() > 60000
+        || status.value(QStringLiteral("response_bytes")).toInt() != 6
+        || status.value(QStringLiteral("success_status")).toInt(-1) != 0
+        || status.value(QStringLiteral("state_offset")).toInt(-1) != 4
+        || status.value(QStringLiteral("status_offset")).toInt(-1) != 0
+        || idle.value(QStringLiteral("maximum_attempts")).toInt() < 1
+        || idle.value(QStringLiteral("maximum_attempts")).toInt() > 1000
+        || idle.value(QStringLiteral("wait_ms")).toInt(-1) < 0
+        || idle.value(QStringLiteral("wait_ms")).toInt() > 60000)
+        return fail(error, QStringLiteral("DFU USB interface or status rules are incomplete."));
+    const QMap<QString, int> expectedRequests{{"detach", 0}, {"download", 1}, {"upload", 2},
+        {"get_status", 3}, {"clear_status", 4}, {"get_state", 5}, {"abort", 6}};
+    for (auto it = expectedRequests.cbegin(); it != expectedRequests.cend(); ++it)
+        if (requests.value(it.key()).toInt(-1) != it.value())
+            return fail(error, QStringLiteral("Unsupported DFU request: %1.").arg(it.key()));
+    const QJsonObject actions = idle.value(QStringLiteral("state_actions")).toObject();
+    for (int state = 0; state <= 10; ++state) {
+        const QString action = actions.value(QString::number(state)).toString();
+        if (action != QStringLiteral("ready") && action != QStringLiteral("wait")
+            && action != QStringLiteral("abort") && action != QStringLiteral("clear_status")
+            && action != QStringLiteral("detach"))
+            return fail(error, QStringLiteral("DFU state action is missing: %1.").arg(state));
+    }
+    if (actions.value(QStringLiteral("2")) != QStringLiteral("ready"))
+        return fail(error, QStringLiteral("DFU idle state must be ready."));
+    const QJsonArray pollOffsets = status.value(QStringLiteral("poll_timeout_offsets")).toArray();
+    QSet<int> usedPollOffsets;
+    for (const QJsonValue &offset : pollOffsets) {
+        const int index = offset.toInt(-1);
+        if (index < 1 || index >= 6 || usedPollOffsets.contains(index))
+            return fail(error, QStringLiteral("Invalid DFU poll timeout offsets."));
+        usedPollOffsets.insert(index);
+    }
+    if (pollOffsets.size() != 3
+        || (status.value(QStringLiteral("poll_timeout_type")) != QStringLiteral("u24le")
+            && status.value(QStringLiteral("poll_timeout_type")) != QStringLiteral("u24be")))
+        return fail(error, QStringLiteral("Invalid DFU poll timeout encoding."));
+    const QJsonObject completion = transport.value(QStringLiteral("command_completion")).toObject();
+    const auto validCompletion = [&status](const QJsonObject &rule) {
+        const QJsonArray steps = rule.value(QStringLiteral("after_download")).toArray();
+        if (steps.isEmpty() || steps.last() != QStringLiteral("get_status")
+            || !status.value(QStringLiteral("states")).toObject()
+                    .contains(rule.value(QStringLiteral("require_state")).toString())
+            || (rule.contains(QStringLiteral("then"))
+                && rule.value(QStringLiteral("then")) != QStringLiteral("enter_dfu_idle"))
+            || !rule.value(QStringLiteral("fail_on_nonzero_status")).isBool()) return false;
+        bool sawStatus = false;
+        for (const QJsonValue &value : steps) {
+            const QString step = value.toString();
+            if (step == QStringLiteral("get_status")) sawStatus = true;
+            else if (step == QStringLiteral("wait_poll_timeout")) {
+                if (!sawStatus) return false;
+            } else if (step != QStringLiteral("clear_status")) {
+                if (!step.startsWith(QStringLiteral("delay_ms:"))) return false;
+                bool ok = false;
+                const uint delay = step.mid(9).toUInt(&ok);
+                if (!ok || delay > 60000) return false;
+            }
+        }
+        return sawStatus;
+    };
+    if (!validCompletion(completion)
+        || completion.value(QStringLiteral("then")) != QStringLiteral("enter_dfu_idle")
+        || status.value(QStringLiteral("states")).toObject().value(QStringLiteral("download_idle")).toInt(-1) != 5)
+        return fail(error, QStringLiteral("DFU command completion is incomplete."));
+    const QJsonObject writeCompletion = transport.value(QStringLiteral("write_command_completion")).toObject();
+    if (!writeCompletion.isEmpty() && !validCompletion(writeCompletion))
+        return fail(error, QStringLiteral("DFU write command completion is incomplete."));
+    const QJsonObject blockCompletion = transport.value(QStringLiteral("block_completion")).toObject();
+    if (blockCompletion.contains(QStringLiteral("after_download"))
+            ? !validCompletion(blockCompletion)
+            : (blockCompletion.value(QStringLiteral("poll_state")) != QStringLiteral("download_idle")
+               || blockCompletion.value(QStringLiteral("maximum_attempts")).toInt() < 1
+               || blockCompletion.value(QStringLiteral("maximum_attempts")).toInt() > 10000
+               || blockCompletion.value(QStringLiteral("delay_ms")).toInt(-1) < 0
+               || blockCompletion.value(QStringLiteral("delay_ms")).toInt() > 60000))
+        return fail(error, QStringLiteral("DFU write block completion is incomplete."));
+    if (commands.isEmpty())
+        return fail(error, QStringLiteral("DFU commands are missing."));
+    for (auto it = commands.constBegin(); it != commands.constEnd(); ++it) {
+        const QJsonObject command = it.value().toObject();
+        if (command.value(QStringLiteral("request")) != QStringLiteral("download")
+            || command.value(QStringLiteral("value")).toInt(-1) != 0)
+            return fail(error, QStringLiteral("Invalid DFU command request: %1.").arg(it.key()));
+        if (command.contains(QStringLiteral("data_hex"))) {
+            if (command.contains(QStringLiteral("data"))
+                || !hexBytesOrEmpty(command.value(QStringLiteral("data_hex"))))
+                return fail(error, QStringLiteral("Invalid DFU command bytes: %1.").arg(it.key()));
+        } else {
+            const QJsonArray fields = command.value(QStringLiteral("data")).toArray();
+            if (fields.size() != 2 || !hexBytes(fields[0].toObject().value(QStringLiteral("hex")))
+                || fields[1].toObject().value(QStringLiteral("type")) != QStringLiteral("u32le")
+                || fields[1].toObject().value(QStringLiteral("parameter")) != QStringLiteral("address"))
+                return fail(error, QStringLiteral("Invalid DFU address command: %1.").arg(it.key()));
+        }
+    }
+    const QJsonObject methods = root.value(QStringLiteral("methods")).toObject();
+    const QJsonObject read = methods.value(QStringLiteral("read_codeplug")).toObject();
+    const QJsonObject assembly = read.value(QStringLiteral("assembly")).toObject();
+    const QJsonObject write = methods.value(QStringLiteral("write_codeplug")).toObject();
+    const QJsonObject exit = methods.value(QStringLiteral("exit_program_mode")).toObject();
+    const QJsonObject source = write.value(QStringLiteral("source")).toObject();
+    const QJsonArray readSteps = read.value(QStringLiteral("operations")).toArray();
+    const QJsonArray writeSteps = write.value(QStringLiteral("operations")).toArray();
+    if (readSteps.isEmpty() || writeSteps.isEmpty()
+        || assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_payload_in_template")
+        || assembly.value(QStringLiteral("representation")).toString().isEmpty()
+        || assembly.value(QStringLiteral("bytes")).toInt() < 1
+        || assembly.value(QStringLiteral("wcp_payload_bytes")).toInt() != assembly.value(QStringLiteral("bytes")).toInt()
+        || assembly.value(QStringLiteral("wcp_payload_offset")).toInt(-1) < 0
+        || assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt(-1) < 0
+        || assembly.value(QStringLiteral("wcp_wrapper_bytes")).toInt()
+            != assembly.value(QStringLiteral("wcp_payload_offset")).toInt()
+               + assembly.value(QStringLiteral("bytes")).toInt()
+               + assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt()
+        || write.value(QStringLiteral("codeplug_definition_id")) != root.value(QStringLiteral("id"))
+        || write.value(QStringLiteral("representation")) != assembly.value(QStringLiteral("representation"))
+        || source.value(QStringLiteral("image_bytes")).toInt() != assembly.value(QStringLiteral("wcp_wrapper_bytes")).toInt()
+        || source.value(QStringLiteral("payload_offset")).toInt() != assembly.value(QStringLiteral("wcp_payload_offset")).toInt()
+        || source.value(QStringLiteral("payload_bytes")).toInt() != assembly.value(QStringLiteral("bytes")).toInt()
+        || source.value(QStringLiteral("suffix_bytes")).toInt(-1) != assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt()
+        || source.value(QStringLiteral("magic_ascii")).toString().isEmpty())
+        return fail(error, QStringLiteral("DFU image assembly or write source is incomplete."));
+    const auto validCommandStep = [&commands](const QJsonObject &step) {
+        const QString name = step.value(QStringLiteral("name")).toString();
+        const int repeat = step.contains(QStringLiteral("repeat"))
+            ? step.value(QStringLiteral("repeat")).toInt(-1) : 1;
+        return commands.contains(name) && repeat >= 1 && repeat <= 10
+            && (commands.value(name).toObject().contains(QStringLiteral("data"))
+                || hexBytes(commands.value(name).toObject().value(QStringLiteral("data_hex"))))
+            && (!step.contains(QStringLiteral("address"))
+                || (step.value(QStringLiteral("address")).isDouble()
+                    && commands.value(name).toObject().contains(QStringLiteral("data"))));
+    };
+    const bool readExits = readSteps.last().toObject().value(QStringLiteral("operation"))
+        == QStringLiteral("exit_program_mode");
+    const bool writeExits = writeSteps.last().toObject().value(QStringLiteral("operation"))
+        == QStringLiteral("exit_program_mode");
+    const auto validExit = [&commands, &exit](const QJsonObject &step) {
+        const QString name = step.contains(QStringLiteral("command"))
+            ? step.value(QStringLiteral("command")).toString()
+            : exit.value(QStringLiteral("command")).toString();
+        const QJsonObject command = commands.value(name).toObject();
+        return command.value(QStringLiteral("request")) == QStringLiteral("download")
+            && command.value(QStringLiteral("value")).toInt(-1) == 0
+            && hexBytesOrEmpty(command.value(QStringLiteral("data_hex")))
+            && (!step.contains(QStringLiteral("status_after"))
+                || step.value(QStringLiteral("status_after")) == QStringLiteral("allow_disconnect"));
+    };
+    if ((readExits && !validExit(readSteps.last().toObject()))
+        || (writeExits && !validExit(writeSteps.last().toObject())))
+        return fail(error, QStringLiteral("DFU exit command is missing or invalid."));
+    bool readsBlocks = false, writesBlocks = false;
+    quint64 writtenBytes = 0;
+    if (readSteps.first().toObject().value(QStringLiteral("operation")) != QStringLiteral("enter_dfu_idle")
+        || readSteps.at(readSteps.size() - 1 - int(readExits)).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("read_blocks")
+        || writeSteps.first().toObject().value(QStringLiteral("operation")) != QStringLiteral("validate_codeplug")
+        || writeSteps.at(writeSteps.size() - 1 - int(writeExits)).toObject().value(QStringLiteral("operation"))
+            != QStringLiteral("write_blocks"))
+        return fail(error, QStringLiteral("DFU transfer operation order is invalid."));
+    for (int i = 0; i < readSteps.size(); ++i) {
+        const QJsonValue value = readSteps.at(i);
+        const QJsonObject step = value.toObject();
+        const QString operation = step.value(QStringLiteral("operation")).toString();
+        if (operation == QStringLiteral("read_blocks")) {
+            if (readsBlocks) return fail(error, QStringLiteral("Duplicate DFU read block operation."));
+            readsBlocks = true;
+            if (step.value(QStringLiteral("first_block_number")).toInt(-1) < 2
+                || step.value(QStringLiteral("block_count")).toInt() < 1
+                || step.value(QStringLiteral("block_bytes")).toInt() < 1
+                || step.value(QStringLiteral("block_bytes")).toInt() > 65535
+                || step.value(QStringLiteral("first_block_number")).toInt()
+                    + step.value(QStringLiteral("block_count")).toInt() > 65536
+                || step.value(QStringLiteral("request")) != QStringLiteral("upload")
+                || step.value(QStringLiteral("status_after_each_block")) != QJsonValue(true)
+                || qint64(step.value(QStringLiteral("block_count")).toInt()) * step.value(QStringLiteral("block_bytes")).toInt()
+                    != assembly.value(QStringLiteral("bytes")).toInt())
+                return fail(error, QStringLiteral("Invalid DFU read block range."));
+        } else if (operation == QStringLiteral("command")) {
+            if (!validCommandStep(step)) return fail(error, QStringLiteral("Invalid DFU read command."));
+        } else if (operation == QStringLiteral("exit_program_mode")) {
+            if (i != readSteps.size() - 1 || !readExits)
+                return fail(error, QStringLiteral("DFU read exit must be last."));
+        } else if (operation != QStringLiteral("enter_dfu_idle"))
+            return fail(error, QStringLiteral("Unsupported DFU read operation: %1.").arg(operation));
+    }
+    for (int i = 0; i < writeSteps.size(); ++i) {
+        const QJsonValue value = writeSteps.at(i);
+        const QJsonObject step = value.toObject();
+        const QString operation = step.value(QStringLiteral("operation")).toString();
+        if (operation == QStringLiteral("write_blocks")) {
+            writesBlocks = true;
+            quint32 sourceOffset = 0;
+            if (step.contains(QStringLiteral("source_offset"))
+                && !unsignedValue(step.value(QStringLiteral("source_offset")), &sourceOffset))
+                return fail(error, QStringLiteral("Invalid DFU write payload offset."));
+            const quint64 sectionBytes = qint64(step.value(QStringLiteral("block_count")).toInt())
+                * step.value(QStringLiteral("block_bytes")).toInt();
+            if (step.value(QStringLiteral("first_block_number")).toInt(-1) < 2
+                || step.value(QStringLiteral("block_count")).toInt() < 1
+                || step.value(QStringLiteral("block_bytes")).toInt() < 1
+                || step.value(QStringLiteral("block_bytes")).toInt() > 65535
+                || step.value(QStringLiteral("first_block_number")).toInt()
+                    + step.value(QStringLiteral("block_count")).toInt() > 65536
+                || step.value(QStringLiteral("request")) != QStringLiteral("download")
+                || step.value(QStringLiteral("source")) != QStringLiteral("payload")
+                || sourceOffset != writtenBytes
+                || writtenBytes + sectionBytes > quint64(source.value(QStringLiteral("payload_bytes")).toInt()))
+                return fail(error, QStringLiteral("Invalid DFU write block range."));
+            writtenBytes += sectionBytes;
+        } else if (operation == QStringLiteral("command")) {
+            if (!validCommandStep(step)) return fail(error, QStringLiteral("Invalid DFU write command."));
+        } else if (operation == QStringLiteral("upload")) {
+            if (step.value(QStringLiteral("bytes")).toInt() < 1
+                || step.value(QStringLiteral("bytes")).toInt() > 65535
+                || step.value(QStringLiteral("value")).toInt(-1) < 0)
+                return fail(error, QStringLiteral("Invalid DFU setup upload."));
+        } else if (operation == QStringLiteral("delay")) {
+            if (step.value(QStringLiteral("milliseconds")).toInt(-1) < 0
+                || step.value(QStringLiteral("milliseconds")).toInt() > 60000)
+                return fail(error, QStringLiteral("Invalid DFU setup delay."));
+        } else if (operation == QStringLiteral("erase_blocks")) {
+            if (!commands.contains(step.value(QStringLiteral("command")).toString())
+                || !commands.value(step.value(QStringLiteral("command")).toString()).toObject()
+                       .contains(QStringLiteral("data"))
+                || step.value(QStringLiteral("addresses")).toArray().isEmpty())
+                return fail(error, QStringLiteral("DFU erase addresses are missing."));
+            for (const QJsonValue &address : step.value(QStringLiteral("addresses")).toArray()) {
+                quint32 ignored = 0;
+                if (!unsignedValue(address, &ignored))
+                    return fail(error, QStringLiteral("Invalid DFU erase address."));
+            }
+        } else if (operation == QStringLiteral("exit_program_mode")) {
+            if (i != writeSteps.size() - 1 || !writeExits)
+                return fail(error, QStringLiteral("DFU write exit must be last."));
+        } else if (operation != QStringLiteral("enter_dfu_idle")
+                   && operation != QStringLiteral("validate_codeplug")
+                   && operation != QStringLiteral("get_status"))
+            return fail(error, QStringLiteral("Unsupported DFU write operation: %1.").arg(operation));
+    }
+    if (!readsBlocks || !writesBlocks
+        || writtenBytes != quint64(source.value(QStringLiteral("payload_bytes")).toInt()))
+        return fail(error, QStringLiteral("DFU read or write block operation is missing."));
+    return true;
 }
 
 bool validateTransportRules(const QJsonObject &root, QString *error)
@@ -619,6 +894,16 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         || root.value(QStringLiteral("id")).toString().isEmpty())
         return fail(error, QStringLiteral("Unsupported radio definition identity or version."));
     const QJsonObject methods = root.value(QStringLiteral("methods")).toObject();
+    if (root.contains(QStringLiteral("dfu_control_transport"))) {
+        if (!validateDfuRules(root, error)) return false;
+        out->m_readOperations.clear();
+        out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
+        out->m_document = root;
+        out->m_sourcePath.clear();
+        out->m_dfu = true;
+        if (error) error->clear();
+        return true;
+    }
     if (!validateTransportRules(root, error) || !validateReadRules(methods, error)) return false;
     const QJsonObject read = methods.value(QStringLiteral("read_codeplug")).toObject();
     const QJsonArray operations = read.value(QStringLiteral("operations")).toArray();
@@ -682,6 +967,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
     out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
     out->m_document = root;
     out->m_sourcePath.clear();
+    out->m_dfu = false;
     if (error) error->clear();
     return true;
 }

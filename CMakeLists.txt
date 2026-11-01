@@ -22,7 +22,9 @@ add_library(radioreader STATIC
     src/radiowriter.cpp src/radiowriter.h
     src/radiocodeplug.cpp src/radiocodeplug.h
     src/radiodefinition.cpp src/radiodefinition.h
-    src/radioexecutor.cpp src/radioexecutor.h)
+    src/radioexecutor.cpp src/radioexecutor.h
+    src/dfuexecutor.cpp src/dfuexecutor.h
+    src/radioimage.cpp src/radioimage.h)
 target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb PkgConfig::LIBUSB codeplugdefinition)
 
 if(APPLE)
@@ -122,6 +124,10 @@ if(BUILD_TESTING)
     target_link_libraries(radio_definition_test PRIVATE radioreader codeplugdefinition)
     target_compile_definitions(radio_definition_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME radio_definition COMMAND radio_definition_test)
+    add_executable(md380_dfu_test tests/md380_dfu.cpp)
+    target_link_libraries(md380_dfu_test PRIVATE radioreader codeplugdefinition)
+    target_compile_definitions(md380_dfu_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME md380_dfu COMMAND md380_dfu_test)
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
         src/repeaterstore.cpp src/repeaterstore.h
