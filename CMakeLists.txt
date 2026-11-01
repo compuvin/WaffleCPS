@@ -40,6 +40,10 @@ add_library(codeplugdefinition STATIC
     src/ziparchive.cpp src/ziparchive.h)
 target_link_libraries(codeplugdefinition PUBLIC Qt6::Core ZLIB::ZLIB)
 
+if(APPLE)
+    set(MACOSX_BUNDLE_ICON_FILE "wafflecps.icns")
+endif()
+
 qt_add_executable(wafflecps
     src/main.cpp
     src/repeaterstore.cpp
@@ -83,7 +87,25 @@ target_link_libraries(wafflecps PRIVATE
 )
 
 if(APPLE)
+    set(macos_icon "${CMAKE_CURRENT_BINARY_DIR}/wafflecps.icns")
+    add_custom_command(
+        OUTPUT "${macos_icon}"
+        COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/packaging/create-macos-icon.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/waffle-radio.png" "${macos_icon}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/waffle-radio.png"
+                "${CMAKE_CURRENT_SOURCE_DIR}/packaging/create-macos-icon.sh"
+        VERBATIM)
+    set_source_files_properties("${macos_icon}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "Resources")
+    target_sources(wafflecps PRIVATE "${macos_icon}")
     set_target_properties(wafflecps PROPERTIES MACOSX_BUNDLE TRUE)
+endif()
+
+if(WIN32)
+    enable_language(RC)
+    target_sources(wafflecps PRIVATE assets/waffle-radio.rc)
+    target_include_directories(wafflecps PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets")
 endif()
 
 if(UNIX AND NOT APPLE)
@@ -111,6 +133,22 @@ if(UNIX AND NOT APPLE)
         "udev, qml6-module-qtqml, qml6-module-qtqml-workerscript, qml6-module-qtquick, qml6-module-qtquick-controls, qml6-module-qtquick-layouts, qml6-module-qtquick-templates, qml6-module-qtquick-window")
     set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/postinst")
+    include(CPack)
+endif()
+
+if(WIN32)
+    install(DIRECTORY "${CMAKE_BINARY_DIR}/deploy/"
+            DESTINATION .)
+    set(CPACK_GENERATOR NSIS)
+    set(CPACK_NSIS_MUI_ICON
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/waffle-radio.ico")
+    set(CPACK_NSIS_MUI_UNIICON
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/waffle-radio.ico")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "wafflecps.exe")
+    set(CPACK_PACKAGE_NAME WaffleCPS)
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "DMR codeplug editor")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY WaffleCPS)
+    set(CPACK_PACKAGE_EXECUTABLES wafflecps WaffleCPS)
     include(CPack)
 endif()
 

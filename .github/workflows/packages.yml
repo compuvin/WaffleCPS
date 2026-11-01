@@ -10,6 +10,47 @@ permissions:
   contents: read
 
 jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v6
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-declarative
+            mingw-w64-ucrt-x86_64-libusb
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-nsis
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF
+          cmake --build build --target wafflecps -j 2
+      - name: Package installer
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p build/deploy/definitions
+          cp build/wafflecps.exe build/deploy/
+          cp definitions/*.wcp definitions/*.wrd build/deploy/definitions/
+          windeployqt --release --qmldir qml --dir build/deploy \
+            build/deploy/wafflecps.exe
+          cp /ucrt64/bin/libusb-1.0.dll /ucrt64/bin/zlib1.dll build/deploy/
+          cpack --config build/CPackConfig.cmake -G NSIS -B dist
+      - uses: actions/upload-artifact@v6
+        with:
+          name: windows-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
   ubuntu:
     strategy:
       matrix:

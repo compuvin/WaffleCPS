@@ -275,11 +275,11 @@ public:
         const Object command = rules.value(QStringLiteral("commands")).toObject()
             .value(name).toObject();
         require(!command.isEmpty(), "Unknown DFU exit command");
-        transfer(command.value(QStringLiteral("request")).toString(),
-                 uint16_t(number(command.value(QStringLiteral("value")))),
-                 hex(command.value(QStringLiteral("data_hex"))), false);
         if (step.value(QStringLiteral("status_after")) == QStringLiteral("allow_disconnect")) {
             try {
+                transfer(command.value(QStringLiteral("request")).toString(),
+                         uint16_t(number(command.value(QStringLiteral("value")))),
+                         hex(command.value(QStringLiteral("data_hex"))), false);
                 const Status response = readStatus();
                 require(response.result == number(rules.value(QStringLiteral("get_status")).toObject()
                                                   .value(QStringLiteral("success_status"))),
@@ -287,6 +287,10 @@ public:
             } catch (const UsbTransferError &error) {
                 if (error.code != LIBUSB_ERROR_NO_DEVICE && error.code != LIBUSB_ERROR_IO) throw;
             }
+        } else {
+            transfer(command.value(QStringLiteral("request")).toString(),
+                     uint16_t(number(command.value(QStringLiteral("value")))),
+                     hex(command.value(QStringLiteral("data_hex"))), false);
         }
     }
 
