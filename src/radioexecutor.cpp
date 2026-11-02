@@ -1,5 +1,6 @@
 #include "radioexecutor.h"
 #include "dfuexecutor.h"
+#include "serialexecutor.h"
 
 #include <libusb.h>
 #include <QJsonArray>
@@ -580,6 +581,7 @@ RadioExecutor::Bytes RadioExecutor::read(const RadioDefinition &definition,
     require(definition.canRead(), "Radio definition has no read operation");
     if (cancelled.load()) throw RadioExecutor::Cancelled();
     if (definition.usesDfu()) return DfuExecutor::read(definition, progress, cancelled);
+    if (definition.usesSerial()) return SerialExecutor::read(definition, progress, cancelled);
     const Object root = definition.document();
     const Object methods = root.value(QStringLiteral("methods")).toObject();
     const Object block = methods.value(QStringLiteral("read_block")).toObject();
@@ -675,6 +677,13 @@ void RadioExecutor::write(const RadioDefinition &definition, const QJsonObject &
                     == codeplugDefinition.value(QStringLiteral("id")),
                 "Radio and codeplug definitions do not match");
         DfuExecutor::write(definition, image, progress);
+        return;
+    }
+    if (definition.usesSerial()) {
+        require(definition.writePlan().value(QStringLiteral("codeplug_definition_id"))
+                    == codeplugDefinition.value(QStringLiteral("id")),
+                "Radio and codeplug definitions do not match");
+        SerialExecutor::write(definition, image, progress);
         return;
     }
     const Object root = definition.document();

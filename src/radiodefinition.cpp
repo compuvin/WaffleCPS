@@ -1,4 +1,5 @@
 #include "radiodefinition.h"
+#include "serialexecutor.h"
 
 #include <QCryptographicHash>
 #include <QFile>
@@ -894,6 +895,18 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         || root.value(QStringLiteral("id")).toString().isEmpty())
         return fail(error, QStringLiteral("Unsupported radio definition identity or version."));
     const QJsonObject methods = root.value(QStringLiteral("methods")).toObject();
+    if (root.contains(QStringLiteral("serial_transport"))) {
+        if (root.contains(QStringLiteral("dfu_control_transport")) || root.contains(QStringLiteral("usb"))
+            || !SerialExecutor::validate(root, error)) return false;
+        out->m_readOperations.clear();
+        out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
+        out->m_document = root;
+        out->m_sourcePath.clear();
+        out->m_dfu = false;
+        out->m_serial = true;
+        if (error) error->clear();
+        return true;
+    }
     if (root.contains(QStringLiteral("dfu_control_transport"))) {
         if (!validateDfuRules(root, error)) return false;
         out->m_readOperations.clear();
@@ -901,6 +914,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         out->m_document = root;
         out->m_sourcePath.clear();
         out->m_dfu = true;
+        out->m_serial = false;
         if (error) error->clear();
         return true;
     }
@@ -968,6 +982,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
     out->m_document = root;
     out->m_sourcePath.clear();
     out->m_dfu = false;
+    out->m_serial = false;
     if (error) error->clear();
     return true;
 }

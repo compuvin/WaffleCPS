@@ -25,6 +25,7 @@ jobs:
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-qt6-base
             mingw-w64-ucrt-x86_64-qt6-declarative
+            mingw-w64-ucrt-x86_64-qt6-serialport
             mingw-w64-ucrt-x86_64-libusb
             mingw-w64-ucrt-x86_64-zlib
             mingw-w64-ucrt-x86_64-nsis
@@ -44,6 +45,9 @@ jobs:
           windeployqt --release --qmldir qml --dir build/deploy \
             build/deploy/wafflecps.exe
           cp /ucrt64/bin/libusb-1.0.dll /ucrt64/bin/zlib1.dll build/deploy/
+          cp /ucrt64/bin/libgcc_s_seh-1.dll \
+             /ucrt64/bin/libstdc++-6.dll \
+             /ucrt64/bin/libwinpthread-1.dll build/deploy/
           cpack --config build/CPackConfig.cmake -G NSIS -B dist
       - uses: actions/upload-artifact@v6
         with:
@@ -66,7 +70,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build g++ pkg-config \
-            libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev \
+            libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-serialport-dev \
             qml6-module-qtqml qml6-module-qtqml-workerscript \
             qml6-module-qtquick qml6-module-qtquick-controls \
             qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -95,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install dependencies
-        run: brew install cmake ninja pkgconf qtbase qtdeclarative qttools qtsvg libusb
+        run: brew install cmake ninja pkgconf qtbase qtdeclarative qtserialport qttools qtsvg libusb
       - name: Build app bundle
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \

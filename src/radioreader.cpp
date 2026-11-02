@@ -44,7 +44,7 @@ void RadioReader::start(const QString &definitionPath)
             emit failed(error);
             return;
         }
-        if (definition.usesDfu()) radioTemplate = codeplug.defaultCodeplug();
+        if (definition.usesDfu() || definition.usesSerial()) radioTemplate = codeplug.defaultCodeplug();
         std::fprintf(stdout, "[radio definitions] Read uses FILE: %s\n", qUtf8Printable(definition.sourcePath()));
         std::fflush(stdout);
     }

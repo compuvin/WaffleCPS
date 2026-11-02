@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
     if (!CodeplugDefinitions::hasCompanionWrd("cs7000-m17-plus.wcp")
         || CodeplugDefinitions::hasCompanionWrd("cs750.wcp")
         || CodeplugDefinitions::hasCompanionWrd("cs800.wcp")
-        || CodeplugDefinitions::hasCompanionWrd("opengd77-128k.wcp")) {
+        || !CodeplugDefinitions::hasCompanionWrd("opengd77-128k.wcp")) {
         qCritical() << "Companion radio definition detection failed";
         return 51;
     }

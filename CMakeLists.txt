@@ -5,7 +5,7 @@ project(WaffleCPS VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets SerialPort)
 find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
@@ -24,8 +24,9 @@ add_library(radioreader STATIC
     src/radiodefinition.cpp src/radiodefinition.h
     src/radioexecutor.cpp src/radioexecutor.h
     src/dfuexecutor.cpp src/dfuexecutor.h
+    src/serialexecutor.cpp src/serialexecutor.h
     src/radioimage.cpp src/radioimage.h)
-target_link_libraries(radioreader PUBLIC Qt6::Core cs7000usb PkgConfig::LIBUSB codeplugdefinition)
+target_link_libraries(radioreader PUBLIC Qt6::Core Qt6::SerialPort cs7000usb PkgConfig::LIBUSB codeplugdefinition)
 
 if(APPLE)
     target_sources(radioreader PRIVATE src/macradiotransfer.cpp src/macradiotransfer.h)
@@ -166,6 +167,10 @@ if(BUILD_TESTING)
     target_link_libraries(md380_dfu_test PRIVATE radioreader codeplugdefinition)
     target_compile_definitions(md380_dfu_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME md380_dfu COMMAND md380_dfu_test)
+    add_executable(opengd77_serial_test tests/opengd77_serial.cpp)
+    target_link_libraries(opengd77_serial_test PRIVATE radioreader codeplugdefinition)
+    target_compile_definitions(opengd77_serial_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME opengd77_serial COMMAND opengd77_serial_test)
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
         src/repeaterstore.cpp src/repeaterstore.h
