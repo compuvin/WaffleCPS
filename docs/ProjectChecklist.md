@@ -119,7 +119,7 @@ Treat each model and firmware variant as a separate compatibility target. File i
 - [ ] Connect Systems CS800D — owned radio.
 - [ ] TYT MD-380 — codeplug available; no radio available for direct device tests.
 - [ ] Radioddity GD-77 — public sample codeplugs listed in the research note; no owned radio identified.
-- [ ] Baofeng DM-1701 running OpenGD77 — owned radio; verify its firmware version before adapter work.
+- [x] Baofeng DM-1701 running OpenGD77 — owned radio; verify its firmware version before adapter work.
 
 ## Possible future items
 

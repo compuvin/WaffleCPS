@@ -2,7 +2,7 @@
 
 WaffleCPS is an early desktop editor for DMR codeplugs. It organizes programming around repeaters, time slots, and talkgroups so you can see how you will use a radio without working through a traditional channel table.
 
-The application is under active development. It reads external `.wcp` definitions for codeplug file import and export. Definitions are included for CS7000-M17 Plus, CS700/CS701, CS750, CS800, MD-380, and OpenGD77. Waffle can read and write a supported CS7000-M17 Plus over USB. Other imported definitions have no radio transfer controls unless a matching `.wrd` file is present.
+The application is under active development. It reads external `.wcp` definitions for codeplug file import and export. Definitions are included for CS7000-M17 Plus, CS700/CS701, CS750, CS800, MD-380, and OpenGD77. Radio read and write have been tested with the CS7000-M17 Plus, CS700/CS701, and a DM-1701 running OpenGD77. Other imported definitions have no radio transfer controls unless a matching `.wrd` file is present.
 
 ## Screenshots
 
@@ -30,16 +30,16 @@ These views use an imported CS7000 GPS codeplug.
 - Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
 - Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
 - Export an imported codeplug using its selected definition and preserved source bytes. New offers the loaded radio definitions and a blank project.
-- Read and write the supported CS7000-M17 Plus over USB. Backups are manual; see [Radio operations](docs/RadioOperations.md).
+- Read and write supported CS7000-M17 Plus, CS700/CS701, and DM-1701 OpenGD77 radios. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 
-The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. Direct radio writing has been tested only for the supported CS7000-M17 Plus workflow. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
+The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. Direct radio writing has been hardware tested for the models listed above; compatibility with other models and firmware is unverified. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
 
 ## Build and run
 
-WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer, zlib, and libusb. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
+WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer with Qt SerialPort, zlib, and libusb. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
 
 ```sh
-sudo apt install cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev \
+sudo apt install cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-serialport-dev \
   qml6-module-qtqml qml6-module-qtqml-workerscript \
   qml6-module-qtquick qml6-module-qtquick-controls \
   qml6-module-qtquick-layouts qml6-module-qtquick-templates \
@@ -71,7 +71,7 @@ ctest --test-dir build --output-on-failure -E '^RequiresCodeplug-'
 
 Run without `-E` when the required local samples are present in `Codeplugs/`.
 
-WaffleCPS uses Qt and CMake. GitHub Actions builds `.deb` packages for Linux amd64 and arm64 and an unsigned macOS arm64 DMG. The macOS job builds the app but does not run its tests; Windows has not been built or packaged. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
+WaffleCPS uses Qt and CMake. GitHub Actions builds `.deb` packages for Linux amd64 and arm64 and an unsigned macOS arm64 DMG. The macOS job builds the app but does not run its tests; GitHub Actions also builds a Windows installer, whose runtime packaging fix still needs testing. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
 
 ## Project documents
 
