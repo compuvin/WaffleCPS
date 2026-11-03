@@ -10,6 +10,7 @@
 #include <QAbstractButton>
 #include <QDebug>
 #include <QDir>
+#include <QEventLoop>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QImage>
@@ -247,7 +248,7 @@ int main(int argc, char *argv[])
         QObject *root = engine.rootObjects().constFirst();
         auto *readButton = root->findChild<QQuickItem *>("readRadioButton");
         auto *writeButton = root->findChild<QQuickItem *>("writeRadioButton");
-        if (!readButton || !writeButton || !readButton->isEnabled() || !writeButton->isEnabled()) return 40;
+        if (!readButton || !writeButton || !readButton->isEnabled() || writeButton->isEnabled()) return 40;
         const QString sample = QCoreApplication::applicationDirPath()
             + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
         if (!store.importCodeplugFromFile(sample, "cs800.wcp")) return 41;
@@ -255,11 +256,11 @@ int main(int argc, char *argv[])
         if (readButton->isEnabled() || writeButton->isEnabled()) return 42;
         store.newProject();
         QCoreApplication::processEvents();
-        if (!readButton->isEnabled() || !writeButton->isEnabled()) return 43;
+        if (!readButton->isEnabled() || writeButton->isEnabled()) return 43;
         if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug())) return 44;
         QCoreApplication::processEvents();
         if (!readButton->isEnabled() || !writeButton->isEnabled() || qmlWarningCount) return 45;
-        qInfo() << "Radio transfer controls follow companion .wrd availability";
+        qInfo() << "Radio Read and Write follow the selected project definition";
         return 0;
     }
     if (radioMode == "--contact-import-counts") {
@@ -782,15 +783,27 @@ int main(int argc, char *argv[])
         return app.exec();
     }
     if (exerciseRadio) {
+        if (radioMode == "--radio-success" && !store.importCodeplugFromBytes(cs7000DefaultCodeplug()))
+            return 10;
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         window->resize(800, 720);
         QObject *root = engine.rootObjects().constFirst();
         auto *menuButton = root->findChild<QQuickItem *>(QStringLiteral("radioMenuButton"));
         auto *button = root->findChild<QQuickItem *>(QStringLiteral("readRadioButton"));
+        QObject *picker = root->findChild<QObject *>(QStringLiteral("radioReadDialog"));
         QObject *dialog = root->findChild<QObject *>(QStringLiteral("radioReadProgress"));
         QObject *confirmation = root->findChild<QObject *>(QStringLiteral("radioReadConfirmation"));
+        QObject *confirmRead = root->findChild<QObject *>(QStringLiteral("confirmRadioReadButton"));
         QObject *cancel = root->findChild<QObject *>(QStringLiteral("cancelRadioReadButton"));
-        if (!menuButton || !button || !dialog || !confirmation || !cancel) return 10;
+        if (!menuButton || !button || !picker || !dialog || !confirmation || !confirmRead || !cancel) return 10;
+        auto readOption = [root](const QString &fileName) -> QQuickItem * {
+            auto *list = root->findChild<QQuickItem *>(QStringLiteral("radioReadList"));
+            auto *content = list ? list->property("contentItem").value<QQuickItem *>() : nullptr;
+            if (!content) return nullptr;
+            for (auto *item : content->childItems())
+                if (item->objectName() == QStringLiteral("radioReadOption_") + fileName) return item;
+            return nullptr;
+        };
         int heartbeats = 0;
         bool readStarted = false;
         QTimer heartbeat;
@@ -806,20 +819,41 @@ int main(int argc, char *argv[])
             store.addContact(QStringLiteral("Pending contact"), 1234567, false);
             QMetaObject::invokeMethod(menuButton, "clicked");
             QMetaObject::invokeMethod(button, "clicked");
+            if (radioMode == "--radio-success") {
+                if (picker->property("visible").toBool()
+                    || root->property("pendingRadioReadDefinitionPath").toString() != store.radioDefinitionPath()) {
+                    qCritical() << "Selected project did not read directly from its radio definition";
+                    app.exit(12); return;
+                }
+            } else {
+                QEventLoop pickerLoop;
+                QTimer::singleShot(80, &pickerLoop, &QEventLoop::quit);
+                pickerLoop.exec();
+                if (!picker->property("visible").toBool()) {
+                    qCritical() << "Radio Read picker did not open";
+                    app.exit(12); return;
+                }
+                auto *option = readOption(QStringLiteral("cs7000-m17-plus.wcp"));
+                if (!option) {
+                    qCritical() << "CS7000 was absent from Radio Read picker";
+                    app.exit(12); return;
+                }
+                QMetaObject::invokeMethod(option, "clicked");
+            }
             if (!confirmation->property("visible").toBool() || radioReader.busy()) {
                 qCritical() << "Unsaved project was not confirmed before reading";
                 app.exit(12);
                 return;
             }
-            QMetaObject::invokeMethod(confirmation, "close");
-            store.newProject();
-            QMetaObject::invokeMethod(menuButton, "clicked");
-            QMetaObject::invokeMethod(button, "clicked");
+            QMetaObject::invokeMethod(confirmRead, "clicked");
             readStarted = true;
         });
         QTimer::singleShot(200, &app, [&] {
             if (!radioReader.busy() || !dialog->property("visible").toBool() || button->isEnabled()) {
-                qCritical() << "Read did not show modal progress and block project editing";
+                qCritical() << "Read did not show modal progress and block project editing"
+                            << "busy" << radioReader.busy() << "progress" << dialog->property("visible")
+                            << "read enabled" << button->isEnabled() << "confirmation" << confirmation->property("visible")
+                            << "picker" << picker->property("visible") << "path" << root->property("pendingRadioReadDefinitionPath");
                 app.exit(13);
                 return;
             }

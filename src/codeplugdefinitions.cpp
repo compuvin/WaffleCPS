@@ -212,6 +212,20 @@ QVariantList CodeplugDefinitions::newProjectOptions()
     return options;
 }
 
+QVariantList CodeplugDefinitions::radioReadOptions()
+{
+    QVariantList options;
+    for (const auto &entry : catalog().entries) {
+        if (!entry.loaded || !entry.companionWrd) continue;
+        options.append(QVariantMap{
+            {QStringLiteral("model"), entry.definition.modelName()},
+            {QStringLiteral("fileName"), entry.fileName},
+            {QStringLiteral("hasIcon"), !entry.definition.iconPng().isEmpty()}
+        });
+    }
+    return options;
+}
+
 QByteArray CodeplugDefinitions::iconPng(const QString &definitionFile)
 {
     for (const auto &entry : catalog().entries)

@@ -6,6 +6,7 @@ ApplicationWindow {
     id: window
     property bool clearingProject: false
     property string currentSection: "repeaters"
+    property string pendingRadioReadDefinitionPath: ""
     onClosing: function(event) {
         if (radioWriter.busy) {
             event.accepted = false
@@ -231,17 +232,39 @@ ApplicationWindow {
                             HeaderMenuItem {
                                 objectName: "readRadioButton"
                                 text: "Read"
-                                enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
+                                hoverEnabled: true
+                                ToolTip.visible: !enabled && hovered
+                                ToolTip.text: radioReader.busy || radioWriter.busy
+                                              ? "A radio transfer is in progress."
+                                              : store.hasImportedCodeplug
+                                                ? "No USB definition (.wrd) is available for this radio."
+                                                : "No radio read definitions are available."
+                                enabled: (store.hasImportedCodeplug
+                                          ? store.radioTransferAvailable
+                                          : store.radioReadOptions.length > 0)
+                                         && !radioReader.busy && !radioWriter.busy
                                 onClicked: {
-                                    if (store.modified)
-                                        radioReadConfirmation.open()
-                                    else
-                                        radioReader.start(store.radioDefinitionPath())
+                                    if (store.hasImportedCodeplug) {
+                                        window.pendingRadioReadDefinitionPath = store.radioDefinitionPath()
+                                        if (store.modified)
+                                            radioReadConfirmation.open()
+                                        else
+                                            radioReader.start(window.pendingRadioReadDefinitionPath)
+                                    } else {
+                                        radioReadDialog.open()
+                                    }
                                 }
                             }
                             HeaderMenuItem {
                                 objectName: "writeRadioButton"
                                 text: "Write"
+                                hoverEnabled: true
+                                ToolTip.visible: !enabled && hovered
+                                ToolTip.text: radioReader.busy || radioWriter.busy
+                                              ? "A radio transfer is in progress."
+                                              : store.hasImportedCodeplug
+                                                ? "No USB definition (.wrd) is available for this radio."
+                                                : "Create or load a radio project before writing."
                                 enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
                                 onClicked: radioWriteConfirmation.open()
                             }
@@ -699,7 +722,7 @@ ApplicationWindow {
                         wrapMode: Text.WordWrap
                     }
                     Label {
-                        text: "Enter your radio details, then add a repeater to get started."
+                        text: "Call sign and DMR ID can be added now or added later in Radio Settings. Add a repeater to get started."
                         color: "#718379"
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
@@ -1684,6 +1707,105 @@ ApplicationWindow {
     }
 
     PageDialog {
+        id: radioReadDialog
+        objectName: "radioReadDialog"
+        onOpened: radioReadSearch.text = ""
+        modal: true
+        width: Math.min(520, window.width - 32)
+        height: Math.min(560, window.height - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Read from radio"
+        standardButtons: Dialog.NoButton
+
+        contentItem: ColumnLayout {
+            spacing: 14
+            Label {
+                text: "Choose a radio"
+                font.pixelSize: 22
+                font.bold: true
+                color: "#173d30"
+            }
+            PageField {
+                id: radioReadSearch
+                Layout.fillWidth: true
+                placeholderText: "Search radios or definitions"
+                Accessible.name: "Search radios to read"
+            }
+            ListView {
+                id: radioReadList
+                objectName: "radioReadList"
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 8
+                model: store.radioReadOptions.filter(function(option) {
+                    const query = radioReadSearch.text.trim().toLowerCase()
+                    return option.model.toLowerCase().indexOf(query) !== -1
+                        || option.fileName.toLowerCase().indexOf(query) !== -1
+                })
+                delegate: ItemDelegate {
+                    id: radioReadCard
+                    required property var modelData
+                    objectName: "radioReadOption_" + modelData.fileName
+                    width: radioReadList.width - 8
+                    height: 76
+                    Accessible.name: modelData.model + " radio"
+                    onClicked: {
+                        window.pendingRadioReadDefinitionPath = store.radioDefinitionPathFor(modelData.fileName)
+                        radioReadDialog.close()
+                        if (store.modified)
+                            radioReadConfirmation.open()
+                        else
+                            radioReader.start(window.pendingRadioReadDefinitionPath)
+                    }
+                    background: Rectangle {
+                        radius: 12
+                        color: radioReadCard.hovered ? "#e7f2e9" : "#f7faf7"
+                        border.color: radioReadCard.hovered ? "#548d66" : "#cbded0"
+                    }
+                    contentItem: RowLayout {
+                        spacing: 12
+                        Image {
+                            Layout.preferredWidth: 48
+                            Layout.preferredHeight: 48
+                            fillMode: Image.PreserveAspectFit
+                            source: radioReadCard.modelData.hasIcon
+                                    ? "image://radioicons/" + radioReadCard.modelData.fileName
+                                    : "qrc:/assets/waffle-radio.png"
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Label {
+                                text: radioReadCard.modelData.model
+                                font.pixelSize: 17
+                                font.bold: true
+                                color: "#173d30"
+                            }
+                            Label {
+                                text: radioReadCard.modelData.fileName
+                                color: "#64776c"
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                            }
+                        }
+                    }
+                }
+            }
+            Label {
+                visible: radioReadList.count === 0 && radioReadSearch.text.trim().length > 0
+                text: "No matching radios"
+            }
+            PageAction {
+                text: "Cancel"
+                Layout.alignment: Qt.AlignRight
+                onClicked: radioReadDialog.close()
+            }
+        }
+    }
+
+    PageDialog {
         id: radioReadConfirmation
         objectName: "radioReadConfirmation"
         x: Math.round((window.width - width) / 2)
@@ -1702,10 +1824,12 @@ ApplicationWindow {
                 Layout.alignment: Qt.AlignRight
                 PageAction { text: "Cancel"; onClicked: radioReadConfirmation.close() }
                 PageAction {
+                    objectName: "confirmRadioReadButton"
                     text: "Read from radio"
                     onClicked: {
                         radioReadConfirmation.close()
-                        if (store.radioTransferAvailable) radioReader.start(store.radioDefinitionPath())
+                        if (window.pendingRadioReadDefinitionPath.length)
+                            radioReader.start(window.pendingRadioReadDefinitionPath)
                     }
                 }
             }

@@ -95,15 +95,18 @@ int main(int argc, char *argv[])
     RepeaterStore radioGate;
     const QString cs800Sample = QCoreApplication::applicationDirPath()
         + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
-    if (!radioGate.radioTransferAvailable()
+    if (radioGate.radioTransferAvailable()
         || !radioGate.importCodeplugFromFile(cs800Sample, "cs800.wcp")
         || radioGate.radioTransferAvailable()) {
-        qCritical() << "Radio controls were available for CS800 or unavailable in New";
+        qCritical() << "Radio write was available without a project radio definition";
         return 52;
     }
     radioGate.newProject();
-    if (!radioGate.radioTransferAvailable()) {
-        qCritical() << "Radio controls stayed unavailable after New";
+    if (radioGate.radioTransferAvailable()
+        || radioGate.radioDefinitionPath() != QString()
+        || radioGate.radioDefinitionPathFor("cs7000-m17-plus.wcp").isEmpty()
+        || !radioGate.radioDefinitionPathFor("cs800.wcp").isEmpty()) {
+        qCritical() << "Radio paths or write gate were wrong after a blank New project";
         return 53;
     }
     if (!filters.contains("cs7000-m17-plus.wcp") || !filters.contains("cs750.wcp")

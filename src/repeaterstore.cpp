@@ -220,18 +220,25 @@ bool RepeaterStore::modified() const { return m_modified; }
 bool RepeaterStore::hasImportedCodeplug() const { return !m_importedCodeplug.model.isEmpty(); }
 bool RepeaterStore::radioTransferAvailable() const
 {
-    const QString definitionFile = hasImportedCodeplug()
-        ? m_importedCodeplug.definitionFile : CodeplugDefinitions::defaultDefinitionFile();
-    return CodeplugDefinitions::hasCompanionWrd(definitionFile);
+    return hasImportedCodeplug()
+        && CodeplugDefinitions::hasCompanionWrd(m_importedCodeplug.definitionFile);
 }
 QString RepeaterStore::radioDefinitionPath() const
 {
-    return CodeplugDefinitions::companionWrdPath(
-        hasImportedCodeplug() ? m_importedCodeplug.definitionFile : CodeplugDefinitions::defaultDefinitionFile());
+    return hasImportedCodeplug()
+        ? CodeplugDefinitions::companionWrdPath(m_importedCodeplug.definitionFile) : QString();
+}
+QString RepeaterStore::radioDefinitionPathFor(const QString &definitionFile) const
+{
+    return CodeplugDefinitions::companionWrdPath(definitionFile);
 }
 QVariantList RepeaterStore::newProjectOptions() const
 {
     return CodeplugDefinitions::newProjectOptions();
+}
+QVariantList RepeaterStore::radioReadOptions() const
+{
+    return CodeplugDefinitions::radioReadOptions();
 }
 QString RepeaterStore::importedCodeplugSummary() const
 {

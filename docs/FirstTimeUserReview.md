@@ -5,8 +5,8 @@ Each item can be accepted, changed, or skipped based on its benefit and cost.
 
 ## Getting started
 
-- [ ] Explain the two starting paths in New: create a project for a selected radio, or import an existing codeplug. The current radio picker shows definitions but does not explain when to use Import.
-- [ ] Explain that call sign and DMR ID can be entered later. The New Project form permits blank values, but does not say so.
+- [X] Explain the two starting paths in New: create a project for a selected radio, or import an existing codeplug. The current radio picker shows definitions but does not explain when to use Import. (I have decided not to do this as it doesn't add benefit)
+- [X] Explain that call sign and DMR ID can be entered later. The New Project form permits blank values, but does not say so.
 - [ ] Review “Blank project” wording. “Start without a radio selected” is accurate; a new user may also need to know when to choose it.
 
 ## Programming a first repeater

@@ -8,6 +8,25 @@ These public collections may provide test files for future WaffleCPS import adap
 | [DMR.kiwi downloads](https://dmr.kiwi/downloads/) | Listings for CS700, CS750, CS800, Radioddity GD-77, TYT MD-380, and other radios | A range of models and manufacturers for later adapter tests. |
 | [Connecticut ARES Region 3 digital modes](https://www.ctares-region3.org/digital-modes/) | DMR programming guidance and a reference to CTARES.org | Background on Connecticut ARES programming; this page does not provide a verified codeplug download. |
 
+## Radios to investigate
+
+These pages list downloadable codeplugs; the files have not been downloaded or checked in WaffleCPS. Match the exact model and CPS version before using a sample.
+
+| # | Manufacturer | Model | Type | Codeplug listing |
+|---|---|---|---|---|
+| 1 | AnyTone | AT-D878UVII Plus | Portable | [NEDECN: v3.04 `.rdt` samples](https://nedecn.org/downloads/codeplugs/) |
+| 2 | TYT | MD-UV380 / MD-UV390 | Portable | [Mid-Atlantic Wireless: MD-UV380/UV390 VHF](https://mawcg.org/codeplugs-and-configs/) |
+| 3 | Baofeng | DM-1701 | Portable | [NEDECN: DM1701 `.rdt`](https://nedecn.org/downloads/codeplugs/) |
+| 4 | Radioddity | GD-77 | Portable | [Mid-Atlantic Wireless: GD-77](https://mawcg.org/codeplugs-and-configs/) |
+| 5 | BTECH | DMR-6X2 PRO | Portable | No verified sample listing found; [BTECH provides CPS and firmware](https://baofengtech.com/dmr/dmr-6x2-pro/). |
+| 6 | AnyTone | AT-D578UVIII Plus | Mobile | [PI4UTR: AT-578 codeplug collection](https://codeplug.pi4utr.nl/) |
+| 7 | Motorola | XPR 5550e | Mobile | [Rocky Mountain Ham Radio: XPR5550e High Power](https://www.rmham.org/sample-codeplugs/) |
+| 8 | TYT | MD-9600 | Mobile | [PALS Repeater Group: MD-9600](https://www.palsdmr.com/radio-codeplugs/) |
+| 9 | Retevis | RT3S | Portable | [VK2IDL: ORARC RT3S codeplug](https://vk2idl.com/index.php/retevis-rt3s/) |
+| 10 | Radioddity | GD-88 | Portable | [Funkwelle: GD-88 codeplug package](https://www.funkwelle.com/download/radioddity-gd-88-dmr-codeplug) |
+| 11 | Baofeng | DM-32UV | Portable | [Timz DMR: beginning codeplug](https://www.timzdmr.com/radios/Baof-DM-32UV/index.htm) |
+| 12 | AnyTone | AT-D168UV | Portable | [New England `.rdt` repository](https://github.com/killcity/d168-codeplug-new-england) |
+
 The Middlesex files are historical examples, not a source of current repeater frequencies or talkgroup assignments. DMR.kiwi describes its codeplugs as intended for New Zealand's AREC ZL-TRBO network. Any downloaded sample should be treated as a test fixture for its stated radio model and format, not as a configuration to write to a different radio.
 
 ## Proposed compatibility test library
