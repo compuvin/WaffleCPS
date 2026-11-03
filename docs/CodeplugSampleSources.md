@@ -26,6 +26,17 @@ These pages list downloadable codeplugs; the files have not been downloaded or c
 | 10 | Radioddity | GD-88 | Portable | [Funkwelle: GD-88 codeplug package](https://www.funkwelle.com/download/radioddity-gd-88-dmr-codeplug) |
 | 11 | Baofeng | DM-32UV | Portable | [Timz DMR: beginning codeplug](https://www.timzdmr.com/radios/Baof-DM-32UV/index.htm) |
 | 12 | AnyTone | AT-D168UV | Portable | [New England `.rdt` repository](https://github.com/killcity/d168-codeplug-new-england) |
+| 13 | Radioddity | GD-73 | Portable | Unknown; [QDMR supports this model](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 14 | Radioddity / Baofeng | RD-5R / RD-5R+ | Portable | Unknown; [QDMR supports these models](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 15 | TYT / Retevis | MD-390 / RT8 | Portable | Unknown; [QDMR supports these models](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 16 | TYT / Retevis | MD-2017 / RT82 | Portable | Unknown; [QDMR supports these models](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 17 | AnyTone | AT-D878UV (original) | Portable | Unknown; [QDMR supports this model](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 18 | AnyTone | AT-D868UVE | Portable | Unknown; [QDMR supports this model](https://github.com/hmatuschek/qdmr#supported-radios). |
+| 19 | AnyTone | AT-D578UV / AT-D578UV II | Mobile | Unknown; [QDMR supports these variants](https://github.com/hmatuschek/qdmr#supported-radios). Verify compatibility separately from the AT-D578UVIII Plus above. |
+| 20 | BTECH | BF-1801A6 / DR-1801UV A6 family | Portable | Unknown; [QDMR lists this family](https://github.com/hmatuschek/qdmr#supported-radios); upstream notes describe DR-1801UV A6 support as unstable. |
+| 21 | BTECH | DMR-6X2 (non-PRO) | Portable | Unknown; [QDMR supports this model](https://github.com/hmatuschek/qdmr#supported-radios). |
+
+The additional entries (13–21) are based on QDMR's [supported-radio list](https://github.com/hmatuschek/qdmr#supported-radios). Their codeplug download sources are **unknown**; QDMR is a reference for radio support and USB/codeplug implementation, **not** a verified source of vendor CPS codeplug files. QDMR also supports OpenGD77/OpenUV390-family firmware on certain radios; that is a separate compatibility target from their original firmware. Check exact model and firmware before assuming interoperability.
 
 The Middlesex files are historical examples, not a source of current repeater frequencies or talkgroup assignments. DMR.kiwi describes its codeplugs as intended for New Zealand's AREC ZL-TRBO network. Any downloaded sample should be treated as a test fixture for its stated radio model and format, not as a configuration to write to a different radio.
 
