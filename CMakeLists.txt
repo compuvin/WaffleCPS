@@ -141,6 +141,7 @@ if(WIN32)
     install(DIRECTORY "${CMAKE_BINARY_DIR}/deploy/"
             DESTINATION .)
     set(CPACK_GENERATOR NSIS)
+    set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
     set(CPACK_NSIS_MUI_ICON
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/waffle-radio.ico")
     set(CPACK_NSIS_MUI_UNIICON

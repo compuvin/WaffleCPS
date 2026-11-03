@@ -44,10 +44,9 @@ jobs:
           cp definitions/*.wcp definitions/*.wrd build/deploy/definitions/
           windeployqt --release --qmldir qml --dir build/deploy \
             build/deploy/wafflecps.exe
-          cp /ucrt64/bin/libusb-1.0.dll /ucrt64/bin/zlib1.dll build/deploy/
-          cp /ucrt64/bin/libgcc_s_seh-1.dll \
-             /ucrt64/bin/libstdc++-6.dll \
-             /ucrt64/bin/libwinpthread-1.dll build/deploy/
+          cmake -DDEPLOY_DIR="$(cygpath -am build/deploy)" \
+            -DMINGW_BIN="$(cygpath -am /ucrt64/bin)" \
+            -P packaging/copy-windows-dependencies.cmake
           cpack --config build/CPackConfig.cmake -G NSIS -B dist
       - uses: actions/upload-artifact@v6
         with:
