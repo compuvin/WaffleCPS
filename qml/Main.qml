@@ -819,7 +819,7 @@ ApplicationWindow {
                     }
                     Label {
                         visible: !importedContent.showZoneEditor
-                        text: "ZONE · " + importedContent.group.zoneChannelCount + " / 16 channels"
+                        text: "ZONE · " + importedContent.group.zoneChannelCount + " / " + importedContent.group.zoneMemberCapacity + " channels"
                         color: "#64776c"
                     }
                     Frame {
@@ -878,7 +878,7 @@ ApplicationWindow {
                             slotNumber: 1
                             groups: importedContent.group.slot1Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.zoneChannelCount < 16
+                            canAdd: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -889,7 +889,7 @@ ApplicationWindow {
                             slotNumber: 2
                             groups: importedContent.group.slot2Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.zoneChannelCount < 16
+                            canAdd: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -898,7 +898,7 @@ ApplicationWindow {
                     }
                     Label {
                         visible: !importedContent.showZoneEditor
-                                 && importedContent.group.zoneChannelCount < 16
+                                 && importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
                                  && importedContent.group.power === "Unknown"
                         text: "Choose High or Low transmit power in Repeater details before adding a talkgroup."
                         color: "#64776c"
@@ -947,7 +947,7 @@ ApplicationWindow {
                                 PageAction {
                                     text: "+ Add simplex"
                                     primary: true
-                                    enabled: importedContent.group.zoneChannelCount < 16
+                                    enabled: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
                                     onClicked: simplexDialog.openForCurrent(true)
                                 }
                             }

@@ -14,7 +14,7 @@ ColumnLayout {
     spacing: 12
     RowLayout {
         Layout.fillWidth: true
-        Label { text: "ZONE · " + editor.channels.length + " / 16 channels"; color: "#64776c"; Layout.fillWidth: true }
+        Label { text: "ZONE · " + editor.channels.length + " / " + editor.group.zoneMemberCapacity + " channels"; color: "#64776c"; Layout.fillWidth: true }
         PageAction { text: "Rename"; onClicked: { renameField.text = editor.group.name; renameDialog.open() } }
     }
     Label {
@@ -79,7 +79,7 @@ ColumnLayout {
             objectName: "zoneAddChannelButton"
             text: "+ Add channel"
             primary: true
-            enabled: editor.channels.length < 16
+            enabled: editor.channels.length < editor.group.zoneMemberCapacity
             onClicked: channelDialog.openForAdd()
         }
         PageAction { objectName: "zoneOrderChannelsButton"; text: "Order channels"; enabled: editor.channels.length > 1; onClicked: editor.orderRequested() }

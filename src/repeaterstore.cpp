@@ -385,6 +385,7 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
             {QStringLiteral("slot1Talkgroups"), slot1Talkgroups},
             {QStringLiteral("slot2Talkgroups"), slot2Talkgroups},
             {QStringLiteral("zoneChannelCount"), zoneChannelCount},
+            {QStringLiteral("zoneMemberCapacity"), m_importedCodeplug.zoneMemberCapacity},
             {QStringLiteral("zones"), zones}};
 }
 
