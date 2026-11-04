@@ -1,5 +1,11 @@
 # WaffleCPS
 
+**What WaffleCPS is:** A simple way to program DMR radios without the complexity of traditional CPS software.
+
+**What WaffleCPS isn't:** A tool for configuring every advanced or manufacturer-specific radio setting.
+
+When importing an existing codeplug, WaffleCPS aims to preserve settings it doesn't manage, leaving them unchanged.
+
 WaffleCPS is an early desktop editor for DMR codeplugs. It organizes programming around repeaters, time slots, and talkgroups so you can see how you will use a radio without working through a traditional channel table.
 
 The application is under active development. It reads external `.wcp` definitions for codeplug file import and export. Definitions are included for CS7000-M17 Plus, CS700/CS701, CS750, CS800, MD-380, and OpenGD77. Radio read and write have been tested with the CS7000-M17 Plus, CS700/CS701, and a DM-1701 running OpenGD77. Other imported definitions have no radio transfer controls unless a matching `.wrd` file is present.
