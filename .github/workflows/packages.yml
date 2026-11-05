@@ -42,6 +42,7 @@ jobs:
           mkdir -p build/deploy/definitions
           cp build/wafflecps.exe build/deploy/
           cp definitions/*.wcp definitions/*.wrd build/deploy/definitions/
+          cp packaging/qt.conf build/deploy/
           windeployqt --release --qmldir qml --dir build/deploy \
             build/deploy/wafflecps.exe
           cmake -DDEPLOY_DIR="$(cygpath -am build/deploy)" \
