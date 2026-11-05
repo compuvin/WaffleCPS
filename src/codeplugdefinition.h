@@ -9,6 +9,8 @@ class CodeplugDefinition
 {
 public:
     static bool load(const QString &path, CodeplugDefinition *result, QString *error);
+    static bool loadMember(const QString &path, const QString &member,
+                           CodeplugDefinition *result, QString *error);
 
     QString id() const;
     QString modelName() const;
@@ -21,6 +23,7 @@ public:
 
     // Model recognition deliberately does not imply structural validation.
     bool matchesModel(const QByteArray &input, QString *error) const;
+    bool matchesRawFields(const QByteArray &input, const QJsonObject &expected) const;
     // Decode and validate declared binary fields/tables independently of editor bindings.
     bool inspect(const QByteArray &input, QJsonObject *result, QString *error) const;
     bool read(const QByteArray &input, ImportedCodeplug *result, QString *error) const;

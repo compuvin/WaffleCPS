@@ -32,7 +32,11 @@ int main(int argc, char **argv)
                     check(!choice.isEmpty(), "Definition missing from import dialog: " + file);
                     check(CodeplugDefinitions::definitionForFilter(choice, &error) == file, "Wrong explicit definition selection");
                     CodeplugDefinition definition;
-                    check(CodeplugDefinition::load(QDir(folder).filePath(file), &definition, &error), file + ": " + error);
+                    const bool loaded = file == "cs750.wcp"
+                        ? CodeplugDefinition::loadMember(QDir(folder).filePath(file),
+                                                         "versions/d4-3-01/definition.json", &definition, &error)
+                        : CodeplugDefinition::load(QDir(folder).filePath(file), &definition, &error);
+                    check(loaded, file + ": " + error);
                     QJsonObject binary;
                     check(definition.inspect(definition.defaultCodeplug(), &binary, &error), file + ": " + error);
                     QProcess inspector;

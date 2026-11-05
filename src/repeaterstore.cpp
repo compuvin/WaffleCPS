@@ -244,8 +244,10 @@ QString RepeaterStore::importedCodeplugSummary() const
 {
     if (!hasImportedCodeplug())
         return {};
+    const QString catalogModel = CodeplugDefinitions::modelName(m_importedCodeplug.definitionFile);
+    const QString model = catalogModel.isEmpty() ? m_importedCodeplug.model : catalogModel;
     return QStringLiteral("%1 · %2 · %3 channels · %4 zones")
-        .arg(m_importedCodeplug.model, m_importedCodeplug.cpsVersion)
+        .arg(model, m_importedCodeplug.cpsVersion)
         .arg(m_importedCodeplug.channels.size())
         .arg(m_importedCodeplug.zones.size());
 }
@@ -1631,6 +1633,7 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
         root.insert(QStringLiteral("importedCodeplug"),
                     QJsonObject{{QStringLiteral("model"), m_importedCodeplug.model},
                                 {QStringLiteral("definitionFile"), m_importedCodeplug.definitionFile},
+                                {QStringLiteral("definitionVersion"), m_importedCodeplug.definitionVersion},
                                 {QStringLiteral("cpsVersion"), m_importedCodeplug.cpsVersion},
                                 {QStringLiteral("channels"), channels},
                                 {QStringLiteral("contacts"), contacts},
@@ -1808,6 +1811,15 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
                         || imported.definitionFile.contains('\\') || imported.definitionFile.contains(':'))))
                 return fail(QStringLiteral("Imported definition filename is invalid."));
         }
+        const QJsonValue definitionVersion = data.value(QStringLiteral("definitionVersion"));
+        if (!definitionVersion.isUndefined()) {
+            const QString selectedVersion = definitionVersion.toString();
+            if (!definitionVersion.isString() || selectedVersion.size() > 64
+                || !std::all_of(selectedVersion.cbegin(), selectedVersion.cend(),
+                                [](QChar c) { return c.isLetterOrNumber() || c == '-' || c == '_'; }))
+                return fail(QStringLiteral("Imported definition version is invalid."));
+            imported.definitionVersion = selectedVersion;
+        }
         imported.cpsVersion = data.value(QStringLiteral("cpsVersion")).toString();
         const QJsonValue channelsValue = data.value(QStringLiteral("channels"));
         const QJsonValue zonesValue = data.value(QStringLiteral("zones"));
@@ -1979,6 +1991,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         QString sourceError;
         if (CodeplugDefinitions::read(sourceBytes, &sourceParsed, &sourceError, imported.definitionFile)) {
             if (imported.definitionFile.isEmpty()) imported.definitionFile = sourceParsed.definitionFile;
+            if (imported.definitionVersion.isEmpty()) imported.definitionVersion = sourceParsed.definitionVersion;
             imported.powerSettings = sourceParsed.powerSettings;
             imported.channelCapacity = sourceParsed.channelCapacity;
             imported.contactCapacity = sourceParsed.contactCapacity;

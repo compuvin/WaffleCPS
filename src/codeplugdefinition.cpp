@@ -2139,6 +2139,12 @@ bool CodeplugDefinition::exportExtension(const QByteArray &source,
 
 bool CodeplugDefinition::load(const QString &path, CodeplugDefinition *result, QString *error)
 {
+    return loadMember(path, QStringLiteral("definition.json"), result, error);
+}
+
+bool CodeplugDefinition::loadMember(const QString &path, const QString &member,
+                                    CodeplugDefinition *result, QString *error)
+{
     return checked(error, [&] {
         require(result, QStringLiteral("Missing definition output."));
         const QString diskPath = QFileInfo(path).absoluteFilePath();
@@ -2156,18 +2162,18 @@ bool CodeplugDefinition::load(const QString &path, CodeplugDefinition *result, Q
             total += it.value().size();
             require(total <= maximumImage, QStringLiteral("Definition contents exceed size limit."));
         }
-        require(entries.contains("definition.json") && entries.value("definition.json").size() <= 4 * 1024 * 1024,
-                QStringLiteral("Missing or oversized definition.json."));
+        require(!member.isEmpty() && entries.contains(member) && entries.value(member).size() <= 4 * 1024 * 1024,
+                QStringLiteral("Missing or oversized definition member: %1.").arg(member));
         QJsonParseError parseError;
-        const auto document = QJsonDocument::fromJson(entries.value("definition.json"), &parseError);
+        const auto document = QJsonDocument::fromJson(entries.value(member), &parseError);
         require(parseError.error == QJsonParseError::NoError && document.isObject(), QStringLiteral("Invalid definition JSON: %1").arg(parseError.errorString()));
         CodeplugDefinition loaded;
         loaded.m_definition = document.object();
         loaded.m_iconPng = entries.value("icon.png");
-        loaded.m_diskPath = diskPath;
-        loaded.m_definitionSha256 = QCryptographicHash::hash(entries.value("definition.json"), QCryptographicHash::Sha256).toHex();
-        std::fprintf(stdout, "[definitions] Read definition.json from FILE: %s\n[definitions] definition.json SHA-256: %s\n",
-                     qUtf8Printable(diskPath), loaded.m_definitionSha256.constData());
+        loaded.m_diskPath = member == QStringLiteral("definition.json") ? diskPath : diskPath + QStringLiteral(" / ") + member;
+        loaded.m_definitionSha256 = QCryptographicHash::hash(entries.value(member), QCryptographicHash::Sha256).toHex();
+        std::fprintf(stdout, "[definitions] Read definition.json from FILE: %s [%s]\n[definitions] definition.json SHA-256: %s\n",
+                     qUtf8Printable(diskPath), qUtf8Printable(member), loaded.m_definitionSha256.constData());
         std::fflush(stdout);
         const auto &d = loaded.m_definition;
         require(d.value("definition_type") == QJsonValue("codeplug") && integer(d.value("definition_version")) == 2,
@@ -2221,6 +2227,27 @@ bool CodeplugDefinition::matchesModel(const QByteArray &input, QString *error) c
         }
         reject(QStringLiteral("No representation matches model %1. %2").arg(modelName(), reasons.join(' ')));
     });
+}
+
+bool CodeplugDefinition::matchesRawFields(const QByteArray &input, const QJsonObject &expected) const
+{
+    for (const auto &r : m_definition.value("representations").toArray()) {
+        try {
+            const QByteArray image = decode(input, r.toObject());
+            Decoder reader(image, m_definition);
+            if (reader.model() != m_definition.value("recognition").toObject()
+                    .value("model_value").toString()) continue;
+            bool matches = true;
+            for (auto it = expected.begin(); it != expected.end(); ++it) {
+                if (QJsonValue::fromVariant(reader.global(it.key()).raw) != it.value()) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) return true;
+        } catch (const std::exception &) { }
+    }
+    return false;
 }
 
 bool CodeplugDefinition::inspect(const QByteArray &input, QJsonObject *result, QString *error) const

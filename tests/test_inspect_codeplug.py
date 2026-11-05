@@ -23,6 +23,11 @@ inspector = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(inspector)
 
 
+def cs750_old_definition():
+    path = SCRIPT.parent.parent / "definitions" / "cs750.wcp"
+    return dict(inspector.load_definitions(path)[1])["d4-0-03"]
+
+
 def fixture():
     """A small, unrelated format: no CS7000 offsets or model identifiers."""
     alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz  "
@@ -486,7 +491,7 @@ class InspectorTests(unittest.TestCase):
 
 
     def test_cs750_radio_id_decodes_three_bytes_without_using_following_byte(self):
-        definition = inspector.load_definition(SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        definition = cs750_old_definition()
         data = bytearray(0x2224)
         data[0x2200:0x220C] = "N0CALL".encode("utf-16-le")
         original = bytes(data)
@@ -508,8 +513,8 @@ class InspectorTests(unittest.TestCase):
 class ConnectSystemsPowerOnMessageTests(unittest.TestCase):
     def test_second_line_decodes_without_overlapping_adjacent_settings(self):
         for model in ("cs750", "cs800"):
-            definition = inspector.load_definition(
-                SCRIPT.parent.parent / "definitions" / f"{model}.wcp")
+            definition = (cs750_old_definition() if model == "cs750" else inspector.load_definition(
+                SCRIPT.parent.parent / "definitions" / f"{model}.wcp"))
             for message in ("PORTABLE 3", "DMR Radio", "", "ABCDEFGHIJKLMNOP"):
                 with self.subTest(model=model, message=message):
                     data = bytearray(0x2260)
@@ -542,8 +547,7 @@ class OpenGd77PowerOnMessageTests(unittest.TestCase):
 
 class Cs750PowerTests(unittest.TestCase):
     def test_power_decodes_three_levels_without_using_other_bits(self):
-        definition = inspector.load_definition(
-            SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        definition = cs750_old_definition()
         table = next(t for t in definition["tables"].values()
                      if "transmit_frequency" in t["fields"])
         field = table["fields"]["power"]
@@ -562,7 +566,7 @@ class Cs750PowerTests(unittest.TestCase):
 
 class Cs750ContactTests(unittest.TestCase):
     def setUp(self):
-        self.definition = inspector.load_definition(SCRIPT.parent.parent / "definitions" / "cs750.wcp")
+        self.definition = cs750_old_definition()
         self.data = bytearray(0x44000 + 2 * 16)
         for at, value in ((0x29, b"CS750\0"), (0x2000, b"CS750\0"), (0x2010, b"D4.0.03\0")):
             self.data[at:at + len(value)] = value
@@ -674,6 +678,36 @@ class PackagedDefinitionTests(unittest.TestCase):
         plain.write_text(json.dumps(legacy))
         self.assertEqual(inspector.load_definition(plain), legacy)
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["legacy.wcp", "synthetic.wcp"])
+
+    def test_manifest_package_exposes_both_versions_and_keeps_legacy_loading(self):
+        root = SCRIPT.parent.parent
+        path = root / "definitions" / "cs750.wcp"
+        default_id, versions = inspector.load_definitions(path)
+        self.assertEqual(default_id, "d4-3-01")
+        self.assertEqual([version_id for version_id, _ in versions], ["d4-0-03", "d4-3-01"])
+        self.assertEqual(inspector.load_definition(path), versions[1][1])
+        with zipfile.ZipFile(path) as archive:
+            for version_id, definition in versions:
+                template = archive.read(definition["creation"]["template"])
+                self.assertEqual(inspector.inspect_definition(template, definition)[0]["status"],
+                                 "recognized", version_id)
+            newer = archive.read(versions[1][1]["creation"]["template"])
+        input_path = self.root / "newer.rdb"
+        input_path.write_bytes(newer)
+        definitions = self.root / "definitions"
+        definitions.mkdir()
+        (definitions / "cs750.wcp").write_bytes(path.read_bytes())
+        result = subprocess.run([sys.executable, "-B", str(SCRIPT), str(input_path),
+                                 "--definitions", str(definitions), "--json"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reported = json.loads(result.stdout)["definitions"]
+        self.assertEqual([(entry["version"], entry["results"][0]["status"])
+                          for entry in reported], [("d4-0-03", "partial"), ("d4-3-01", "recognized")])
+        legacy_default, legacy_versions = inspector.load_definitions(root / "definitions" / "cs800.wcp")
+        self.assertIsNone(legacy_default)
+        self.assertEqual(len(legacy_versions), 1)
+        self.assertIsNone(legacy_versions[0][0])
 
     def test_missing_definition_and_template_are_rejected(self):
         with zipfile.ZipFile(self.path, "w") as archive:

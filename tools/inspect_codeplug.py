@@ -6,7 +6,8 @@ Examples:
     python3 tools/inspect_codeplug.py image.bin --definitions another/directory --json
     python3 tools/inspect_codeplug.py Codeplugs/example.rdb --generate-definition
 
-Reads plain JSON version 1 and ZIP-packaged version 2 .wcp definitions.
+Reads plain JSON version 1, single-version ZIP packages, and manifest-based
+multi-version .wcp packages. Generated packages remain single-version ZIPs.
 Inspection is read-only. --generate-definition combines verified mappings,
 prompts for a name, and writes a new .wcp package in the definitions directory.
 create_default_codeplug(source, definition) returns derived default bytes.
@@ -619,11 +620,11 @@ def parse_definition(data):
     return definition
 
 
-def load_definition(path):
-    """Load JSON or an archive; validate its template without extracting files.
+def load_definitions(path):
+    """Load every version from JSON or an archive without extracting files.
 
-    Creation rules are data for a future writer. Inspection still interprets only
-    the decoding fields and does not generate, edit, or program a codeplug.
+    Return (default_version_id, [(version_id, definition), ...]). Legacy
+    definitions have a None version ID.
     """
     path = Path(path)
     with path.open("rb") as stream:
@@ -633,7 +634,7 @@ def load_definition(path):
             definition = parse_definition(stream.read(MAX_DEFINITION_BYTES + 1))
         if definition["definition_version"] != 1:
             raise DefinitionError("Version 2 definitions must be packaged in a .wcp ZIP archive")
-        return definition
+        return None, [(None, definition)]
     try:
         with zipfile.ZipFile(path) as package:
             entries = package.infolist()
@@ -648,25 +649,81 @@ def load_definition(path):
                 names.add(name)
                 if info.flag_bits & 1 or info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
                     raise DefinitionError("Package members must be unencrypted stored or deflated files")
-            if "definition.json" not in names:
-                raise DefinitionError("Package is missing definition.json")
-            if package.getinfo("definition.json").file_size > MAX_DEFINITION_BYTES:
-                raise DefinitionError("Definition JSON exceeds the size limit")
-            definition = parse_definition(package.read("definition.json"))
-            if definition["definition_version"] != 2:
-                raise DefinitionError("Packaged definitions must use definition_version 2")
-            creation = definition["creation"]
-            template_path = creation["template"]
-            if template_path not in names or package.getinfo(template_path).is_dir():
-                raise DefinitionError("Package is missing its default codeplug template")
-            if package.getinfo(template_path).file_size != creation["template_bytes"]:
-                raise DefinitionError("Default codeplug template size does not match the definition")
-            template = package.read(template_path)
-            if hashlib.sha256(template).hexdigest() != creation["template_sha256"]:
-                raise DefinitionError("Default codeplug template SHA-256 does not match the definition")
-            return definition
+            def read_member(member):
+                if member not in names or package.getinfo(member).is_dir():
+                    raise DefinitionError(f"Package is missing definition member: {member}")
+                if package.getinfo(member).file_size > MAX_DEFINITION_BYTES:
+                    raise DefinitionError("Definition JSON exceeds the size limit")
+                definition = parse_definition(package.read(member))
+                if definition["definition_version"] != 2:
+                    raise DefinitionError("Packaged definitions must use definition_version 2")
+                creation = definition["creation"]
+                template_path = creation["template"]
+                if template_path not in names or package.getinfo(template_path).is_dir():
+                    raise DefinitionError("Package is missing its default codeplug template")
+                if package.getinfo(template_path).file_size != creation["template_bytes"]:
+                    raise DefinitionError("Default codeplug template size does not match the definition")
+                template = package.read(template_path)
+                if hashlib.sha256(template).hexdigest() != creation["template_sha256"]:
+                    raise DefinitionError("Default codeplug template SHA-256 does not match the definition")
+                return definition, template
+
+            if "manifest.json" not in names:
+                if "definition.json" not in names:
+                    raise DefinitionError("Package is missing definition.json")
+                definition, _ = read_member("definition.json")
+                return None, [(None, definition)]
+
+            if package.getinfo("manifest.json").file_size > MAX_DEFINITION_BYTES:
+                raise DefinitionError("Manifest JSON exceeds the size limit")
+            manifest = json.loads(package.read("manifest.json").decode("utf-8"),
+                                  object_pairs_hook=unique_keys)
+            if (not isinstance(manifest, dict)
+                    or type(manifest.get("package_version")) is not int
+                    or manifest["package_version"] != 1
+                    or not isinstance(manifest.get("radio"), str) or not manifest["radio"]
+                    or not isinstance(manifest.get("default_version"), str) or not manifest["default_version"]
+                    or not isinstance(manifest.get("versions"), list)
+                    or not 0 < len(manifest["versions"]) <= 32):
+                raise DefinitionError("Invalid multi-version manifest")
+            versions = []
+            seen_ids = set()
+            for item in manifest["versions"]:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not item["id"] or item["id"] in seen_ids
+                        or not isinstance(item.get("definition"), str)
+                        or not isinstance(item.get("match"), dict) or not item["match"]
+                        or any(not isinstance(key, str) or not key or value is None
+                               or isinstance(value, (list, dict)) for key, value in item["match"].items())):
+                    raise DefinitionError("Invalid or duplicate manifest version")
+                version_id = item["id"]
+                definition, template = read_member(item["definition"])
+                if definition["recognition"].get("model_value") != manifest["radio"]:
+                    raise DefinitionError(f"Manifest radio differs from version model: {version_id}")
+                representation = next(r for r in definition["representations"]
+                                      if r["name"] == definition["creation"]["representation"])
+                image, _ = decode_representation(template, representation)
+                reader = DefinitionReader(image, definition)
+                for field, expected in item["match"].items():
+                    try:
+                        actual = reader.globals.get(field)["raw"]
+                    except DefinitionError as error:
+                        raise DefinitionError(f"Manifest version {version_id} cannot read {field}: {error}") from error
+                    if type(actual) is not type(expected) or actual != expected:
+                        raise DefinitionError(f"Manifest version {version_id} starter does not match {field}")
+                versions.append((version_id, definition))
+                seen_ids.add(version_id)
+            if manifest["default_version"] not in seen_ids:
+                raise DefinitionError("Manifest default version is undefined")
+            return manifest["default_version"], versions
     except (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError, EOFError) as error:
         raise DefinitionError(f"Invalid .wcp package: {error}") from error
+
+
+def load_definition(path):
+    """Return the default definition for callers expecting one definition."""
+    default_id, versions = load_definitions(path)
+    return next(definition for version_id, definition in versions if version_id == default_id)
 
 
 def validate_definition(definition):
@@ -774,7 +831,10 @@ def inspect_definition(data, definition, max_records=100000):
 def text_report(report):
     lines = [f"Input: {report['input']} ({report['bytes']:,} bytes)"]
     for definition in report["definitions"]:
-        lines.append(f"\nDefinition: {definition.get('id', definition['file'])}")
+        label = definition.get("id", definition["file"])
+        if definition.get("version") is not None:
+            label += f" [{definition['version']}]"
+        lines.append(f"\nDefinition: {label}")
         if "error" in definition:
             lines.append(f"  Definition error: {definition['error']}")
         for result in definition.get("results", []):
@@ -1974,16 +2034,19 @@ def main(argv=None):
     valid_definitions = 0
     loaded_definitions = []
     for path in paths:
-        entry = {"file": str(path)}
-        report["definitions"].append(entry)
         try:
-            definition = load_definition(path)
-            entry.update(id=definition.get("id", path.stem), recognition=definition.get("recognition", {}),
-                         results=inspect_definition(data, definition, args.max_records))
-            valid_definitions += 1
-            loaded_definitions.append(definition)
+            _, versions = load_definitions(path)
+            for version_id, definition in versions:
+                entry = {"file": str(path)}
+                if version_id is not None:
+                    entry["version"] = version_id
+                report["definitions"].append(entry)
+                entry.update(id=definition.get("id", path.stem), recognition=definition.get("recognition", {}),
+                             results=inspect_definition(data, definition, args.max_records))
+                valid_definitions += 1
+                loaded_definitions.append(definition)
         except (OSError, DefinitionError, ValueError, TypeError, KeyError, UnicodeError, RecursionError) as error:
-            entry["error"] = str(error)
+            report["definitions"].append({"file": str(path), "error": str(error)})
     if args.generate_definition:
         try:
             draft = generation_definition(data, loaded_definitions, args.max_records, args.default_only)

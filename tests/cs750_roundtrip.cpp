@@ -1,4 +1,5 @@
 #include "../src/codeplugdefinition.h"
+#include "../src/codeplugdefinitions.h"
 #include "../src/repeaterstore.h"
 #include "../src/ziparchive.h"
 #include <QJsonDocument>
@@ -12,7 +13,10 @@
 #include <stdexcept>
 static void check(bool ok,const QString &why){if(!ok)throw std::runtime_error(why.toStdString());}
 int main(int argc,char **argv){QCoreApplication app(argc,argv);QDir::setCurrent(WAFFLE_SOURCE_DIR);try{
- CodeplugDefinition d;QString e;check(CodeplugDefinition::load("definitions/cs750.wcp",&d,&e),e);
+ CodeplugDefinition d;QString e;check(CodeplugDefinition::loadMember("definitions/cs750.wcp","versions/d4-0-03/definition.json",&d,&e),e);
+ QByteArray newBase=CodeplugDefinitions::defaultCodeplug("cs750.wcp",&e);ImportedCodeplug newPlug;
+ check(!newBase.isEmpty() && CodeplugDefinitions::read(newBase,&newPlug,&e,"cs750.wcp")
+       && newPlug.definitionVersion=="d4-3-01","New did not select the newest CS750 definition: "+e);
  QByteArray base=d.defaultCodeplug(),out;ImportedCodeplug p,q;
  check(d.read(base,&p,&e),e);check(p.powerSettings==QStringList({"low","high","medium"}),"definition power choices");
  check(d.write(base,p,p.radioName,p.radioId,&out,&e),e);check(out==base,"unchanged bytes");
@@ -30,14 +34,16 @@ int main(int argc,char **argv){QCoreApplication app(argc,argv);QDir::setCurrent(
  QTemporaryDir dir;check(dir.isValid(),"temp dir");QFile input(dir.filePath("power.rdb"));check(input.open(QIODevice::WriteOnly),"input");input.write(out);input.close();
  RepeaterStore store;check(store.importCodeplugFromFile(input.fileName(),"cs750.wcp"),"store import");check(store.powerChoices().contains("Medium"),"Medium UI choice");
 QString project=dir.filePath("power.waffle");check(store.saveProjectToFile(project),"save project");RepeaterStore reopened;check(reopened.openProjectFromFile(project),"reopen project");
+ QMap<QString,QByteArray> savedProject;check(ZipArchive::read(project,&savedProject,&e),e);
+ check(QJsonDocument::fromJson(savedProject["project.json"]).object()["importedCodeplug"].toObject()["definitionVersion"].toString()=="d4-0-03","project lost definition version");
  check(reopened.powerChoices().contains("Medium"),"choice declarations restored");
  reopened.selectImportedGroup(0);
  check(reopened.updateSelectedZoneChannel(3, "MEDIUM TEST", "400.000000", "400.000000", true, 1, 2, 2, reopened.powerChoice("Low")), "edit Medium to Low");
  check(reopened.updateSelectedZoneChannel(3, "MEDIUM TEST", "400.000000", "400.000000", true, 1, 2, 2, reopened.powerChoice("Medium")), "edit Low to Medium");auto bytes=reopened.exportCodeplugBytes();check(!bytes.isEmpty(),"project export");check(d.read(bytes,&again,&e),e);check(again.channels.last().powerValue()=="medium","project lost Medium");
  // An arbitrary third label verifies that the parser does not special-case Medium.
  QMap<QString,QByteArray> entries;check(ZipArchive::read("definitions/cs750.wcp", &entries, &e), e);
- auto json=QJsonDocument::fromJson(entries["definition.json"]).object();auto tables=json["tables"].toObject();auto channels=tables["channels"].toObject();auto fields=channels["fields"].toObject();auto power=fields["power"].toObject();auto values=power["enum"].toObject();values["1"]="boost";power["enum"]=values;fields["power"]=power;channels["fields"]=fields;tables["channels"]=channels;json["tables"]=tables;entries["definition.json"]=QJsonDocument(json).toJson();
- QString custom=dir.filePath("custom.wcp");check(ZipArchive::write(custom, entries, &e),e);CodeplugDefinition arbitrary;check(CodeplugDefinition::load(custom,&arbitrary,&e),e);check(arbitrary.read(out,&again,&e),e);check(again.powerSettings.contains("boost") && again.channels.last().powerValue()=="boost", "arbitrary definition power label");
+ auto json=QJsonDocument::fromJson(entries["versions/d4-0-03/definition.json"]).object();auto tables=json["tables"].toObject();auto channels=tables["channels"].toObject();auto fields=channels["fields"].toObject();auto power=fields["power"].toObject();auto values=power["enum"].toObject();values["1"]="boost";power["enum"]=values;fields["power"]=power;channels["fields"]=fields;tables["channels"]=channels;json["tables"]=tables;entries["versions/d4-0-03/definition.json"]=QJsonDocument(json).toJson();
+ QString custom=dir.filePath("custom.wcp");check(ZipArchive::write(custom, entries, &e),e);CodeplugDefinition arbitrary;check(CodeplugDefinition::loadMember(custom,"versions/d4-0-03/definition.json",&arbitrary,&e),e);check(arbitrary.read(out,&again,&e),e);check(again.powerSettings.contains("boost") && again.channels.last().powerValue()=="boost", "arbitrary definition power label");
  if(argc>1 && QByteArray(argv[1])=="--samples"){
   QFile f("Codeplugs/CS750-HighPower.rdb");check(f.open(QIODevice::ReadOnly),"sample");auto src=f.readAll();check(d.read(src,&p,&e),e);check(p.contacts.size()==35041,"full contact import");
   check(d.write(src,p,p.radioName,p.radioId,&out,&e),e);check(out==src,"full unchanged");

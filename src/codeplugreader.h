@@ -44,6 +44,7 @@ struct ImportedZone {
 
 struct ImportedCodeplug {
     QString definitionFile; // Selected disk definition basename, retained with imported projects.
+    QString definitionVersion; // Selected version inside a multi-version definition package.
     QString model;
     QString cpsVersion;
     QString radioName;

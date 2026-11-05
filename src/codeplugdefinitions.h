@@ -13,6 +13,7 @@ public:
     static QVariantList newProjectOptions();
     static QVariantList radioReadOptions();
     static QByteArray iconPng(const QString &definitionFile);
+    static QString modelName(const QString &definitionFile);
     static bool hasCompanionWrd(const QString &definitionFile);
     static QString companionWrdPath(const QString &definitionFile);
     static QString defaultDefinitionFile();
