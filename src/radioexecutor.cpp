@@ -24,6 +24,13 @@ void require(bool condition, const char *message)
     if (!condition) throw std::runtime_error(message);
 }
 
+void requireUsb(int result, const std::string &step)
+{
+    if (result != 0)
+        throw std::runtime_error(step + ": " + libusb_error_name(result)
+                                 + " (code " + std::to_string(result) + ")");
+}
+
 uint32_t number(const QJsonValue &value)
 {
     if (value.isDouble()) {
@@ -174,7 +181,7 @@ class Usb {
         const int timeout = int(number(root.value(QStringLiteral("polling")).toObject()
                                        .value(QStringLiteral("bulk_transfer_timeout_ms"))));
         const int result = libusb_bulk_transfer(handle, endpoint, data.data(), int(data.size()), &actual, timeout);
-        require(result == 0, libusb_error_name(result));
+        requireUsb(result, "Radio USB bulk transfer on endpoint " + std::to_string(endpoint));
         require(!exact || size_t(actual) == data.size(), "Short radio USB transfer");
         data.resize(size_t(actual));
     }
@@ -189,10 +196,10 @@ public:
     {
         try {
             int result = libusb_init(&context);
-            require(result == 0, "Could not initialize USB");
+            requireUsb(result, "Initialize radio USB");
             libusb_device **devices = nullptr;
             const ssize_t count = libusb_get_device_list(context, &devices);
-            require(count >= 0, "Could not enumerate USB devices");
+            if (count < 0) requireUsb(int(count), "Enumerate USB devices");
             libusb_device *match = nullptr;
             int matches = 0;
             for (ssize_t i = 0; i < count; ++i) {
@@ -206,10 +213,10 @@ public:
             if (matches == 1) result = libusb_open(match, &handle);
             libusb_free_device_list(devices, 1);
             require(matches == 1, matches ? "Multiple matching radios connected" : "No matching radio connected");
-            require(result == 0, libusb_error_name(result));
+            requireUsb(result, "Open radio USB device");
             libusb_config_descriptor *config = nullptr;
             result = libusb_get_active_config_descriptor(libusb_get_device(handle), &config);
-            require(result == 0, "Cannot inspect radio USB interface");
+            requireUsb(result, "Inspect radio USB configuration");
             bool compatible = false;
             for (uint8_t i = 0; i < config->bNumInterfaces; ++i)
                 for (int a = 0; a < config->interface[i].num_altsetting; ++a) {
@@ -232,8 +239,8 @@ public:
             libusb_free_config_descriptor(config);
             require(compatible, "Radio USB interface does not match definition");
             result = libusb_kernel_driver_active(handle, interfaceNumber);
-            require(result >= 0 || result == LIBUSB_ERROR_NOT_SUPPORTED,
-                    "Could not inspect radio USB driver");
+            if (result < 0 && result != LIBUSB_ERROR_NOT_SUPPORTED)
+                requireUsb(result, "Inspect radio USB driver");
 #ifdef __APPLE__
             int claimResult = libusb_claim_interface(handle, interfaceNumber);
             if (claimResult == 0) {
@@ -242,18 +249,18 @@ public:
 #endif
             if (result == 1) {
                 result = libusb_detach_kernel_driver(handle, interfaceNumber);
-                require(result == 0, "Could not detach radio USB driver");
+                requireUsb(result, "Detach radio USB driver");
                 detached = true;
             }
             if (!claimed) {
                 result = libusb_claim_interface(handle, interfaceNumber);
-                require(result == 0, "Could not claim radio USB interface");
+                requireUsb(result, "Claim radio USB interface");
                 claimed = true;
             }
             const int alternate = int(number(usb.value(QStringLiteral("alternate_setting"))));
             if (alternate != 0) {
                 result = libusb_set_interface_alt_setting(handle, interfaceNumber, alternate);
-                require(result == 0, "Could not select radio USB alternate setting");
+                requireUsb(result, "Select radio USB alternate setting");
             }
         } catch (...) { cleanup(); throw; }
     }

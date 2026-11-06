@@ -86,7 +86,7 @@ void RadioReader::start(const QString &definitionPath)
             result->error = QString::fromUtf8(error.what());
         }
     });
-    connect(m_thread, &QThread::finished, this, [this, result] {
+    connect(m_thread, &QThread::finished, this, [this, result, definitionPath] {
         auto *finished = m_thread;
         m_thread = nullptr;
         finished->deleteLater();
@@ -96,7 +96,12 @@ void RadioReader::start(const QString &definitionPath)
         emit progressChanged();
         // Deliver the result while the UI is still blocked, then close the progress dialog.
         if (!cancelled) {
-            if (!result->error.isEmpty()) emit failed(result->error);
+            if (!result->error.isEmpty()) {
+                std::fprintf(stderr, "[radio] Read failed using %s: %s\n",
+                             qUtf8Printable(definitionPath), qUtf8Printable(result->error));
+                std::fflush(stderr);
+                emit failed(result->error);
+            }
             else emit completed(result->encoded);
         }
         emit stateChanged();

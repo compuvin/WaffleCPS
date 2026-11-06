@@ -77,14 +77,19 @@ void RadioWriter::start(const QByteArray &encoded, const QString &definitionPath
             *result = QString::fromUtf8(exception.what());
         }
     });
-    connect(m_thread, &QThread::finished, this, [this, result] {
+    connect(m_thread, &QThread::finished, this, [this, result, definitionPath] {
         auto *finished = m_thread;
         m_thread = nullptr;
         finished->deleteLater();
         m_status = result->isEmpty() ? tr("Write complete") : tr("Write failed");
         emit progressChanged();
         if (result->isEmpty()) emit completed();
-        else emit failed(tr("Write failed: %1").arg(*result));
+        else {
+            std::fprintf(stderr, "[radio] Write failed using %s: %s\n",
+                         qUtf8Printable(definitionPath), qUtf8Printable(*result));
+            std::fflush(stderr);
+            emit failed(tr("Write failed: %1").arg(*result));
+        }
         emit stateChanged();
     });
     emit progressChanged();
