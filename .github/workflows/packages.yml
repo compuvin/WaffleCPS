@@ -34,13 +34,14 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF
-          cmake --build build --target wafflecps -j 2
+          cmake --build build --target wafflecps radio-transfer-helper -j 2
       - name: Package installer
         shell: msys2 {0}
         run: |
           set -euo pipefail
           mkdir -p build/deploy/definitions
           cp build/wafflecps.exe build/deploy/
+          cp build/radio-transfer-helper.exe build/deploy/
           cp definitions/*.wcp definitions/*.wrd build/deploy/definitions/
           cp packaging/qt.conf build/deploy/
           windeployqt --release --qmldir qml --dir build/deploy \

@@ -1,7 +1,13 @@
 #pragma once
 
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
+
+class WindowsElevationRequired : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 // Sends the CDBs declared by a mass-storage .wrd through the Windows storage driver.
 class WindowsMassStorage {

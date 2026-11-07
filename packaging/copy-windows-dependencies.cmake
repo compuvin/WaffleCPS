@@ -1,4 +1,6 @@
-if(NOT EXISTS "${DEPLOY_DIR}/wafflecps.exe" OR NOT IS_DIRECTORY "${MINGW_BIN}")
+if(NOT EXISTS "${DEPLOY_DIR}/wafflecps.exe"
+    OR NOT EXISTS "${DEPLOY_DIR}/radio-transfer-helper.exe"
+    OR NOT IS_DIRECTORY "${MINGW_BIN}")
     message(FATAL_ERROR "Windows deployment paths are invalid")
 endif()
 
@@ -8,7 +10,7 @@ endif()
 
 file(GLOB_RECURSE deployed_dlls "${DEPLOY_DIR}/*.dll")
 file(GET_RUNTIME_DEPENDENCIES
-    EXECUTABLES "${DEPLOY_DIR}/wafflecps.exe"
+    EXECUTABLES "${DEPLOY_DIR}/wafflecps.exe" "${DEPLOY_DIR}/radio-transfer-helper.exe"
     MODULES ${deployed_dlls}
     DIRECTORIES "${DEPLOY_DIR}" "${MINGW_BIN}"
     PRE_EXCLUDE_REGEXES "^api-ms-win-" "^ext-ms-"

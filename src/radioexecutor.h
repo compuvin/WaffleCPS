@@ -15,6 +15,10 @@ class Cancelled : public std::runtime_error {
 public:
     Cancelled() : std::runtime_error("Radio transfer cancelled") {}
 };
+class UsbPermissionDenied : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 struct WriteBlock {
     QString region;
     uint8_t command;

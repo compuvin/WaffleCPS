@@ -84,10 +84,16 @@ QTemporaryDir temporaryDirectory()
 }
 }
 
-RadioExecutor::Bytes MacRadioTransfer::read(const QString &definitionPath,
-                                             const RadioExecutor::Progress &progress,
-                                             const std::atomic_bool &cancelled)
+RadioExecutor::Bytes MacRadioTransfer::read(const RadioDefinition &definition,
+                                            const QString &definitionPath,
+                                            const RadioExecutor::Progress &progress,
+                                            const std::atomic_bool &cancelled)
 {
+    try {
+        return RadioExecutor::read(definition, progress, cancelled);
+    } catch (const RadioExecutor::UsbPermissionDenied &) {
+        // Retry with authorization only when bulk USB access was denied before transfer.
+    }
     QTemporaryDir dir = temporaryDirectory();
     const QString imagePath = dir.filePath(QStringLiteral("image.bin"));
     run(QStringLiteral("read"), definitionPath, imagePath,
@@ -100,9 +106,16 @@ RadioExecutor::Bytes MacRadioTransfer::read(const QString &definitionPath,
     return RadioExecutor::Bytes(data.begin(), data.end());
 }
 
-void MacRadioTransfer::write(const QString &definitionPath, const RadioExecutor::Bytes &image,
+void MacRadioTransfer::write(const RadioDefinition &definition, const QString &definitionPath,
+                             const QJsonObject &codeplugDefinition, const RadioExecutor::Bytes &image,
                              const RadioExecutor::Progress &progress)
 {
+    try {
+        RadioExecutor::write(definition, codeplugDefinition, image, progress);
+        return;
+    } catch (const RadioExecutor::UsbPermissionDenied &) {
+        // Retry with authorization only when bulk USB access was denied before transfer.
+    }
     QTemporaryDir dir = temporaryDirectory();
     const QString imagePath = dir.filePath(QStringLiteral("image.bin"));
     save(imagePath, image);

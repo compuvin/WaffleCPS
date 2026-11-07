@@ -3,6 +3,8 @@
 #include "radiodefinition.h"
 #ifdef __APPLE__
 #include "macradiotransfer.h"
+#elif defined(_WIN32)
+#include "windowsradiotransfer.h"
 #endif
 #include <QDir>
 #include <QFileInfo>
@@ -68,7 +70,11 @@ void RadioWriter::start(const QByteArray &encoded, const QString &definitionPath
             if (m_write) m_write(image, progress);
             else {
 #ifdef __APPLE__
-                MacRadioTransfer::write(radioDefinition.sourcePath(), image, progress);
+                MacRadioTransfer::write(radioDefinition, radioDefinition.sourcePath(),
+                                        codeplugDocument, image, progress);
+#elif defined(_WIN32)
+                WindowsRadioTransfer::write(radioDefinition, radioDefinition.sourcePath(),
+                                            codeplugDocument, image, progress);
 #else
                 RadioExecutor::write(radioDefinition, codeplugDocument, image, progress);
 #endif

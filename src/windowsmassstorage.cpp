@@ -92,8 +92,13 @@ WindowsMassStorage::WindowsMassStorage(uint16_t vendorId, uint16_t productId)
     const std::wstring path = diskPath(vendorId, productId);
     HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (handle == INVALID_HANDLE_VALUE)
-        throw std::runtime_error(winError("Open Windows radio storage device"));
+    if (handle == INVALID_HANDLE_VALUE) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_ACCESS_DENIED)
+            throw WindowsElevationRequired("Open Windows radio storage device: Windows error 5");
+        throw std::runtime_error("Open Windows radio storage device: Windows error "
+                                 + std::to_string(error));
+    }
     handle_ = handle;
 }
 

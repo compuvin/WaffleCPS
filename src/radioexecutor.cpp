@@ -35,6 +35,17 @@ void requireUsb(int result, const std::string &step)
                                  + " (code " + std::to_string(result) + ")");
 }
 
+void requireUsbAccess(int result, const std::string &step)
+{
+#ifdef __APPLE__
+    if (result == LIBUSB_ERROR_ACCESS)
+        throw RadioExecutor::UsbPermissionDenied(
+            step + ": " + libusb_error_name(result)
+            + " (code " + std::to_string(result) + ")");
+#endif
+    requireUsb(result, step);
+}
+
 uint32_t number(const QJsonValue &value)
 {
     if (value.isDouble()) {
@@ -233,10 +244,10 @@ public:
             if (matches == 1) result = libusb_open(match, &handle);
             libusb_free_device_list(devices, 1);
             require(matches == 1, matches ? "Multiple matching radios connected" : "No matching radio connected");
-            requireUsb(result, "Open radio USB device");
+            requireUsbAccess(result, "Open radio USB device");
             libusb_config_descriptor *config = nullptr;
             result = libusb_get_active_config_descriptor(libusb_get_device(handle), &config);
-            requireUsb(result, "Inspect radio USB configuration");
+            requireUsbAccess(result, "Inspect radio USB configuration");
             bool compatible = false;
             for (uint8_t i = 0; i < config->bNumInterfaces; ++i)
                 for (int a = 0; a < config->interface[i].num_altsetting; ++a) {
@@ -260,7 +271,7 @@ public:
             require(compatible, "Radio USB interface does not match definition");
             result = libusb_kernel_driver_active(handle, interfaceNumber);
             if (result < 0 && result != LIBUSB_ERROR_NOT_SUPPORTED)
-                requireUsb(result, "Inspect radio USB driver");
+                requireUsbAccess(result, "Inspect radio USB driver");
 #ifdef __APPLE__
             int claimResult = libusb_claim_interface(handle, interfaceNumber);
             if (claimResult == 0) {
@@ -269,18 +280,18 @@ public:
 #endif
             if (result == 1) {
                 result = libusb_detach_kernel_driver(handle, interfaceNumber);
-                requireUsb(result, "Detach radio USB driver");
+                requireUsbAccess(result, "Detach radio USB driver");
                 detached = true;
             }
             if (!claimed) {
                 result = libusb_claim_interface(handle, interfaceNumber);
-                requireUsb(result, "Claim radio USB interface");
+                requireUsbAccess(result, "Claim radio USB interface");
                 claimed = true;
             }
             const int alternate = int(number(usb.value(QStringLiteral("alternate_setting"))));
             if (alternate != 0) {
                 result = libusb_set_interface_alt_setting(handle, interfaceNumber, alternate);
-                requireUsb(result, "Select radio USB alternate setting");
+                requireUsbAccess(result, "Select radio USB alternate setting");
             }
         } catch (...) { cleanup(); throw; }
 #endif

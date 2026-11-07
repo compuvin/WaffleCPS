@@ -4,6 +4,8 @@
 #include "radioimage.h"
 #ifdef __APPLE__
 #include "macradiotransfer.h"
+#elif defined(_WIN32)
+#include "windowsradiotransfer.h"
 #endif
 
 #include <QDir>
@@ -68,7 +70,9 @@ void RadioReader::start(const QString &definitionPath)
             };
             const auto bytes = m_read ? m_read(progress, m_cancelled)
 #ifdef __APPLE__
-                : MacRadioTransfer::read(definitionPath, progress, m_cancelled);
+                : MacRadioTransfer::read(definition, definitionPath, progress, m_cancelled);
+#elif defined(_WIN32)
+                : WindowsRadioTransfer::read(definition, definitionPath, progress, m_cancelled);
 #else
                 : RadioExecutor::read(definition, progress, m_cancelled);
 #endif

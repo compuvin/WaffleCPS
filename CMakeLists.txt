@@ -29,12 +29,17 @@ add_library(radioreader STATIC
 target_link_libraries(radioreader PUBLIC Qt6::Core Qt6::SerialPort cs7000usb PkgConfig::LIBUSB codeplugdefinition)
 
 if(WIN32)
-    target_sources(radioreader PRIVATE src/windowsmassstorage.cpp src/windowsmassstorage.h)
-    target_link_libraries(radioreader PRIVATE setupapi cfgmgr32)
+    target_sources(radioreader PRIVATE
+        src/windowsmassstorage.cpp src/windowsmassstorage.h
+        src/windowsradiotransfer.cpp src/windowsradiotransfer.h)
+    target_link_libraries(radioreader PRIVATE setupapi cfgmgr32 shell32)
 endif()
 
 if(APPLE)
     target_sources(radioreader PRIVATE src/macradiotransfer.cpp src/macradiotransfer.h)
+endif()
+
+if(APPLE OR WIN32)
     add_executable(radio-transfer-helper tools/radio_transfer_helper.cpp)
     target_include_directories(radio-transfer-helper PRIVATE src)
     target_link_libraries(radio-transfer-helper PRIVATE radioreader codeplugdefinition Qt6::Core)
