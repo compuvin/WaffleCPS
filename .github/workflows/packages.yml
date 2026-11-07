@@ -85,6 +85,9 @@ jobs:
       - name: Build DEB
         run: |
           cpack --config build/CPackConfig.cmake -G DEB -B dist
+          for package in dist/*.deb; do
+            mv "$package" "${package%.deb}-${{ matrix.arch }}.deb"
+          done
           dpkg-deb --info dist/*.deb
           dpkg-deb --contents dist/*.deb
       - uses: actions/upload-artifact@v6
