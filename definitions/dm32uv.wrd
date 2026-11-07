@@ -10,6 +10,9 @@
     "protocol": "paged_addressed_serial_v1",
     "vendor_id": "0x067B",
     "product_id": "0x23A3",
+    "additional_usb_ids": [
+      {"vendor_id": "0x1A86", "product_id": "0x7523"}
+    ],
     "baud_rate": 115200,
     "timeout_ms": 5000,
     "open_delay_ms": 800,

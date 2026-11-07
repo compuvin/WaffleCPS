@@ -39,6 +39,31 @@ quint32 requiredNumber(const Object &object, const char *key)
     return result;
 }
 
+using UsbId = std::pair<quint16, quint16>;
+
+std::set<UsbId> serialUsbIds(const Object &transport)
+{
+    const quint32 vendor = requiredNumber(transport, "vendor_id");
+    const quint32 product = requiredNumber(transport, "product_id");
+    if (vendor > 65535 || product > 65535)
+        throw std::runtime_error("Invalid serial USB ID");
+    std::set<UsbId> ids{{quint16(vendor), quint16(product)}};
+    const QJsonValue additional = transport.value(QStringLiteral("additional_usb_ids"));
+    if (additional.isUndefined()) return ids;
+    if (!additional.isArray() || additional.toArray().isEmpty() || additional.toArray().size() > 16)
+        throw std::runtime_error("Invalid additional serial USB IDs");
+    for (const QJsonValue &value : additional.toArray()) {
+        if (!value.isObject()) throw std::runtime_error("Invalid additional serial USB ID");
+        const Object entry = value.toObject();
+        const quint32 extraVendor = requiredNumber(entry, "vendor_id");
+        const quint32 extraProduct = requiredNumber(entry, "product_id");
+        if (extraVendor > 65535 || extraProduct > 65535
+            || !ids.insert({quint16(extraVendor), quint16(extraProduct)}).second)
+            throw std::runtime_error("Invalid or duplicate additional serial USB ID");
+    }
+    return ids;
+}
+
 bool hex(const QJsonValue &value, QByteArray *result)
 {
     if (!value.isString()) return false;
@@ -96,12 +121,11 @@ public:
           m_paged(transport.value(QStringLiteral("protocol")) == QStringLiteral("paged_addressed_serial_v1")),
           m_closeResetMs(m_paged ? int(requiredNumber(transport, "close_reset_ms")) : 0)
     {
-        const quint32 vendor = requiredNumber(transport, "vendor_id");
-        const quint32 product = requiredNumber(transport, "product_id");
+        const auto ids = serialUsbIds(transport);
         QString chosen;
         for (const QSerialPortInfo &info : QSerialPortInfo::availablePorts()) {
             if (info.hasVendorIdentifier() && info.hasProductIdentifier()
-                && info.vendorIdentifier() == vendor && info.productIdentifier() == product) {
+                && ids.count({info.vendorIdentifier(), info.productIdentifier()})) {
                 if (!chosen.isEmpty()) throw std::runtime_error("Multiple matching serial radios are connected");
                 chosen = info.portName();
             }
@@ -369,9 +393,8 @@ bool validatePaged(const Object &root, QString *error)
         const Object assembly = read.value(QStringLiteral("assembly")).toObject();
         const quint32 bytes = requiredNumber(page, "page_bytes");
         const quint32 imageBytes = requiredNumber(assembly, "bytes");
-        if (requiredNumber(transport, "vendor_id") > 65535
-            || requiredNumber(transport, "product_id") > 65535
-            || requiredNumber(transport, "baud_rate") < 1200
+        serialUsbIds(transport);
+        if (requiredNumber(transport, "baud_rate") < 1200
             || requiredNumber(transport, "timeout_ms") < 100
             || requiredNumber(transport, "open_delay_ms") > 10000
             || requiredNumber(transport, "close_reset_ms") > 10000
@@ -519,8 +542,8 @@ bool SerialExecutor::validate(const QJsonObject &root, QString *error)
         const quint32 block = requiredNumber(transport, "block_bytes");
         const quint32 sector = requiredNumber(transport, "sector_bytes");
         const quint32 bytes = requiredNumber(assembly, "bytes");
-        if (requiredNumber(transport, "vendor_id") > 65535 || requiredNumber(transport, "product_id") > 65535
-            || requiredNumber(transport, "baud_rate") < 1200 || requiredNumber(transport, "timeout_ms") < 100
+        serialUsbIds(transport);
+        if (requiredNumber(transport, "baud_rate") < 1200 || requiredNumber(transport, "timeout_ms") < 100
             || block < 1 || block > 1024 || sector < block || sector > 65536 || sector % block
             || bytes < 1 || bytes > 16 * 1024 * 1024
             || assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_regions_in_template")
