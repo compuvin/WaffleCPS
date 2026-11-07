@@ -81,7 +81,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 
 ## Radio support and distribution
 
-- [ ] Separate the shared programming model and interface from radio-format adapters.
+- [x] Separate the shared programming model and interface from radio-format adapters.
 - [x] Ask the user to select a target radio model when creating a new codeplug, so its limits guide editing from the start.
   - [ ] Allow the target radio model to be changed later.
   - [ ] When the target changes, check the entire configuration against the new model and firmware's capabilities and limits.
