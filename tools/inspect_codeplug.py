@@ -163,6 +163,12 @@ class DefinitionReader:
             if result is None:
                 raise DefinitionError(f"Conditional field is unavailable: {operand}")
             return result["raw"]
+        if op == "if_gte":
+            if not isinstance(operand, dict):
+                raise DefinitionError("if_gte must be an object")
+            value = self.expression(operand["value"], scope)
+            threshold = self.expression(operand["threshold"], scope)
+            return self.expression(operand["then"] if value >= threshold else operand["else"], scope)
         if op not in ("add", "subtract", "multiply", "max"):
             raise DefinitionError(f"Unsupported expression operator: {op}")
         if not isinstance(operand, list) or not operand or (op == "subtract" and len(operand) != 2):
@@ -237,6 +243,8 @@ class DefinitionReader:
     @staticmethod
     def storage_size(field):
         encoding = integer_type(field["type"])
+        if field["type"] == "u12split":
+            return 2
         return encoding[0] if encoding else integer(field["bytes"])
 
     def read_scalar(self, field, at, path):
@@ -247,6 +255,8 @@ class DefinitionReader:
             if not storage:
                 raise DefinitionError("BCD storage must not be empty")
             raw = decode_bcd(storage, "little" if name == "bcdle" else "big")
+        elif name == "u12split":
+            raw = ((storage[0] >> 4) << 8) | storage[1]
         elif encoding:
             width, order = encoding
             mask = integer(field.get("mask", (1 << (width * 8)) - 1))
@@ -937,7 +947,15 @@ def write_field(image, reader, field, value, scope):
     kind = field["type"]
     numeric = integer_type(kind)
     value = raw_value(field, value)
-    if numeric or kind in ("bcdle", "bcdbe"):
+    if kind == "u12split":
+        require(type(value) is int and integer(field.get("minimum", 0)) <= value <= 0xFFF,
+                "Split 12-bit default is outside field bounds")
+        if "maximum" in field:
+            require(value <= integer(field["maximum"]), "Default exceeds field maximum")
+        require("mask" not in field and "shift" not in field,
+                "Split 12-bit default cannot use a mask or shift")
+        encoded = bytes(((old[0] & 0x0F) | ((value >> 8) << 4), value & 0xFF))
+    elif numeric or kind in ("bcdle", "bcdbe"):
         require(type(value) is int, "Numeric default must be an integer")
         require(value >= integer(field.get("minimum", 0)), "Default is below field minimum")
         if "maximum" in field:
@@ -1099,29 +1117,35 @@ def reset_bitmap_selection(image, reader, layouts, active_count):
 def reset_segmented_table(image, original, definition, table, old, plan, reader):
     """Write banked fixed-stride tables using their declared physical slots."""
     require(not plan.get("resize"), "Segmented tables cannot be resized")
-    require(plan.get("reset_selection") is True, "Segmented reset requires explicit selection reset")
     layouts = table["segments"]
+    bitmap_modes = ["bitmap_at" in layout.get("validity", {}) for layout in layouts]
+    require(all(bitmap_modes) or not any(bitmap_modes), "Mixed segmented bitmap selection is unsupported")
+    bitmap_selected = all(bitmap_modes)
+    require(plan.get("reset_selection", False) is bitmap_selected,
+            "Segmented bitmap reset must match the selection rule")
     slots, ranges, bitmaps = [], [], []
     total = reader.expression(table["count"])
     require(0 <= total <= 100000, "Segmented table exceeds slot limit")
     for layout in layouts:
         require("stride_bytes" in layout, "Segmented reset requires fixed strides")
         count = reader.expression(layout["count"])
+        capacity = integer(layout.get("capacity", count))
         stride = integer(layout["stride_bytes"])
         span = integer(layout.get("logical_span_bytes", stride))
         at = reader.expression(layout["at"])
-        require(0 <= count <= total and stride > 0 and 0 < span <= stride,
+        require(0 <= count <= capacity <= 100000 and stride > 0 and 0 < span <= stride,
                 "Invalid segmented reset extent")
-        byte_range(image, at, (count - 1) * stride + span if count else 0)
-        if count:
-            ranges.append((at, at + (count - 1) * stride + span))
+        byte_range(image, at, (capacity - 1) * stride + span if capacity else 0)
+        if capacity:
+            ranges.append((at, at + (capacity - 1) * stride + span))
         validity = layout.get("validity", {})
-        require("bitmap_at" in validity, "Segmented reset requires bitmap selection")
-        bitmap = reader.expression(validity["bitmap_at"])
-        byte_range(image, bitmap, (count + 7) // 8)
-        bitmaps.append((bitmap, bitmap + (count + 7) // 8))
-        slots.extend((at + i * stride, stride, span) for i in range(count))
-    require(len(slots) == total, "Segment slot counts differ from table capacity")
+        if bitmap_selected:
+            require(capacity == count, "Bitmap segment capacity differs from selection count")
+            bitmap = reader.expression(validity["bitmap_at"])
+            byte_range(image, bitmap, (count + 7) // 8)
+            bitmaps.append((bitmap, bitmap + (count + 7) // 8))
+        slots.extend((at + i * stride, stride, span) for i in range(capacity))
+    require(total <= len(slots) <= 100000, "Segment slots cannot hold the table")
     require(len({stride for _, stride, _ in slots}) <= 1,
             "Segmented reset requires uniform record strides")
     ranges.sort()
@@ -1130,7 +1154,7 @@ def reset_segmented_table(image, original, definition, table, old, plan, reader)
     require(all(end <= start2 or end2 <= start for start, end in ranges for start2, end2 in bitmaps),
             "Bitmap overlaps segmented record storage")
     specs = plan["records"]
-    require(len(specs) <= total, "No room for segmented default records")
+    require(len(specs) <= len(slots), "No room for segmented default records")
     # Snapshot seeds before clearing; copy reads the immutable original image.
     records = []
     for i, spec in enumerate(specs):
@@ -1140,7 +1164,8 @@ def reset_segmented_table(image, original, definition, table, old, plan, reader)
     for i, (at, stride, span) in enumerate(slots):
         if plan.get("clear_all_slots") or i in original_indexes:
             image[at:at + span] = bytes(span)
-    reset_bitmap_selection(image, reader, layouts, len(specs))
+    if bitmap_selected:
+        reset_bitmap_selection(image, reader, layouts, len(specs))
     for i, (record, spec) in enumerate(zip(records, specs)):
         at = slots[i][0]
         image[at:at + len(record)] = record
@@ -1845,6 +1870,14 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
             continue
         for result, representation in zip(inspect_definition(data, donor, max_records), donor["representations"]):
             failed_checks = [c for c in result.get("checks", []) if c["required"] and c["status"] != "match"]
+            recognition = donor["recognition"]
+            version_field = recognition.get("version_field", recognition.get("cps_version_field"))
+            version_label = "version" if "version_field" in recognition else "CPS version"
+            version_checks = {version_label}
+            if version_field in recognition.get("required_fields", {}):
+                version_checks.add(version_field)
+            complete_tables = (not result.get("errors") and result.get("decoded", {}).get("tables")
+                               and all(table["complete"] for table in result["decoded"]["tables"].values()))
             model_only = (result["status"] == "partial" and not result.get("errors")
                           and result.get("decoded", {}).get("tables")
                           and all(table["complete"] for table in result["decoded"]["tables"].values())
@@ -1852,13 +1885,25 @@ def generation_definition(data, definitions, max_records=100000, default_only=Fa
                           and failed_checks[0]["name"] == "model"
                           and isinstance(failed_checks[0].get("actual"), str)
                           and bool(failed_checks[0]["actual"].strip()))
-            if result["status"] != "recognized" and not model_only:
+            version_only = (version_field and result["status"] == "partial" and complete_tables
+                            and {check["name"] for check in failed_checks} == version_checks
+                            and all(check["category"] == "recognition" for check in failed_checks)
+                            and all(isinstance(check.get("actual"), str) for check in failed_checks)
+                            and len({check.get("actual") for check in failed_checks}) == 1
+                            and bool(failed_checks[0]["actual"].strip()))
+            if result["status"] != "recognized" and not model_only and not version_only:
                 continue
             draft = deepcopy(donor)
             if model_only:
                 draft["recognition"]["model_value"] = failed_checks[0]["actual"]
                 draft["recognition"].pop("display_model", None)
                 draft["recognition"]["rule"] = "Match the observed model and the declared format and layout checks."
+            if version_only:
+                observed_version = failed_checks[0]["actual"]
+                key = "supported_versions" if "version_field" in recognition else "supported_cps_versions"
+                draft["recognition"][key] = [observed_version]
+                if version_field in draft["recognition"].get("required_fields", {}):
+                    draft["recognition"]["required_fields"][version_field] = observed_version
             draft["creation"]["representation"] = representation["name"]
             resets = draft.setdefault("default_generation", {}).setdefault("globals", {})
             for name in ("power_on_message_1", "power_on_message_2"):

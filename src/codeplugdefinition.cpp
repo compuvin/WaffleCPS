@@ -94,6 +94,8 @@ void validateSchema(const QJsonObject &definition)
             require(segment.contains("at") && segment.contains("count")
                         && (segment.contains("stride_bytes") != table.contains("record_bytes")),
                     "Table segment requires an address, count and one sizing rule: " + it.key());
+            if (segment.contains("capacity"))
+                require(integer(segment.value("capacity")) > 0, "Table segment capacity must be positive: " + it.key());
             if (!segment.contains("validity")) continue;
             const auto rule = object(segment.value("validity"), it.key() + ".validity");
             const int selectors = int(rule.contains("index_table")) + int(rule.contains("bitmap_at"))
@@ -128,7 +130,7 @@ void validateSchema(const QJsonObject &definition)
             const auto f = object(it.value(), it.key());
             if (f.contains("value")) continue;
             const QString type = f.value("type").toString();
-            require(QStringList{"u8", "u16le", "u24le", "u32le", "u16be", "u24be", "u32be",
+            require(QStringList{"u8", "u16le", "u24le", "u32le", "u16be", "u24be", "u32be", "u12split",
                                 "bcdle", "bcdbe", "ascii", "utf16le", "packed6"}.contains(type),
                     QStringLiteral("Unsupported definition field type: %1").arg(type));
             require(f.contains("at") || f.contains("offset"), QStringLiteral("Field lacks an address: %1").arg(it.key()));
@@ -432,6 +434,12 @@ public:
                     QStringLiteral("Invalid field expression."));
             return numeric(field(op == "field" ? globals : scope, operand.toString(), depth + 1).raw);
         }
+        if (op == "if_gte") {
+            const auto choice = object(operand, QStringLiteral("if_gte"));
+            const qint64 value = expression(choice.value("value"), scope, depth + 1);
+            const qint64 threshold = expression(choice.value("threshold"), scope, depth + 1);
+            return expression(choice.value(value >= threshold ? "then" : "else"), scope, depth + 1);
+        }
         require(op == "add" || op == "subtract" || op == "multiply" || op == "max",
                 QStringLiteral("Unsupported expression operator: %1").arg(op));
         require(operand.isArray(), QStringLiteral("Expression operands must be an array."));
@@ -712,7 +720,7 @@ private:
         const QString type = schema.value("type").toString();
         qint64 size = 0;
         if (type == "u8") size = 1;
-        else if (type == "u16le" || type == "u16be") size = 2;
+        else if (type == "u16le" || type == "u16be" || type == "u12split") size = 2;
         else if (type == "u24le" || type == "u24be") size = 3;
         else if (type == "u32le" || type == "u32be") size = 4;
         else if (type == "ascii" || type == "utf16le" || type == "packed6" || type.startsWith("bcd")) size = integer(schema.value("bytes"));
@@ -720,7 +728,9 @@ private:
         require(size > 0, QStringLiteral("Field size must be positive."));
         const QByteArray bytes = range(at, size);
         Value result;
-        if (type.startsWith('u') && type != "utf16le") {
+        if (type == "u12split") {
+            result.raw = qint64(((quint8(bytes[0]) >> 4) << 8) | quint8(bytes[1]));
+        } else if (type.startsWith('u') && type != "utf16le") {
             quint64 value = 0;
             for (qsizetype i = 0; i < bytes.size(); ++i) {
                 const qsizetype shiftIndex = type.endsWith("be") ? bytes.size() - 1 - i : i;
@@ -1007,7 +1017,7 @@ int storageWidth(const QJsonObject &f)
 {
     const QString t = f.value("type").toString();
     if (t == "u8") return 1;
-    if (t == "u16le" || t == "u16be") return 2;
+    if (t == "u16le" || t == "u16be" || t == "u12split") return 2;
     if (t == "u24le" || t == "u24be") return 3;
     if (t == "u32le" || t == "u32be") return 4;
     require(t == "ascii" || t == "utf16le" || t == "packed6" || t == "bcdle" || t == "bcdbe", "Unsupported writable field type: " + t);
@@ -1148,7 +1158,9 @@ private:
         if (!schema.contains("segments")) return add(tableAt(bytes, name), multiply(stride(name), index));
         require(index >= 0, "Negative record index.");
         for (const auto &v : schema.value("segments").toArray()) {
-            const auto segment = v.toObject(); const qint64 count = evaluate(segment.value("count"), bytes);
+            const auto segment = v.toObject();
+            const qint64 count = segment.contains("capacity")
+                ? integer(segment.value("capacity")) : evaluate(segment.value("count"), bytes);
             if (index < count) return add(evaluate(segment.value("at"), bytes), multiply(integer(segment.value("stride_bytes")), index));
             index -= count;
         }
@@ -1228,6 +1240,13 @@ private:
         }
         require(n >= 0 && (!f.contains("minimum") || n >= integer(f.value("minimum")))
                     && (!f.contains("maximum") || n <= integer(f.value("maximum"))), "Value violates field bounds.");
+        if (type == "u12split") {
+            require(n <= 0xFFF && !f.contains("mask") && !f.contains("shift"),
+                    "Invalid split 12-bit field value or descriptor.");
+            bytes[at] = char((quint8(bytes[at]) & 0x0F) | ((n >> 8) << 4));
+            bytes[at + 1] = char(n & 0xFF);
+            return;
+        }
         if (type == "bcdle" || type == "bcdbe") {
             require(size <= 9 && !f.contains("mask") && !f.contains("shift"), "Invalid BCD write descriptor.");
             for (int i = 0; i < size; ++i) {

@@ -1,6 +1,9 @@
 #include "radioexecutor.h"
 #include "dfuexecutor.h"
 #include "serialexecutor.h"
+#ifdef _WIN32
+#include "windowsmassstorage.h"
+#endif
 
 #include <libusb.h>
 #include <QJsonArray>
@@ -11,6 +14,7 @@
 #include <cstdint>
 #include <set>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -157,9 +161,13 @@ void checkFrame(const Object &rules, const Bytes &data)
 }
 
 class Usb {
+#ifndef _WIN32
     libusb_context *context = nullptr;
     libusb_device_handle *handle = nullptr;
     bool detached = false, claimed = false;
+#else
+    std::unique_ptr<WindowsMassStorage> windowsStorage;
+#endif
     Object root, usb, transport;
     uint32_t tag;
     const std::atomic_bool *cancelled;
@@ -167,14 +175,17 @@ class Usb {
 
     void cleanup() noexcept
     {
+#ifndef _WIN32
         if (handle) {
             if (claimed) libusb_release_interface(handle, interfaceNumber);
             if (detached) libusb_attach_kernel_driver(handle, interfaceNumber);
             libusb_close(handle);
         }
         if (context) libusb_exit(context);
+#endif
     }
 
+#ifndef _WIN32
     void transfer(uint8_t endpoint, Bytes &data, bool exact)
     {
         int actual = 0;
@@ -185,6 +196,7 @@ class Usb {
         require(!exact || size_t(actual) == data.size(), "Short radio USB transfer");
         data.resize(size_t(actual));
     }
+#endif
 
 public:
     Usb(const RadioDefinition &definition, const std::atomic_bool *cancel)
@@ -194,6 +206,14 @@ public:
                          .value(QStringLiteral("tag_rule")).toObject().value(QStringLiteral("initial")))),
           cancelled(cancel), interfaceNumber(int(number(usb.value(QStringLiteral("interface_number")))))
     {
+#ifdef _WIN32
+        require(number(usb.value(QStringLiteral("vendor_id"))) <= 0xFFFF
+                && number(usb.value(QStringLiteral("product_id"))) <= 0xFFFF,
+                "Invalid radio USB ID");
+        windowsStorage = std::make_unique<WindowsMassStorage>(
+            uint16_t(number(usb.value(QStringLiteral("vendor_id")))),
+            uint16_t(number(usb.value(QStringLiteral("product_id")))));
+#else
         try {
             int result = libusb_init(&context);
             requireUsb(result, "Initialize radio USB");
@@ -263,6 +283,7 @@ public:
                 requireUsb(result, "Select radio USB alternate setting");
             }
         } catch (...) { cleanup(); throw; }
+#endif
     }
     ~Usb() { cleanup(); }
     void checkpoint() const
@@ -274,6 +295,16 @@ public:
         const Object commandRule = transport.value(QStringLiteral("commands")).toObject().value(name).toObject();
         const uint8_t direction = uint8_t(number(commandRule.value(QStringLiteral("direction"))));
         const Bytes cdb = hex(commandRule.value(QStringLiteral("cdb_hex")));
+#ifdef _WIN32
+        require(direction == 0 || direction == 0x80, "Unsupported radio transfer direction");
+        try {
+            return windowsStorage->command(cdb, payload, direction ? fetchBytes : 0,
+                direction != 0, number(root.value(QStringLiteral("polling")).toObject()
+                                       .value(QStringLiteral("bulk_transfer_timeout_ms"))));
+        } catch (const std::exception &error) {
+            throw std::runtime_error("Radio command " + name.toStdString() + ": " + error.what());
+        }
+#else
         const Object cbwRule = transport.value(QStringLiteral("cbw")).toObject();
         const Object cswRule = transport.value(QStringLiteral("csw")).toObject();
         const uint32_t length = direction ? fetchBytes : uint32_t(payload.size());
@@ -326,6 +357,7 @@ public:
                     == number(checks.value(QStringLiteral("success_status")))
                 && residue == number(checks.value(QStringLiteral("success_residue"))), "Radio USB transaction failed");
         return data;
+#endif
     }
 };
 
