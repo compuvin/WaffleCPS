@@ -4,8 +4,10 @@
 #include <QJsonArray>
 #include <QSerialPort>
 #include <QSerialPortInfo>
+#include <QThread>
 #include <algorithm>
 #include <map>
+#include <set>
 #include <stdexcept>
 
 namespace {
@@ -90,7 +92,9 @@ quint32 little(const QByteArray &bytes, int offset, int width)
 class Port {
 public:
     Port(const Object &transport, const std::atomic_bool *cancelled)
-        : m_cancelled(cancelled), m_timeout(int(requiredNumber(transport, "timeout_ms")))
+        : m_cancelled(cancelled), m_timeout(int(requiredNumber(transport, "timeout_ms"))),
+          m_paged(transport.value(QStringLiteral("protocol")) == QStringLiteral("paged_addressed_serial_v1")),
+          m_closeResetMs(m_paged ? int(requiredNumber(transport, "close_reset_ms")) : 0)
     {
         const quint32 vendor = requiredNumber(transport, "vendor_id");
         const quint32 product = requiredNumber(transport, "product_id");
@@ -112,11 +116,25 @@ public:
         if (!m_port.open(QIODevice::ReadWrite))
             throw std::runtime_error(QStringLiteral("Cannot open serial radio %1: %2")
                 .arg(chosen, m_port.errorString()).toStdString());
+        if (m_paged) {
+            if (!m_port.setDataTerminalReady(true))
+                throw std::runtime_error("Cannot assert serial DTR for radio programming");
+            QThread::msleep(requiredNumber(transport, "open_delay_ms"));
+            m_port.clear(QSerialPort::Input);
+        }
+    }
+
+    ~Port()
+    {
+        if (m_paged && m_port.isOpen()) {
+            m_port.setDataTerminalReady(false);
+            QThread::msleep(m_closeResetMs);
+        }
     }
 
     void checkpoint() const { if (m_cancelled && m_cancelled->load()) throw RadioExecutor::Cancelled(); }
 
-    QByteArray exchange(const QByteArray &request, int expectedBytes)
+    QByteArray exchange(const QByteArray &request, int expectedBytes, unsigned preReadDelayMs = 0)
     {
         checkpoint();
         if (request.isEmpty() || expectedBytes < 1) throw std::runtime_error("Invalid serial exchange");
@@ -132,6 +150,7 @@ public:
                 throw std::runtime_error(QStringLiteral("Serial write failed: %1").arg(m_port.errorString()).toStdString());
             if (timer.elapsed() >= m_timeout) throw std::runtime_error("Serial write timed out");
         }
+        if (preReadDelayMs) QThread::msleep(preReadDelayMs);
         QByteArray response;
         while (response.size() < expectedBytes) {
             checkpoint();
@@ -143,10 +162,31 @@ public:
         return response;
     }
 
+    QByteArray receive(int expectedBytes, int timeoutMs = -1)
+    {
+        checkpoint();
+        if (expectedBytes < 0 || expectedBytes > 65536)
+            throw std::runtime_error("Invalid serial response length");
+        if (timeoutMs < 0) timeoutMs = m_timeout;
+        QByteArray response;
+        QElapsedTimer timer;
+        timer.start();
+        while (response.size() < expectedBytes) {
+            checkpoint();
+            response += m_port.read(expectedBytes - response.size());
+            if (response.size() == expectedBytes) break;
+            if (timer.elapsed() >= timeoutMs || !m_port.waitForReadyRead(std::max(1, timeoutMs - int(timer.elapsed()))))
+                throw std::runtime_error(QStringLiteral("Serial response timed out: %1").arg(m_port.errorString()).toStdString());
+        }
+        return response;
+    }
+
 private:
     QSerialPort m_port;
     const std::atomic_bool *m_cancelled;
     int m_timeout;
+    bool m_paged;
+    int m_closeResetMs;
 };
 
 void commands(Port &port, const QJsonArray &sequence)
@@ -199,10 +239,277 @@ void writeCommand(Port &port, const QByteArray &request, const QByteArray &expec
         throw std::runtime_error("Serial radio rejected a flash write command");
 }
 
+void appendLe(QByteArray *bytes, quint32 value, int width)
+{
+    for (int i = 0; i < width; ++i) bytes->append(char((value >> (8 * i)) & 255));
+}
+
+void pagedSteps(Port &port, const QJsonArray &steps)
+{
+    for (const QJsonValue &value : steps) {
+        const Object step = value.toObject();
+        const QByteArray request = requiredHex(step, "request_hex");
+        const QByteArray prefix = requiredHex(step, "response_prefix_hex");
+        const quint32 length = requiredNumber(step, "response_bytes");
+        const QByteArray response = port.exchange(request, int(length), requiredNumber(step, "pre_read_delay_ms"));
+        if (response.size() != int(length) || !response.startsWith(prefix))
+            throw std::runtime_error("Serial radio rejected a setup command");
+        const QJsonArray allowed = step.value(QStringLiteral("allowed_response_text")).toArray();
+        if (!allowed.isEmpty()) {
+            bool matched = false;
+            for (const QJsonValue &text : allowed)
+                matched |= !text.toString().isEmpty() && response.contains(text.toString().toLatin1());
+            if (!matched) throw std::runtime_error("Serial radio identity does not match this definition");
+        }
+    }
+}
+
+QPair<quint32, quint32> pagedMemoryRange(Port &port, const Object &transport)
+{
+    const Object rule = transport.value(QStringLiteral("memory_query")).toObject();
+    const QByteArray prefix = requiredHex(rule, "response_prefix_hex");
+    const QByteArray header = port.exchange(requiredHex(rule, "request_hex"), 3);
+    if (prefix.size() != 2 || !header.startsWith(prefix)
+        || quint8(header[2]) != requiredNumber(rule, "payload_bytes"))
+        throw std::runtime_error("Serial radio returned an invalid memory range header");
+    const QByteArray payload = port.receive(quint8(header[2]));
+    const int lowerOffset = int(requiredNumber(rule, "lower_offset"));
+    const int upperOffset = int(requiredNumber(rule, "upper_offset"));
+    if (lowerOffset + 4 > payload.size() || upperOffset + 4 > payload.size())
+        throw std::runtime_error("Serial radio memory range is truncated");
+    return {little(payload, lowerOffset, 4), little(payload, upperOffset, 4)};
+}
+
+void pagedConnect(Port &port, const Object &transport)
+{
+    pagedSteps(port, transport.value(QStringLiteral("identity_steps")).toArray());
+}
+
+QByteArray pagedRead(Port &port, const Object &transport, quint32 address, quint32 length)
+{
+    const Object rule = transport.value(QStringLiteral("read_packet")).toObject();
+    QByteArray request = requiredHex(rule, "request_hex");
+    appendLe(&request, address, 3);
+    appendLe(&request, length, 2);
+    const QByteArray header = port.exchange(request, 6, requiredNumber(rule, "pre_read_delay_ms"));
+    if (!header.startsWith(requiredHex(rule, "response_hex"))
+        || little(header, 1, 3) != address || little(header, 4, 2) != length)
+        throw std::runtime_error("Serial radio returned an invalid page header");
+    const QByteArray payload = port.receive(int(length), int(requiredNumber(rule, "payload_timeout_ms")));
+    if (payload.size() != int(length)) throw std::runtime_error("Serial radio page is truncated");
+    return payload;
+}
+
+void pagedWrite(Port &port, const Object &transport, quint32 address, const QByteArray &page)
+{
+    const Object rule = transport.value(QStringLiteral("write_packet")).toObject();
+    QByteArray request = requiredHex(rule, "request_hex");
+    appendLe(&request, address, 3);
+    appendLe(&request, quint32(page.size()), 2);
+    request += page;
+    if (port.exchange(request, 1, requiredNumber(rule, "pre_read_delay_ms"))
+        != requiredHex(rule, "response_hex"))
+        throw std::runtime_error("Serial radio rejected a page write");
+}
+
+std::map<quint8, quint32> pagedMap(Port &port, const Object &transport,
+                                   const QPair<quint32, quint32> &range,
+                                   const RadioExecutor::Progress &progress,
+                                   const char *phase)
+{
+    const Object page = transport.value(QStringLiteral("page_map")).toObject();
+    const quint32 bytes = requiredNumber(page, "page_bytes");
+    const quint32 tagOffset = requiredNumber(page, "id_offset");
+    const quint32 maxPages = requiredNumber(page, "maximum_pages");
+    if (!bytes || tagOffset >= bytes || range.first % bytes || range.second < range.first
+        || range.second > 0xFFFFFF || (range.second - range.first) / bytes + 1 > maxPages)
+        throw std::runtime_error("Serial radio page map has an invalid range");
+    const quint32 count = (range.second - range.first) / bytes + 1;
+    std::map<quint8, quint32> mapped;
+    for (quint32 index = 0; index < count; ++index) {
+        port.checkpoint();
+        const quint32 address = range.first + index * bytes;
+        const QByteArray tag = pagedRead(port, transport, address + tagOffset, 1);
+        const quint8 id = quint8(tag[0]);
+        if (id != 0 && id != 255 && !mapped.emplace(id, address).second)
+            throw std::runtime_error("Serial radio has duplicate logical page IDs");
+        if (progress) progress(phase, index + 1, count);
+        QThread::msleep(requiredNumber(page, "probe_delay_ms"));
+    }
+    return mapped;
+}
+
+std::map<quint8, QByteArray> imagePages(const Bytes &image, const Object &page)
+{
+    const quint32 bytes = requiredNumber(page, "page_bytes");
+    const quint32 tagOffset = requiredNumber(page, "id_offset");
+    if (!bytes || tagOffset >= bytes || image.size() % bytes)
+        throw std::runtime_error("Serial codeplug pages have an invalid size");
+    std::map<quint8, QByteArray> result;
+    for (size_t at = 0; at < image.size(); at += bytes) {
+        const quint8 id = image[at + tagOffset];
+        if (id == 0 || id == 255) continue;
+        if (!result.emplace(id, QByteArray(reinterpret_cast<const char *>(image.data() + at), bytes)).second)
+            throw std::runtime_error("Serial codeplug contains duplicate logical page IDs");
+    }
+    return result;
+}
+
+bool validatePaged(const Object &root, QString *error)
+{
+    try {
+        const Object transport = root.value(QStringLiteral("serial_transport")).toObject();
+        const Object page = transport.value(QStringLiteral("page_map")).toObject();
+        const Object memory = transport.value(QStringLiteral("memory_query")).toObject();
+        const Object readPacket = transport.value(QStringLiteral("read_packet")).toObject();
+        const Object writePacket = transport.value(QStringLiteral("write_packet")).toObject();
+        const Object methods = root.value(QStringLiteral("methods")).toObject();
+        const Object read = methods.value(QStringLiteral("read_codeplug")).toObject();
+        const Object write = methods.value(QStringLiteral("write_codeplug")).toObject();
+        const Object assembly = read.value(QStringLiteral("assembly")).toObject();
+        const quint32 bytes = requiredNumber(page, "page_bytes");
+        const quint32 imageBytes = requiredNumber(assembly, "bytes");
+        if (requiredNumber(transport, "vendor_id") > 65535
+            || requiredNumber(transport, "product_id") > 65535
+            || requiredNumber(transport, "baud_rate") < 1200
+            || requiredNumber(transport, "timeout_ms") < 100
+            || requiredNumber(transport, "open_delay_ms") > 10000
+            || requiredNumber(transport, "close_reset_ms") > 10000
+            || bytes != 4096 || requiredNumber(page, "id_offset") != bytes - 1
+            || requiredNumber(page, "maximum_pages") < 1 || requiredNumber(page, "maximum_pages") > 4096
+            || requiredNumber(page, "probe_delay_ms") > 1000
+            || imageBytes < bytes || imageBytes > 16 * 1024 * 1024 || imageBytes % bytes
+            || assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_pages_by_id_in_template")
+            || assembly.value(QStringLiteral("representation")).toString().isEmpty()
+            || write.value(QStringLiteral("codeplug_definition_id")) != root.value(QStringLiteral("id"))
+            || write.value(QStringLiteral("representation")) != assembly.value(QStringLiteral("representation"))
+            || write.value(QStringLiteral("verify_after_write")) != true
+            || requiredNumber(page, "unallocated_write_address") > 0xFFFFFF
+            || requiredNumber(memory, "payload_bytes") != 8
+            || requiredNumber(memory, "lower_offset") > 4
+            || requiredNumber(memory, "upper_offset") > 4
+            || requiredHex(memory, "request_hex").size() != 5
+            || requiredHex(memory, "response_prefix_hex").size() != 2
+            || requiredHex(readPacket, "request_hex").size() != 1
+            || requiredHex(readPacket, "response_hex").size() != 1
+            || requiredHex(writePacket, "request_hex").size() != 1
+            || requiredHex(writePacket, "response_hex").size() != 1
+            || readPacket.value(QStringLiteral("address_type")) != QStringLiteral("u24le")
+            || readPacket.value(QStringLiteral("length_type")) != QStringLiteral("u16le")
+            || writePacket.value(QStringLiteral("address_type")) != QStringLiteral("u24le")
+            || writePacket.value(QStringLiteral("length_type")) != QStringLiteral("u16le")
+            || requiredNumber(readPacket, "pre_read_delay_ms") > 1000
+            || requiredNumber(readPacket, "payload_timeout_ms") < 1000
+            || requiredNumber(writePacket, "pre_read_delay_ms") > 1000
+            || requiredNumber(page, "block_delay_ms") > 1000
+            || transport.value(QStringLiteral("identity_steps")).toArray().isEmpty()
+            || transport.value(QStringLiteral("enter_program_steps")).toArray().isEmpty())
+            return bad(error, QStringLiteral("Invalid paged serial transport or image assembly settings."));
+        for (const char *key : {"identity_steps", "enter_program_steps"}) {
+            for (const QJsonValue &value : transport.value(QLatin1String(key)).toArray()) {
+                const Object step = value.toObject();
+                const quint32 responseBytes = requiredNumber(step, "response_bytes");
+                if (responseBytes < 1 || responseBytes > 256
+                    || requiredHex(step, "response_prefix_hex").size() > int(responseBytes)
+                    || requiredHex(step, "request_hex").size() > 256
+                    || requiredNumber(step, "pre_read_delay_ms") > 1000)
+                    return bad(error, QStringLiteral("Invalid paged serial setup step."));
+                for (const QJsonValue &text : step.value(QStringLiteral("allowed_response_text")).toArray())
+                    if (text.toString().isEmpty() || text.toString().size() > int(responseBytes))
+                        return bad(error, QStringLiteral("Invalid paged serial identity text."));
+            }
+        }
+    } catch (const std::exception &exception) {
+        return bad(error, QString::fromUtf8(exception.what()));
+    }
+    if (error) error->clear();
+    return true;
+}
+
+Bytes readPagedCodeplug(const RadioDefinition &definition,
+                        const RadioExecutor::Progress &progress,
+                        const std::atomic_bool &cancelled)
+{
+    const Object transport = definition.document().value(QStringLiteral("serial_transport")).toObject();
+    const Object pageRule = transport.value(QStringLiteral("page_map")).toObject();
+    const quint32 pageBytes = requiredNumber(pageRule, "page_bytes");
+    Bytes image(256 * pageBytes, 0);
+    Port port(transport, &cancelled);
+    pagedConnect(port, transport);
+    const auto range = pagedMemoryRange(port, transport);
+    pagedSteps(port, transport.value(QStringLiteral("enter_program_steps")).toArray());
+    const auto mapped = pagedMap(port, transport, range, progress, "discover pages");
+    quint32 done = 0;
+    for (const auto &[id, address] : mapped) {
+        port.checkpoint();
+        const QByteArray contents = pagedRead(port, transport, address, pageBytes);
+        if (quint8(contents[int(pageBytes) - 1]) != id)
+            throw std::runtime_error("Serial radio page ID changed during read");
+        std::copy(contents.cbegin(), contents.cend(), image.begin() + size_t(id) * pageBytes);
+        if (progress) progress("read pages", ++done, quint32(mapped.size()));
+        QThread::msleep(requiredNumber(pageRule, "block_delay_ms"));
+    }
+    return image;
+}
+
+void writePagedCodeplug(const RadioDefinition &definition, const Bytes &image,
+                        const RadioExecutor::Progress &progress)
+{
+    const Object root = definition.document();
+    const Object transport = root.value(QStringLiteral("serial_transport")).toObject();
+    const Object pageRule = transport.value(QStringLiteral("page_map")).toObject();
+    const Object assembly = root.value(QStringLiteral("methods")).toObject()
+        .value(QStringLiteral("read_codeplug")).toObject()
+        .value(QStringLiteral("assembly")).toObject();
+    if (image.size() != requiredNumber(assembly, "bytes"))
+        throw std::runtime_error("Serial codeplug image has the wrong size");
+    auto pages = imagePages(image, pageRule);
+    for (const QJsonValue &value : definition.writePlan().value(QStringLiteral("exclude_page_ids")).toArray()) {
+        quint32 excluded = 0;
+        if (!number(value, &excluded) || excluded > 255)
+            throw std::runtime_error("Invalid excluded serial page ID");
+        pages.erase(quint8(excluded));
+    }
+    Port port(transport, nullptr);
+    pagedConnect(port, transport);
+    const auto range = pagedMemoryRange(port, transport);
+    pagedSteps(port, transport.value(QStringLiteral("enter_program_steps")).toArray());
+    const auto mapped = pagedMap(port, transport, range, progress, "discover pages");
+    const quint32 sentinel = requiredNumber(pageRule, "unallocated_write_address");
+    quint32 done = 0;
+    std::set<quint8> changed;
+    for (const auto &[id, contents] : pages) {
+        const auto existing = mapped.find(id);
+        if (existing != mapped.end()
+            && pagedRead(port, transport, existing->second, quint32(contents.size())) == contents) {
+            if (progress) progress("write pages", ++done, quint32(pages.size()));
+            continue;
+        }
+        pagedWrite(port, transport, existing == mapped.end() ? sentinel : existing->second, contents);
+        changed.insert(id);
+        if (progress) progress("write pages", ++done, quint32(pages.size()));
+        QThread::msleep(requiredNumber(pageRule, "block_delay_ms"));
+    }
+    if (!changed.empty()) {
+        const auto verified = pagedMap(port, transport, range, progress, "verify page map");
+        done = 0;
+        for (quint8 id : changed) {
+            const auto address = verified.find(id);
+            if (address == verified.end()
+                || pagedRead(port, transport, address->second, quint32(pages.at(id).size())) != pages.at(id))
+                throw std::runtime_error("Serial radio page verification failed");
+            if (progress) progress("verify pages", ++done, quint32(changed.size()));
+        }
+    }
+}
+
 } // namespace
 
 bool SerialExecutor::validate(const QJsonObject &root, QString *error)
 {
+    if (root.value(QStringLiteral("serial_transport")).toObject()
+            .value(QStringLiteral("protocol")) == QStringLiteral("paged_addressed_serial_v1"))
+        return validatePaged(root, error);
     try {
         const Object transport = root.value(QStringLiteral("serial_transport")).toObject();
         const Object methods = root.value(QStringLiteral("methods")).toObject();
@@ -290,6 +597,8 @@ RadioExecutor::Bytes SerialExecutor::read(const RadioDefinition &definition,
 {
     const Object root = definition.document();
     const Object transport = root.value(QStringLiteral("serial_transport")).toObject();
+    if (transport.value(QStringLiteral("protocol")) == QStringLiteral("paged_addressed_serial_v1"))
+        return readPagedCodeplug(definition, progress, cancelled);
     const Object method = root.value(QStringLiteral("methods")).toObject().value(QStringLiteral("read_codeplug")).toObject();
     const quint32 block = requiredNumber(transport, "block_bytes");
     Bytes image(requiredNumber(method.value(QStringLiteral("assembly")).toObject(), "bytes"), 0);
@@ -321,6 +630,10 @@ void SerialExecutor::write(const RadioDefinition &definition, const Bytes &image
 {
     const Object root = definition.document();
     const Object transport = root.value(QStringLiteral("serial_transport")).toObject();
+    if (transport.value(QStringLiteral("protocol")) == QStringLiteral("paged_addressed_serial_v1")) {
+        writePagedCodeplug(definition, image, progress);
+        return;
+    }
     const Object method = definition.writePlan();
     const Object assembly = root.value(QStringLiteral("methods")).toObject()
         .value(QStringLiteral("read_codeplug")).toObject().value(QStringLiteral("assembly")).toObject();

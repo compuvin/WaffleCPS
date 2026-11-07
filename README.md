@@ -77,7 +77,7 @@ ctest --test-dir build --output-on-failure -E '^RequiresCodeplug-'
 
 Run without `-E` when the required local samples are present in `Codeplugs/`.
 
-WaffleCPS uses Qt and CMake. GitHub Actions builds `.deb` packages for Linux amd64 and arm64 and an unsigned macOS arm64 DMG. The macOS job builds the app but does not run its tests; GitHub Actions also builds a Windows installer, whose runtime packaging fix still needs testing. The app icon is generated from `tools/render_icon.py`; Pillow is needed only to regenerate the image, not to build WaffleCPS.
+Download WaffleCPS for Windows x64, Ubuntu 24.04 (amd64 or arm64), or macOS arm64 from [GitHub Releases](https://github.com/compuvin/WaffleCPS/releases).
 
 ## Project documents
 

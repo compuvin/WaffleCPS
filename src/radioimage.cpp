@@ -12,6 +12,32 @@ QByteArray assembleRadioImage(const RadioDefinition &definition,
             .value(QStringLiteral("read_codeplug")).toObject();
         const QJsonObject assembly = read.value(QStringLiteral("assembly")).toObject();
         const int bytes = assembly.value(QStringLiteral("bytes")).toInt(-1);
+        if (assembly.value(QStringLiteral("operation")) == QStringLiteral("replace_pages_by_id_in_template")) {
+            const QJsonObject page = definition.document().value(QStringLiteral("serial_transport")).toObject()
+                .value(QStringLiteral("page_map")).toObject();
+            const int pageBytes = page.value(QStringLiteral("page_bytes")).toInt(-1);
+            const int tagOffset = page.value(QStringLiteral("id_offset")).toInt(-1);
+            if (bytes < 1 || pageBytes < 1 || tagOffset < 0 || tagOffset >= pageBytes
+                || bytes % pageBytes || codeplugTemplate.size() != bytes
+                || downloaded.size() != 256 * pageBytes)
+                throw std::runtime_error("Paged serial image or packaged codeplug template has the wrong size");
+            QByteArray result = codeplugTemplate;
+            bool seen[256] = {};
+            for (int at = 0; at < bytes; at += pageBytes) {
+                const unsigned id = quint8(codeplugTemplate[at + tagOffset]);
+                if (id == 0 || id == 255) continue;
+                if (seen[id]) throw std::runtime_error("Packaged codeplug has duplicate logical page IDs");
+                seen[id] = true;
+                const int source = int(id) * pageBytes;
+                if (quint8(downloaded[source + tagOffset]) == id)
+                    result.replace(at, pageBytes, downloaded.constData() + source, pageBytes);
+                else {
+                    result.replace(at, pageBytes, QByteArray(pageBytes, char(0)));
+                    result[at + tagOffset] = char(id);
+                }
+            }
+            return result;
+        }
         if (assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_regions_in_template")
             || bytes < 1 || codeplugTemplate.size() != bytes || downloaded.size() != bytes)
             throw std::runtime_error("Serial image or packaged codeplug template has the wrong size");
