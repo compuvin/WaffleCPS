@@ -82,7 +82,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 ## Radio support and distribution
 
 - [ ] Separate the shared programming model and interface from radio-format adapters.
-- [ ] Ask the user to select a target radio model when creating a new codeplug, so its limits guide editing from the start.
+- [x] Ask the user to select a target radio model when creating a new codeplug, so its limits guide editing from the start.
   - [ ] Allow the target radio model to be changed later.
   - [ ] When the target changes, check the entire configuration against the new model and firmware's capabilities and limits.
   - [ ] Show anything that does not fit and prompt the user to correct it, including splitting zones or removing extra channels where needed; do not silently discard settings.
@@ -97,15 +97,15 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 - [x] Linux support
   - [x] Build and test on Linux.
   - [x] Provide a straightforward Linux package, such as an AppImage; consider Flatpak later.
-- [ ] Windows support
-  - [ ] Build and test on Windows.
-  - [ ] Provide a conventional Windows installer.
+- [x] Windows support
+  - [x] Build and test on Windows.
+  - [x] Provide a conventional Windows installer.
 - [ ] macOS support
   - [ ] Build and test on macOS.
-  - [ ] Provide a macOS app bundle and decide on signing and distribution.
+  - [x] Provide a macOS app bundle and decide on signing and distribution.
 - [x] Document USB drivers or device permissions on each supported platform when radio communication arrives. [Linux USB permissions](RadioReading.md#linux-usb-permission)
 - [x] Keep the app usable offline, without accounts or subscriptions.
-- [ ] Support additional radios only after the shared model and first adapter are proven.
+- [x] Support additional radios only after the shared model and first adapter are proven.
 
 ## Radio models to support
 

@@ -1,14 +1,12 @@
 #pragma once
 
-#include "../src/codeplugreader.h"
-#include "../src/codeplugwriter.h"
-#include "../src/cs7000default.h"
+#include "definition_fixture.h"
 
 inline QByteArray channelOrderFixture(QString *error)
 {
-    const QByteArray base = cs7000DefaultCodeplug();
+    const QByteArray base = packagedTestCodeplug();
     ImportedCodeplug target;
-    if (!CodeplugReader::read(base, &target, error))
+    if (!readTestCodeplug(base, &target, error))
         return {};
     target.contacts = {{QStringLiteral("Alpha"), 9, true},
                        {QStringLiteral("Bravo"), 3100, true}};
@@ -26,7 +24,7 @@ inline QByteArray channelOrderFixture(QString *error)
         {QStringLiteral("Simplex zone"), {5}}
     };
     QByteArray source;
-    if (!CodeplugWriter::write(base, target, QStringLiteral("TEST RADIO"), 3109101, &source, error))
+    if (!writeTestCodeplug(base, target, QStringLiteral("TEST RADIO"), 3109101, &source, error))
         return {};
     // Unknown settings and channel bytes must survive an ordering-only export.
     source[0x600] = char(uchar(source[0x600]) ^ 0x5a);

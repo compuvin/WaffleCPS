@@ -1,5 +1,5 @@
 #pragma once
-#include "codeplugreader.h"
+#include "importedcodeplug.h"
 
 #include <QObject>
 #include <QByteArray>

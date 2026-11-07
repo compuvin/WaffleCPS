@@ -1,6 +1,5 @@
 #include "../src/radioexecutor.h"
 #include "../src/codeplugdefinition.h"
-#include "../src/cs7000usb.h"
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -32,16 +31,6 @@ int main(int argc, char **argv)
         const RadioExecutor::Bytes image(decoded.begin(), decoded.end());
         const auto blocks = RadioExecutor::planWrite(radio, codeplug.document(), image);
         check(!blocks.empty(), "Write plan selected no blocks");
-        const auto previousPlan = Cs7000Usb::planWrite(image);
-        check(blocks.size() == previousPlan.size(), "Definition-driven write selects different blocks");
-        for (size_t i = 0; i < blocks.size(); ++i) {
-            const auto &block = blocks[i];
-            const auto &old = previousPlan[i];
-            check(block.command == old.command && block.selector == old.selector
-                  && block.extent == old.extent
-                  && RadioExecutor::makeFrame(radio, 0x05, block.command, block.payload) == old.request,
-                  "Definition-driven write request differs from established planner");
-        }
         RadioExecutor::Bytes sparse(0x1401 + 0x400000, 0xA6);
         const auto put32 = [&](size_t at, uint32_t value) {
             for (unsigned byte = 0; byte < 4; ++byte) sparse.at(at + byte) = uint8_t(value >> (8 * byte));
@@ -55,14 +44,7 @@ int main(int argc, char **argv)
         put32(0x1401 + 4, 0x400000);
         for (uint32_t row = 0; row < 335; ++row) put32(0x1401 + 8 + row * 4, row + 1);
         const auto sparseNew = RadioExecutor::planWrite(radio, codeplug.document(), sparse);
-        const auto sparseOld = Cs7000Usb::planWrite(sparse);
-        check(sparseNew.size() == sparseOld.size(), "Sparse definition-driven write selects different blocks");
-        for (size_t i = 0; i < sparseNew.size(); ++i)
-            check(sparseNew[i].selector == sparseOld[i].selector
-                  && sparseNew[i].extent == sparseOld[i].extent
-                  && RadioExecutor::makeFrame(radio, 0x05, sparseNew[i].command, sparseNew[i].payload)
-                     == sparseOld[i].request,
-                  "Sparse definition-driven request differs from established planner");
+        check(sparseNew.size() == 7, "Sparse write selected the wrong number of blocks");
         const auto &first = blocks.front();
         check(first.command == 0x11 && first.selector == 0 && first.payload.size() == 2056,
               "First write block differs from packaged definition");

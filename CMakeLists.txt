@@ -9,24 +9,17 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widge
 find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
-find_package(Threads REQUIRED)
 qt_standard_project_setup()
-
-add_library(cs7000usb STATIC src/cs7000usb.cpp src/cs7000usb.h)
-target_link_libraries(cs7000usb PUBLIC PkgConfig::LIBUSB Threads::Threads)
-add_executable(cs7000-read tools/cs7000_read.cpp)
-target_link_libraries(cs7000-read PRIVATE cs7000usb)
 
 add_library(radioreader STATIC
     src/radioreader.cpp src/radioreader.h
     src/radiowriter.cpp src/radiowriter.h
-    src/radiocodeplug.cpp src/radiocodeplug.h
     src/radiodefinition.cpp src/radiodefinition.h
     src/radioexecutor.cpp src/radioexecutor.h
     src/dfuexecutor.cpp src/dfuexecutor.h
     src/serialexecutor.cpp src/serialexecutor.h
     src/radioimage.cpp src/radioimage.h)
-target_link_libraries(radioreader PUBLIC Qt6::Core Qt6::SerialPort cs7000usb PkgConfig::LIBUSB codeplugdefinition)
+target_link_libraries(radioreader PUBLIC Qt6::Core Qt6::SerialPort PkgConfig::LIBUSB codeplugdefinition)
 
 if(WIN32)
     target_sources(radioreader PRIVATE
@@ -59,10 +52,6 @@ qt_add_executable(wafflecps
     src/main.cpp
     src/repeaterstore.cpp
     src/repeaterstore.h
-    src/codeplugreader.cpp
-    src/codeplugreader.h
-    src/cs7000default.cpp
-    src/cs7000default.h
     src/ziparchive.cpp
     src/ziparchive.h
 )
@@ -184,10 +173,7 @@ if(BUILD_TESTING)
     add_test(NAME opengd77_serial COMMAND opengd77_serial_test)
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
-        src/repeaterstore.cpp src/repeaterstore.h
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h)
+        src/repeaterstore.cpp src/repeaterstore.h)
     target_link_libraries(cs750_roundtrip_test PRIVATE codeplugdefinition Qt6::Gui Qt6::Widgets)
     target_compile_definitions(cs750_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME cs750_roundtrip COMMAND cs750_roundtrip_test)
@@ -197,19 +183,13 @@ if(BUILD_TESTING)
     target_compile_definitions(md380_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME RequiresCodeplug-md380_roundtrip COMMAND md380_roundtrip_test)
     add_executable(codeplug_definition_test
-        tests/codeplug_definition.cpp tests/channel_order_fixture.h
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h)
+        tests/codeplug_definition.cpp tests/channel_order_fixture.h)
     target_link_libraries(codeplug_definition_test PRIVATE codeplugdefinition)
     target_compile_definitions(codeplug_definition_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME codeplug_definition COMMAND codeplug_definition_test)
 
     add_executable(codeplug_definition_export_test
-        tests/codeplug_definition_export.cpp
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h)
+        tests/codeplug_definition_export.cpp)
     target_link_libraries(codeplug_definition_export_test PRIVATE codeplugdefinition)
     target_compile_definitions(codeplug_definition_export_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME codeplug_definition_export COMMAND codeplug_definition_export_test)
@@ -219,15 +199,9 @@ if(BUILD_TESTING)
     target_compile_definitions(definition_disk_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME RequiresCodeplug-definition_disk COMMAND definition_disk_test)
 
-    add_executable(radio_write_protocol_test tests/radio_write_protocol.cpp)
-    target_link_libraries(radio_write_protocol_test PRIVATE cs7000usb)
-    add_test(NAME radio_write_protocol COMMAND radio_write_protocol_test)
     qt_add_executable(zone_editor_test
         tests/zone_editor.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h
         src/ziparchive.cpp src/ziparchive.h)
     target_link_libraries(zone_editor_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME zone_editor COMMAND zone_editor_test)
@@ -235,9 +209,6 @@ if(BUILD_TESTING)
     qt_add_executable(channel_order_test
         tests/channel_order.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h
         src/ziparchive.cpp src/ziparchive.h)
     target_link_libraries(channel_order_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME channel_order COMMAND channel_order_test)
@@ -245,9 +216,6 @@ if(BUILD_TESTING)
     qt_add_executable(radio_import_test
         tests/radio_import.cpp
         src/repeaterstore.cpp src/repeaterstore.h
-        src/codeplugreader.cpp src/codeplugreader.h
-        src/codeplugwriter.cpp src/codeplugwriter.h
-        src/cs7000default.cpp src/cs7000default.h
         src/ziparchive.cpp src/ziparchive.h)
     target_link_libraries(radio_import_test PRIVATE radioreader Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME radio_import COMMAND radio_import_test)
@@ -256,12 +224,6 @@ if(BUILD_TESTING)
         tests/project_roundtrip.cpp
         src/repeaterstore.cpp
         src/repeaterstore.h
-        src/codeplugreader.cpp
-        src/codeplugreader.h
-        src/codeplugwriter.cpp
-        src/codeplugwriter.h
-        src/cs7000default.cpp
-        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
@@ -272,12 +234,6 @@ if(BUILD_TESTING)
         tests/codeplug_import.cpp
         src/repeaterstore.cpp
         src/repeaterstore.h
-        src/codeplugreader.cpp
-        src/codeplugreader.h
-        src/codeplugwriter.cpp
-        src/codeplugwriter.h
-        src/cs7000default.cpp
-        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )
@@ -288,12 +244,6 @@ if(BUILD_TESTING)
         tests/ui_smoke.cpp
         src/repeaterstore.cpp
         src/repeaterstore.h
-        src/codeplugreader.cpp
-        src/codeplugreader.h
-        src/codeplugwriter.cpp
-        src/codeplugwriter.h
-        src/cs7000default.cpp
-        src/cs7000default.h
         src/ziparchive.cpp
         src/ziparchive.h
     )

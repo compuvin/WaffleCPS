@@ -469,19 +469,19 @@ bool RepeaterStore::ensureZoneRecords(int reservedZones)
     }
     for (const auto &channel : generated.channels)
         if (channel.frequencyAHz < 100000000 || channel.frequencyBHz < 100000000)
-            return fail(tr("An existing channel is outside the supported CS7000 frequency range."));
+            return fail(tr("An existing channel frequency is below 100 MHz."));
     for (const auto &contact : generated.contacts)
         if (contact.name.size() > 16)
-            return fail(tr("An existing contact name exceeds the CS7000 limit of 16 characters."));
+            return fail(tr("An existing contact name exceeds 16 characters."));
     for (const auto &zone : generated.zones) {
         if (zone.repeaterTemplate.has_value()
             && (zone.repeaterTemplate->frequencyAHz < 100000000 || zone.repeaterTemplate->frequencyBHz < 100000000))
-            return fail(tr("An existing repeater is outside the supported CS7000 frequency range."));
+            return fail(tr("An existing repeater frequency is below 100 MHz."));
         if (zone.name.size() > 16 || zone.channelIndexes.size() > 16)
-            return fail(tr("An existing repeater exceeds the CS7000 zone name or channel limit."));
+            return fail(tr("An existing repeater exceeds the 16-character zone name or 16-channel limit."));
     }
     if (generated.channels.size() > 3000 || generated.zones.size() + reservedZones > 250)
-        return fail(tr("The CS7000 channel or zone limit has been reached."));
+        return fail(tr("The default codeplug limit of 3000 channels or 250 zones has been reached."));
     // Generated records use the embedded base, not any archived user attachment.
     for (auto &channel : generated.channels) channel.sourceRecord = -1;
     emit aboutToResetProject();
@@ -539,7 +539,7 @@ bool RepeaterStore::createCustomZone(const QString &name)
         for (const auto &repeater : m_repeaters)
             if (repeater.name.compare(cleanName, Qt::CaseInsensitive) == 0) return fail(tr("A zone already has this name."));
     if (!ensureZoneRecords(1)) return false;
-    if (m_importedCodeplug.zones.size() >= m_importedCodeplug.zoneCapacity) return fail(tr("The CS7000 limit is 250 zones."));
+    if (m_importedCodeplug.zones.size() >= m_importedCodeplug.zoneCapacity) return fail(tr("The selected codeplug's zone limit has been reached."));
     leaveZoneEditor();
     const int zoneIndex = m_importedCodeplug.zones.size();
     m_importedCodeplug.zones.append({cleanName, {}});
@@ -2341,21 +2341,24 @@ QByteArray RepeaterStore::exportCodeplugBytes()
 
 void RepeaterStore::exportCodeplugDialog()
 {
+    if (!hasImportedCodeplug()) {
+        fail(tr("Blank projects cannot be exported as codeplugs. Save this work as a WaffleCPS project. "
+                "To export a codeplug, first convert it to a radio-specific codeplug. "
+                "Conversion is not available yet."));
+        return;
+    }
     QString title = tr("Export codeplug");
-    QString extension = QStringLiteral(".rdbx");
-    QString filter = tr("CS7000 codeplugs (*.rdbx)");
-    if (hasImportedCodeplug()) {
-        QString error;
-        const QByteArray source = m_generatedCodeplug
-            ? CodeplugDefinitions::defaultCodeplug(m_importedCodeplug.definitionFile, &error)
-            : m_sourceCodeplug;
-        if (source.isEmpty()) { fail(error); return; }
-        filter = CodeplugDefinitions::exportFileFilter(source, &extension, &error,
-                                                       m_importedCodeplug.definitionFile);
-        if (filter.isEmpty()) {
-            fail(error);
-            return;
-        }
+    QString extension;
+    QString error;
+    const QByteArray source = m_generatedCodeplug
+        ? CodeplugDefinitions::defaultCodeplug(m_importedCodeplug.definitionFile, &error)
+        : m_sourceCodeplug;
+    if (source.isEmpty()) { fail(error); return; }
+    const QString filter = CodeplugDefinitions::exportFileFilter(
+        source, &extension, &error, m_importedCodeplug.definitionFile);
+    if (filter.isEmpty()) {
+        fail(error);
+        return;
     }
     QString path = QFileDialog::getSaveFileName(
         nullptr, title, QStringLiteral("wafflecps-export") + extension, filter);

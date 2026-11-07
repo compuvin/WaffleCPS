@@ -1,7 +1,5 @@
-#include "../src/codeplugreader.h"
+#include "definition_fixture.h"
 #include "../src/codeplugdefinitions.h"
-#include "../src/codeplugwriter.h"
-#include "../src/cs7000default.h"
 #include "../src/repeaterstore.h"
 #include "../src/ziparchive.h"
 
@@ -23,7 +21,7 @@ int main(int argc, char *argv[])
         QString error;
         const int expectedId = QByteArray(argv[3]).toInt();
         if (!source.open(QIODevice::ReadOnly)
-            || !CodeplugReader::read(source.readAll(), &parsed, &error)
+            || !readTestCodeplug(source.readAll(), &parsed, &error)
             || parsed.cpsVersion != QStringLiteral("V1.02.21.00")
             || parsed.channels.size() != 2 || parsed.zones.size() != 1
             || parsed.contacts.size() != 1 || parsed.radioId != expectedId) {
@@ -46,10 +44,10 @@ int main(int argc, char *argv[])
     }
     // Use a complete codeplug, including real pointers and selection indexes,
     // while preserving the original editor fixture's channels and zone order.
-    const QByteArray base = cs7000DefaultCodeplug();
+    const QByteArray base = packagedTestCodeplug();
     QString error;
     ImportedCodeplug fixture;
-    if (!CodeplugReader::read(base, &fixture, &error)) return 40;
+    if (!readTestCodeplug(base, &fixture, &error)) return 40;
     fixture.contacts = {{QStringLiteral("Local"), 9, true},
                         {QStringLiteral("Statewide"), 3100, true}};
     fixture.channels = {
@@ -63,12 +61,12 @@ int main(int argc, char *argv[])
                      {QStringLiteral("Simplex only"), {2}},
                      {QStringLiteral("Two repeaters"), {0, 3}}};
     QByteArray bytes;
-    if (!CodeplugWriter::write(base, fixture, QStringLiteral("TEST RADIO"), 3109101, &bytes, &error)) {
+    if (!writeTestCodeplug(base, fixture, QStringLiteral("TEST RADIO"), 3109101, &bytes, &error)) {
         qCritical() << "Could not create complete import fixture:" << error;
         return 41;
     }
     ImportedCodeplug parsed;
-    if (!CodeplugReader::read(bytes, &parsed, &error) || parsed.channels.size() != 4
+    if (!readTestCodeplug(bytes, &parsed, &error) || parsed.channels.size() != 4
         || parsed.zones.size() != 4 || parsed.zones.at(0).channelIndexes.at(1) != 1
         || parsed.channels.at(1).timeSlot != 2 || parsed.channels.at(1).contactIndex != 2
         || parsed.contacts.size() != 2 || parsed.contacts.at(0).name != QStringLiteral("Local")
@@ -80,8 +78,9 @@ int main(int argc, char *argv[])
     }
     QByteArray unsupported = bytes;
     unsupported[0x1299] = char('2' ^ uchar(unsupported[0x300 + 0x1299 % 256]));
-    if (CodeplugReader::read(unsupported, &parsed, &error)) {
-        qCritical() << "Unsupported CPS version was accepted";
+    if (!readTestCodeplug(unsupported, &parsed, &error)
+        || !parsed.cpsVersion.startsWith(QStringLiteral("V2."))) {
+        qCritical() << "Definition reader did not retain the changed CPS version:" << error;
         return 7;
     }
     const QString filters = CodeplugDefinitions::importFileFilter(&error);
@@ -400,7 +399,7 @@ int main(int argc, char *argv[])
         const QString samplePath = QString::fromLocal8Bit(argv[1]);
         QFile sample(samplePath);
         if (!sample.open(QIODevice::ReadOnly)
-            || !CodeplugReader::read(sample.readAll(), &parsed, &error)
+            || !readTestCodeplug(sample.readAll(), &parsed, &error)
             || parsed.channels.size() != 821 || parsed.zones.size() != 82
             || parsed.contacts.size() != 335
             || parsed.contacts.at(5).name != QStringLiteral("Local")
@@ -456,7 +455,7 @@ int main(int argc, char *argv[])
         QFile edited(QStringLiteral("sample-edited-export.rdbx"));
         ImportedCodeplug editedParsed;
         if (!edited.open(QIODevice::ReadOnly)
-            || !CodeplugReader::read(edited.readAll(), &editedParsed, &error)
+            || !readTestCodeplug(edited.readAll(), &editedParsed, &error)
             || editedParsed.channels.size() != 822 || editedParsed.contacts.size() != 336
             || editedParsed.zones.size() != 82
             || editedParsed.channels.last().name != QStringLiteral("BKLN TEST TG")

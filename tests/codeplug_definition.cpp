@@ -1,5 +1,5 @@
 #include "../src/codeplugdefinition.h"
-#include "../src/cs7000default.h"
+#include "definition_fixture.h"
 #include "../src/ziparchive.h"
 #include "channel_order_fixture.h"
 
@@ -88,14 +88,11 @@ int main(int argc, char **argv)
         check(CodeplugDefinition::load(path, &definition, &error), error);
         check(definition.id() == "cs7000-m17-plus" && definition.modelName() == "CS7000-M17 PLUS"
                   && definition.extensions() == QStringList{".rdbx"}, "Definition metadata differs");
-        check(definition.defaultCodeplug() == cs7000DefaultCodeplug(), "Packaged and embedded defaults differ");
         const auto verify = [&](const QByteArray &bytes, const QString &label) {
             const QByteArray original = bytes;
-            ImportedCodeplug existing, defined;
-            check(CodeplugReader::read(bytes, &existing, &error), label + ": existing reader: " + error);
+            ImportedCodeplug defined;
             check(definition.matchesModel(bytes, &error), label + ": model recognition: " + error);
             check(definition.read(bytes, &defined, &error), label + ": definition reader: " + error);
-            compare(existing, defined, label);
             ImportedCodeplug raw;
             check(definition.read(decoded(bytes), &raw, &error), label + ": raw representation: " + error);
             compare(defined, raw, label + " raw");
@@ -152,7 +149,7 @@ int main(int argc, char **argv)
         check(sentinel.cpsVersion == "V9.02.21.00", "Different CPS version not retained");
 
         // A definition really drives decoding: move the model field and update
-        // only its schema/template. The original reader must reject this image.
+        // only its schema/template. The original definition must reject this image.
         QTemporaryDir temporary;
         check(temporary.isValid(), "Could not create temporary test directory");
         QMap<QString, QByteArray> entries;
@@ -216,7 +213,6 @@ int main(int argc, char **argv)
         check(moved.read(wrong, &movedResult, &error), "Moved field decoding failed: " + error);
         check(movedResult.model == definition.modelName(), "Moved field not used");
         check(!definition.read(wrong, &movedResult, &error), "Original definition accepted relocated model");
-        check(!CodeplugReader::read(wrong, &movedResult, &error), "Existing reader accepted relocated model");
         qInfo() << "Definition recognition, validation, schema relocation and rejection tests passed";
         return 0;
     } catch (const std::exception &e) {

@@ -1,8 +1,7 @@
 #include "../src/radiowriter.h"
 #include "../src/repeaterstore.h"
-#include "../src/cs7000default.h"
+#include "definition_fixture.h"
 #include "../src/radioreader.h"
-#include "../src/cs7000usb.h"
 #include "../src/codeplugdefinitions.h"
 #include "channel_order_fixture.h"
 
@@ -75,19 +74,19 @@ int main(int argc, char *argv[])
     const bool exerciseRadio = radioMode == "--radio-success" || radioMode == "--radio-cancel"
                                || radioMode == "--radio-failure";
     RepeaterStore store;
-    RadioReader::ReadOperation read = Cs7000Usb::read;
+    RadioReader::ReadOperation read;
     if (exerciseRadio) {
         read = [radioMode](const auto &progress, const auto &cancelled) {
             for (int i = 1; i <= 100; ++i) {
-                if (cancelled.load()) throw Cs7000Usb::Cancelled();
+                if (cancelled.load()) throw RadioExecutor::Cancelled();
                 progress("main", uint32_t(i), 100);
                 QThread::msleep(5);
             }
             if (radioMode == "--radio-failure") throw std::runtime_error("Simulated USB disconnect");
-            auto bytes = cs7000DefaultCodeplug();
+            auto bytes = packagedTestCodeplug();
             const auto mask = bytes.mid(0x300, 256);
             for (qsizetype i = 0; i < bytes.size(); ++i) bytes[i] = bytes[i] ^ mask[i % 256];
-            return Cs7000Usb::Bytes(bytes.begin(), bytes.end());
+            return RadioExecutor::Bytes(bytes.begin(), bytes.end());
         };
     }
     RadioReader radioReader(nullptr, std::move(read));
@@ -133,25 +132,25 @@ int main(int argc, char *argv[])
         QString error;
         const auto base = channelOrderFixture(&error);
         ImportedCodeplug data;
-        if (!CodeplugReader::read(base, &data, &error)) return 1;
+        if (!readTestCodeplug(base, &data, &error)) return 1;
         data.channels[3].contactIndex = 0; // Legacy files must still open and allow correction.
         data.contacts.append({"Private Example", 1234567, false});
         if (advancedLarge)
             while (data.contacts.size() < 2000)
                 data.contacts.append({QString("Contact %1").arg(data.contacts.size()), 100000 + int(data.contacts.size()), true});
         QByteArray source;
-        if (!CodeplugWriter::write(base, data, "TEST RADIO", 3109101, &source, &error) || !store.importRadioCodeplug(source)) return 1;
+        if (!writeTestCodeplug(base, data, "TEST RADIO", 3109101, &source, &error) || !store.importRadioCodeplug(source)) return 1;
     }
     else if (liveImportNew) store.newProject();
     else if (removeNoContact) {
         QString error;
         const auto original = channelOrderFixture(&error);
         ImportedCodeplug data;
-        if (!CodeplugReader::read(original, &data, &error)) return 1;
+        if (!readTestCodeplug(original, &data, &error)) return 1;
         data.channels[0].contactIndex = 0;
         data.channels[2].contactIndex = 0;
         QByteArray source;
-        if (!CodeplugWriter::write(original, data, "TEST RADIO", 3109101, &source, &error)
+        if (!writeTestCodeplug(original, data, "TEST RADIO", 3109101, &source, &error)
             || !store.importRadioCodeplug(source)) return 1;
     }
     else if (freshZones) {
@@ -169,7 +168,7 @@ int main(int argc, char *argv[])
         auto source = channelOrderFixture(&error);
         if (largeZones) {
             ImportedCodeplug large;
-            if (!CodeplugReader::read(source, &large, &error)) return 1;
+            if (!readTestCodeplug(source, &large, &error)) return 1;
             const auto prototype = large.channels.first();
             while (large.channels.size() < 2000) {
                 auto channel = prototype;
@@ -177,7 +176,7 @@ int main(int argc, char *argv[])
                 large.channels.append(channel);
             }
             QByteArray expanded;
-            if (!CodeplugWriter::write(source, large, "TEST RADIO", 3109101, &expanded, &error)) return 1;
+            if (!writeTestCodeplug(source, large, "TEST RADIO", 3109101, &expanded, &error)) return 1;
             source = expanded;
         }
         if (!store.importRadioCodeplug(source)) return 1;
@@ -204,7 +203,7 @@ int main(int argc, char *argv[])
     else if (argc > 1 && QByteArray(argv[1]) == "--new")
         store.newProject();
     else if (argc > 1 && QByteArray(argv[1]) == "--embedded") {
-        if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug()))
+        if (!store.importCodeplugFromBytes(packagedTestCodeplug()))
             return 1;
     }
     else if (argc > 1 && !demo && !store.importCodeplugFromFile(QString::fromLocal8Bit(argv[1]))) {
@@ -218,9 +217,9 @@ int main(int argc, char *argv[])
         if (fixture.isEmpty() || !store.importRadioCodeplug(fixture)) return 19;
     }
     bool writeStarted = false, writeCompleted = false, writeFailed = false;
-    RadioWriter::WriteOperation write = Cs7000Usb::write;
+    RadioWriter::WriteOperation write;
     if (exerciseWrite) write = [&](const auto &image, const auto &progress) {
-        Cs7000Usb::planWrite(image);
+        if (image.empty()) throw std::runtime_error("Empty test write image");
         for (int i = 1; i <= 50; ++i) {
             progress("main", uint32_t(i), 50);
             QThread::msleep(10);
@@ -257,7 +256,7 @@ int main(int argc, char *argv[])
         store.newProject();
         QCoreApplication::processEvents();
         if (!readButton->isEnabled() || writeButton->isEnabled()) return 43;
-        if (!store.importCodeplugFromBytes(cs7000DefaultCodeplug())) return 44;
+        if (!store.importCodeplugFromBytes(packagedTestCodeplug())) return 44;
         QCoreApplication::processEvents();
         if (!readButton->isEnabled() || !writeButton->isEnabled() || qmlWarningCount) return 45;
         qInfo() << "Radio Read and Write follow the selected project definition";
@@ -267,11 +266,11 @@ int main(int argc, char *argv[])
         QString error;
         const auto first = channelOrderFixture(&error);
         ImportedCodeplug expanded;
-        if (first.isEmpty() || !CodeplugReader::read(first, &expanded, &error)) return 70;
+        if (first.isEmpty() || !readTestCodeplug(first, &expanded, &error)) return 70;
         expanded.contacts.append({"Person", 1234567, false});
         expanded.contacts.append({"Charlie", 123, true});
         QByteArray second;
-        if (!CodeplugWriter::write(first, expanded, "TEST RADIO", 3109101, &second, &error)) return 70;
+        if (!writeTestCodeplug(first, expanded, "TEST RADIO", 3109101, &second, &error)) return 70;
         QTemporaryDir directory;
         if (!directory.isValid()) return 70;
         const QString firstPath = directory.filePath("first.rdbx");
@@ -783,7 +782,7 @@ int main(int argc, char *argv[])
         return app.exec();
     }
     if (exerciseRadio) {
-        if (radioMode == "--radio-success" && !store.importCodeplugFromBytes(cs7000DefaultCodeplug()))
+        if (radioMode == "--radio-success" && !store.importCodeplugFromBytes(packagedTestCodeplug()))
             return 10;
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         window->resize(800, 720);

@@ -91,7 +91,7 @@ int main(int argc, char **argv)
         check(output.open(QIODevice::ReadOnly), "Cannot open exported codeplug");
         const auto exported = output.readAll();
         ImportedCodeplug parsed;
-        check(CodeplugReader::read(exported, &parsed, &error), qPrintable(error));
+        check(readTestCodeplug(exported, &parsed, &error), qPrintable(error));
         check(parsed.zones[0].channelIndexes == QVector<int>({2, 5, 4, 1, 3, 0}), "Export lost zone order");
         check(parsed.zones[1].channelIndexes == QVector<int>({2, 3}), "Export changed another zone");
         check(exported.size() == source.size(), "Ordering changed codeplug length");
@@ -136,7 +136,7 @@ int main(int argc, char **argv)
         QFile manualFile(manualExport);
         check(manualFile.open(QIODevice::ReadOnly), "Cannot open manual export");
         ImportedCodeplug manualDecoded;
-        check(CodeplugReader::read(manualFile.readAll(), &manualDecoded, &error), qPrintable(error));
+        check(readTestCodeplug(manualFile.readAll(), &manualDecoded, &error), qPrintable(error));
         QStringList exportedNames;
         for (int index : manualDecoded.zones.first().channelIndexes)
             exportedNames.append(manualDecoded.channels[index].name);

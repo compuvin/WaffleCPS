@@ -16,17 +16,3 @@ sudo udevadm control --reload-rules
 ```
 
 Unplug and reconnect the USB cable afterward. Run Waffle as your normal desktop user. The rule grants the active local desktop session access to USB device `0483:5720`; it does not grant access to other USB IDs. The reader temporarily claims interface 0 and restores its kernel driver when finished. Do not run vendor CPS or another programming utility against the same radio at the same time.
-
-## Standalone diagnostics
-
-The diagnostic tool shares the application's transport and read sequence:
-
-```sh
-cmake --build build --target cs7000-read
-./build/cs7000-read --capture pcaps/ReadFromRadio.pcapng
-./build/cs7000-read --direct --read --output /tmp/cs7000-new-read
-```
-
-Without `--read`, capture verification does not open USB. A live diagnostic read writes decoded blocks, a transaction log, and a coverage manifest into a new directory. The output contains private radio programming data. A manifest without a `complete` record indicates a partial read. The diagnostic tool refuses to overwrite an existing output directory.
-
-The full-read protocol was tested on hardware, and the reconstructed `.rdbx` was accepted by both Waffle and the vendor CPS. The integrated GUI still requires hardware testing after changes. Waffle does not implement writing to the radio.

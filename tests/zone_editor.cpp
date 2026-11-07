@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
         check(store.importedZoneNames().contains("Corrected"), "Export moved zone");
         ImportedCodeplug parsed;
         const auto output = readFile(exportPath);
-        check(CodeplugReader::read(output, &parsed, &error), qPrintable(error));
+        check(readTestCodeplug(output, &parsed, &error), qPrintable(error));
         check(parsed.channels.size() == 7 && parsed.zones.last().name == "Corrected"
               && parsed.zones.last().channelIndexes == QVector<int>({6, 0, 5}), "Export changed custom zone order or name");
         check(parsed.zones[0].channelIndexes == QVector<int>({3, 0, 1, 4, 2, 5})
@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
               "Cannot create analog channel in digital-only import");
         check(store.exportCodeplugToFile(temp.filePath("analog.rdbx")), "Cannot export new mode missing from source");
         ImportedCodeplug analogParsed;
-        check(CodeplugReader::read(readFile(temp.filePath("analog.rdbx")), &analogParsed, &error)
+        check(readTestCodeplug(readFile(temp.filePath("analog.rdbx")), &analogParsed, &error)
               && !analogParsed.channels.last().digital, "Default analog record did not reimport");
 
         RepeaterStore fullEdit;
@@ -134,12 +134,12 @@ int main(int argc, char **argv) {
         modeReopened.selectImportedGroup(groupIndex(modeReopened, "Full edit"));
         check(modeReopened.exportCodeplugToFile(temp.filePath("mode.rdbx")), "Cannot export reopened mode change");
         ImportedCodeplug modeParsed;
-        check(CodeplugReader::read(readFile(temp.filePath("mode.rdbx")), &modeParsed, &error)
+        check(readTestCodeplug(readFile(temp.filePath("mode.rdbx")), &modeParsed, &error)
               && !modeParsed.channels.last().digital && modeParsed.channels.last().contactIndex == 0,
               "Mode change was not preserved");
         check(modeReopened.updateSelectedZoneChannel(1, "Digital edit", "444.350", "449.350", true, 3, 2, 2, 0)
               && modeReopened.exportCodeplugToFile(temp.filePath("digital-mode.rdbx")), "Cannot switch back to digital");
-        check(CodeplugReader::read(readFile(temp.filePath("digital-mode.rdbx")), &modeParsed, &error)
+        check(readTestCodeplug(readFile(temp.filePath("digital-mode.rdbx")), &modeParsed, &error)
               && modeParsed.channels.last().digital && modeParsed.channels.last().colorCode == 3
               && modeParsed.channels.last().timeSlot == 2 && modeParsed.channels.last().contactIndex == 2,
               "Digital mode settings did not reimport");

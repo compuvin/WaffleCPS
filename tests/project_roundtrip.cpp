@@ -1,6 +1,5 @@
 #include "../src/repeaterstore.h"
-#include "../src/codeplugreader.h"
-#include "../src/cs7000default.h"
+#include "definition_fixture.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -160,7 +159,7 @@ int main(int argc, char *argv[])
         return 16;
     }
 
-    const QByteArray embedded = cs7000DefaultCodeplug();
+    const QByteArray embedded = packagedTestCodeplug();
     if (QCryptographicHash::hash(embedded, QCryptographicHash::Sha256).toHex()
         != QByteArray("d03808a76436d5878b52bae81a04cd43e50b6454e3ab9b4fc5078b0658d30e4c")) {
         qCritical() << "Embedded default does not match the supplied file";
@@ -214,7 +213,7 @@ int main(int argc, char *argv[])
     ImportedCodeplug exported;
     QString exportError;
     if (!exportedFile.open(QIODevice::ReadOnly)
-        || !CodeplugReader::read(exportedFile.readAll(), &exported, &exportError)
+        || !readTestCodeplug(exportedFile.readAll(), &exported, &exportError)
         || exported.radioName != QStringLiteral("KB1JDX") || exported.radioId != 3109101
         || exported.channels.size() != 4 || exported.contacts.size() != 3
         || exported.zones.size() != 2 || exported.zones.at(0).name != QStringLiteral("Brooklyn")

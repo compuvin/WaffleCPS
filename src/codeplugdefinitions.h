@@ -1,6 +1,7 @@
 #pragma once
 
-#include "codeplugreader.h"
+#include "importedcodeplug.h"
+#include <QByteArray>
 #include <QVariantList>
 
 // Catalog loaded from the definitions folder on disk at first use.

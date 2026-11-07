@@ -1,8 +1,6 @@
-#include "../src/radiocodeplug.h"
 #include "../src/radioreader.h"
-#include "../src/cs7000usb.h"
 #include "../src/repeaterstore.h"
-#include "../src/cs7000default.h"
+#include "definition_fixture.h"
 #include "../src/ziparchive.h"
 
 #include <QCoreApplication>
@@ -46,7 +44,7 @@ int main(int argc, char **argv)
     try {
         QTemporaryDir directory;
         check(directory.isValid(), "Cannot create temporary test directory");
-        auto raw = decode(cs7000DefaultCodeplug());
+        auto raw = decode(packagedTestCodeplug());
         // Unknown bytes and erased padding must survive conversion and project storage.
         raw.replace(0x600, 32, QByteArray(32, char(0xff)));
         raw.replace(0x900, 19, QByteArray("opaque radio config"));
@@ -58,21 +56,22 @@ int main(int argc, char **argv)
         qToLittleEndian<quint32>(3109101, reinterpret_cast<uchar *>(raw.data() + raw.size() - 0xc10c93));
         QByteArray encoded;
         QString error;
-        check(radioCodeplugFromRaw(raw, &encoded, &error), qPrintable(error));
+        QString extension;
+        check(testCodeplugDefinition().encodeRadioImage(raw, &encoded, &extension, &error), qPrintable(error));
         check(decode(encoded) == raw, "Conversion changed downloaded bytes");
 
         auto invalid = raw;
         invalid[0x300] = 1;
         QByteArray untouched("sentinel");
-        check(!radioCodeplugFromRaw(invalid, &untouched, &error)
+        check(!testCodeplugDefinition().encodeRadioImage(invalid, &untouched, &extension, &error)
               && untouched == "sentinel", "Unsupported layout was converted");
-        check(!radioCodeplugFromRaw(QByteArray(), &untouched, &error), "Truncation accepted");
+        check(!testCodeplugDefinition().encodeRadioImage(QByteArray(), &untouched, &extension, &error), "Truncation accepted");
 
         RepeaterStore store;
         const QString oldName = store.projectDisplayName();
         const auto oldContacts = store.contacts();
         bool failed = false, completed = false;
-        RadioReader failing(nullptr, [](const auto &, const auto &) -> Cs7000Usb::Bytes {
+        RadioReader failing(nullptr, [](const auto &, const auto &) -> RadioExecutor::Bytes {
             throw std::runtime_error("simulated USB disconnect");
         });
         QObject::connect(&failing, &RadioReader::failed, &app, [&](const QString &message) {
@@ -85,7 +84,7 @@ int main(int argc, char **argv)
               "USB failure changed current project");
 
         failed = false;
-        RadioReader invalidReader(nullptr, [](const auto &, const auto &) { return Cs7000Usb::Bytes{}; });
+        RadioReader invalidReader(nullptr, [](const auto &, const auto &) { return RadioExecutor::Bytes{}; });
         QObject::connect(&invalidReader, &RadioReader::failed, &app, [&](const QString &) { failed = true; });
         QObject::connect(&invalidReader, &RadioReader::completed, &store, &RepeaterStore::importRadioCodeplug);
         invalidReader.start();
@@ -94,10 +93,10 @@ int main(int argc, char **argv)
         check(!store.importRadioCodeplug(QByteArray("invalid"))
               && store.contacts() == oldContacts, "Invalid import changed current project");
 
-        RadioReader cancelling(nullptr, [](const auto &progress, const auto &cancelled) -> Cs7000Usb::Bytes {
+        RadioReader cancelling(nullptr, [](const auto &progress, const auto &cancelled) -> RadioExecutor::Bytes {
             progress("contacts", 1, 10);
             while (!cancelled.load()) QThread::msleep(1);
-            throw Cs7000Usb::Cancelled();
+            throw RadioExecutor::Cancelled();
         });
         failed = completed = false;
         QObject::connect(&cancelling, &RadioReader::failed, &app, [&](const QString &) { failed = true; });
@@ -119,7 +118,7 @@ int main(int argc, char **argv)
                 progress("main", uint32_t(i), 10);
                 QThread::msleep(5);
             }
-            return Cs7000Usb::Bytes(raw.begin(), raw.end());
+            return RadioExecutor::Bytes(raw.begin(), raw.end());
         });
         QObject::connect(&reader, &RadioReader::completed, &store, [&](const QByteArray &bytes) {
             completed = store.importRadioCodeplug(bytes);
@@ -133,7 +132,7 @@ int main(int argc, char **argv)
               && store.modified() && store.radioName() == name && store.radioId() == 3109101,
               "Radio result was not imported");
         ImportedCodeplug parsed;
-        check(CodeplugReader::read(encoded, &parsed, &error), "Cannot parse fixture");
+        check(readTestCodeplug(encoded, &parsed, &error), "Cannot parse fixture");
         check(store.contacts().size() == parsed.contacts.size(), "Old contacts leaked into radio project");
 
         const auto project = directory.filePath("radio.waffle");

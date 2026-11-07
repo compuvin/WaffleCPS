@@ -1,7 +1,6 @@
 """Run: python3 -B -m unittest discover -s tests -p test_inspect_codeplug.py"""
 
 import copy
-import base64
 import hashlib
 import importlib.util
 import json
@@ -13,8 +12,6 @@ import unittest
 from unittest import mock
 import warnings
 import zipfile
-import zlib
-import re
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "inspect_codeplug.py"
@@ -814,23 +811,15 @@ class PackagedDefinitionTests(unittest.TestCase):
                          ["recognized", "recognized"])
         self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
 
-    def test_cs7000_template_is_exact_embedded_default_and_recognized(self):
+    def test_cs7000_packaged_template_is_recognized(self):
         root = SCRIPT.parent.parent
         path = root / "definitions" / "cs7000-m17-plus.wcp"
         definition = inspector.load_definition(path)
         with zipfile.ZipFile(path) as archive:
-            self.assertEqual(archive.namelist(), ["definition.json", "templates/default.rdbx"])
+            self.assertEqual(archive.namelist(), ["definition.json", "templates/default.rdbx", "icon.png"])
             template = archive.read(definition["creation"]["template"])
-        # Independently reconstruct the bytes produced by cs7000DefaultCodeplug.
-        # qUncompress uses a four-byte big-endian length followed by zlib data.
-        cpp = (root / "src" / "cs7000default.cpp").read_text()
-        literals = cpp.split("static const char packed[] =", 1)[1].split(";", 1)[0]
-        packed = base64.b64decode("".join(re.findall(r'"([^"\n]*)"', literals)), validate=True)
-        decoded = zlib.decompress(packed[4:])
-        self.assertEqual(len(decoded), int.from_bytes(packed[:4], "big"))
-        mask = bytes.fromhex(re.search(r'QByteArray::fromHex\("([0-9a-f]+)"\)', cpp).group(1))
-        expected = bytes(value ^ mask[index % len(mask)] for index, value in enumerate(decoded))
-        self.assertEqual(template, expected)
+        self.assertEqual(hashlib.sha256(template).hexdigest(),
+                         definition["creation"]["template_sha256"])
         result = inspector.inspect_definition(template, definition)[0]
         self.assertEqual(result["status"], "recognized", result.get("errors"))
         markers = {r["fields"]["mode_marker"] for r in result["decoded"]["tables"]["channels"]["records"]}

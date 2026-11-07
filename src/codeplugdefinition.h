@@ -1,6 +1,7 @@
 #pragma once
 
-#include "codeplugreader.h"
+#include "importedcodeplug.h"
+#include <QByteArray>
 #include <QJsonObject>
 #include <QStringList>
 

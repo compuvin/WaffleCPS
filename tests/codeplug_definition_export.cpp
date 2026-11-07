@@ -1,7 +1,5 @@
 #include "../src/codeplugdefinition.h"
 #include "../src/codeplugdefinitions.h"
-#include "../src/codeplugwriter.h"
-#include "../src/cs7000default.h"
 #include "../src/ziparchive.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -310,7 +308,7 @@ int main(int argc, char **argv)
         ImportedCodeplug defaults;
         ok = definition.read(definition.defaultCodeplug(), &defaults, &error); check(ok, error);
         QByteArray source;
-        ok = CodeplugWriter::write(definition.defaultCodeplug(), defaults, "TEST RADIO", 3109101, &source, &error); check(ok, error);
+        ok = definition.write(definition.defaultCodeplug(), defaults, "TEST RADIO", 3109101, &source, &error); check(ok, error);
         // Unmapped bytes and unmasked channel bits must survive the new writer.
         source[0x600] = char(source[0x600] ^ 0x5a);
         source[0x23768 + 13] = char(source[0x23768 + 13] ^ 0xa5);
@@ -318,43 +316,36 @@ int main(int argc, char **argv)
         ImportedCodeplug base;
         ok = definition.read(source, &base, &error); check(ok, error);
         int cases = 0;
-        const auto parity = [&](const QByteArray &input, const ImportedCodeplug &target, const QString &name, int id, const QString &label) {
+        const auto roundtrip = [&](const QByteArray &input, const ImportedCodeplug &target, const QString &name, int id, const QString &label) {
             const auto untouched = input;
-            QByteArray expected, actual("sentinel");
-            bool success = CodeplugWriter::write(input, target, name, id, &expected, &error);
-            check(success, label + ": existing writer: " + error);
-            success = definition.write(input, target, name, id, &actual, &error);
+            QByteArray actual("sentinel");
+            bool success = definition.write(input, target, name, id, &actual, &error);
             check(success, label + ": definition writer: " + error);
-            if (actual != expected) {
-                qsizetype first = 0;
-                while (first < std::min(actual.size(), expected.size()) && actual[first] == expected[first]) ++first;
-                throw std::runtime_error((label + QStringLiteral(": byte mismatch at %1, sizes %2/%3").arg(first).arg(actual.size()).arg(expected.size())).toStdString());
-            }
             check(input == untouched, label + ": input changed");
             ImportedCodeplug parsed;
             success = definition.read(actual, &parsed, &error); check(success, label + ": reimport: " + error);
-            ++cases; qInfo().noquote() << label << ": byte-identical to existing writer";
+            ++cases; qInfo().noquote() << label << ": definition export reimports";
             return actual;
         };
-        check(parity(source, base, base.radioName, base.radioId, "Unchanged source") == source, "Unchanged bytes differ");
-        parity(source, base, "OTHER RADIO", 3109102, "Identity only");
+        check(roundtrip(source, base, base.radioName, base.radioId, "Unchanged source") == source, "Unchanged bytes differ");
+        roundtrip(source, base, "OTHER RADIO", 3109102, "Identity only");
         auto edited = base;
         edited.channels[1].name = "Edited Digital";
         edited.channels[1].frequencyAHz = 449350000; edited.channels[1].frequencyBHz = 444350000;
         edited.channels[1].timeSlot = 2; edited.channels[1].colorCode = 7; edited.channels[1].highPower = false;
-        parity(source, edited, base.radioName, base.radioId, "Digital fields and masked settings");
+        roundtrip(source, edited, base.radioName, base.radioId, "Digital fields and masked settings");
         edited.channels[1].highPower.reset();
-        parity(source, edited, base.radioName, base.radioId, "Unspecified power");
+        roundtrip(source, edited, base.radioName, base.radioId, "Unspecified power");
         edited = base;
         edited.channels[0].name = "Mode Digital"; edited.channels[0].digital = true;
         edited.channels[0].colorCode = 3; edited.channels[0].timeSlot = 1; edited.channels[0].contactIndex = 1;
         edited.channels[0].useDefaultTemplate = true;
-        parity(source, edited, base.radioName, base.radioId, "Analog to digital defaults");
+        roundtrip(source, edited, base.radioName, base.radioId, "Analog to digital defaults");
         edited = base;
         edited.channels[1].name = "Mode Analog"; edited.channels[1].digital = false;
         edited.channels[1].colorCode = 0; edited.channels[1].timeSlot = 0; edited.channels[1].contactIndex = 0;
         edited.channels[1].useDefaultTemplate = true;
-        parity(source, edited, base.radioName, base.radioId, "Digital to analog defaults");
+        roundtrip(source, edited, base.radioName, base.radioId, "Digital to analog defaults");
         edited = base;
         edited.contacts.append({"K1ABC Private", 1234567, false});
         edited.contacts.append({"Five9", 9999, true});
@@ -362,29 +353,29 @@ int main(int argc, char **argv)
         edited.channels.append({"Added TS2", 449350000, 444350000, true, 2, 2, 3, true});
         edited.zones[0].channelIndexes = {2, 0, 1};
         edited.zones.append({"Shared zone", {1, 2}});
-        const auto expanded = parity(source, edited, base.radioName, base.radioId, "Add channels contacts and zones; grow zone span");
+        const auto expanded = roundtrip(source, edited, base.radioName, base.radioId, "Add channels contacts and zones; grow zone span");
         ImportedCodeplug expandedPlug;
         ok = definition.read(expanded, &expandedPlug, &error); check(ok, error);
         auto reduced = expandedPlug;
         reduced.channels.resize(2); reduced.contacts.resize(2); reduced.zones.resize(1);
         reduced.zones[0].channelIndexes = {1};
-        const auto shrunk = parity(expanded, reduced, base.radioName, base.radioId, "Remove records; shrink zone span");
+        const auto shrunk = roundtrip(expanded, reduced, base.radioName, base.radioId, "Remove records; shrink zone span");
         Q_UNUSED(shrunk);
         auto reordered = expandedPlug;
         std::swap(reordered.channels[0], reordered.channels[2]);
         for (auto &zone : reordered.zones)
             for (auto &index : zone.channelIndexes) { if (index == 0) index = 2; else if (index == 2) index = 0; }
-        parity(expanded, reordered, base.radioName, base.radioId, "Channel storage reordering and lineage");
+        roundtrip(expanded, reordered, base.radioName, base.radioId, "Channel storage reordering and lineage");
         auto zonesOnly = expandedPlug;
         std::reverse(zonesOnly.zones[0].channelIndexes.begin(), zonesOnly.zones[0].channelIndexes.end());
-        parity(expanded, zonesOnly, base.radioName, base.radioId, "Zone membership ordering");
+        roundtrip(expanded, zonesOnly, base.radioName, base.radioId, "Zone membership ordering");
         bool testedPopulatedEdit = false;
         for (const auto &name : QDir(root + "/Codeplugs").entryList({"*.rdbx"}, QDir::Files, QDir::Name)) {
             const auto input = fileBytes(root + "/Codeplugs/" + name);
             ImportedCodeplug plug;
             ok = definition.read(input, &plug, &error); check(ok, name + ": " + error);
             const bool validId = plug.radioId >= 1000000 && plug.radioId <= 9999999;
-            const auto output = parity(input, plug, plug.radioName, validId ? plug.radioId : 3109101, name);
+            const auto output = roundtrip(input, plug, plug.radioName, validId ? plug.radioId : 3109101, name);
             if (validId) check(output == input, name + ": unchanged export differs");
             if (!testedPopulatedEdit && validId && plug.channels.size() > 100 && plug.contacts.size() > 100) {
                 auto changed = plug;
@@ -392,7 +383,7 @@ int main(int argc, char **argv)
                 changed.zones[0].name = "Definition Test";
                 std::reverse(changed.zones[0].channelIndexes.begin(), changed.zones[0].channelIndexes.end());
                 changed.zones.append(ImportedZone{"Added Zone", {0}});
-                parity(input, changed, plug.radioName, plug.radioId, name + " edited with zone growth");
+                roundtrip(input, changed, plug.radioName, plug.radioId, name + " edited with zone growth");
                 testedPopulatedEdit = true;
             }
         }
