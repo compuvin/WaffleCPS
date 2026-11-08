@@ -1,0 +1,414 @@
+{
+  "definition_type": "radio_read",
+  "definition_version": 1,
+  "id": "cs800",
+  "notation": {
+    "numbers": "JSON integers are decimal; strings beginning with 0x are hexadecimal integers. Offsets and lengths are bytes. Hex byte strings contain space-separated hexadecimal pairs; an empty string denotes zero bytes.",
+    "integers": "u8 is one unsigned byte. u16le/u32le are unsigned integers of two/four bytes with the least-significant byte first. u16be/u32be use the most-significant byte first.",
+    "offsets": "CBW and CSW offsets start at byte zero of their wrappers. Frame offsets start at A1. Payload offsets start at the first byte after the five-byte frame header.",
+    "templates": "A field's value supplies constant bytes or an integer. A field's parameter supplies its value from parameters. The derived operation copy takes the named parameter unchanged; length takes its byte length; sum_modulo sums each unsigned byte in its named parameter and returns the remainder modulo modulus.",
+    "null": "An operation set to null is undefined. Do not infer or execute it.",
+    "source": "Derived from CS800-Read.pcapng and CS800-Write.pcapng; excludes CS800D captures. Hardware testing in WaffleCPS is pending."
+  },
+  "usb": {
+    "vendor_id": "0x0483",
+    "product_id": "0x5720",
+    "interface_number": 0,
+    "alternate_setting": 0,
+    "interface_class": "0x08",
+    "interface_subclass": "0x06",
+    "interface_protocol": "0x50",
+    "bulk_out_endpoint": "0x01",
+    "bulk_in_endpoint": "0x81",
+    "maximum_packet_bytes": 64,
+    "operating_mode": "CS800 powered on in normal operating mode, connected through its programming port.",
+    "interface_lifecycle": {
+      "detach_kernel_driver_if_active": true,
+      "claim_interface": true,
+      "release_interface": true,
+      "reattach_if_detached": true
+    }
+  },
+  "bulk_only_transport": {
+    "cbw": {
+      "bytes": 31,
+      "fields": [
+        {
+          "offset": 0,
+          "hex": "55 53 42 43"
+        },
+        {
+          "offset": 4,
+          "type": "u32le",
+          "parameter": "tag"
+        },
+        {
+          "offset": 8,
+          "type": "u32le",
+          "parameter": "data_bytes"
+        },
+        {
+          "offset": 12,
+          "type": "u8",
+          "parameter": "direction"
+        },
+        {
+          "offset": 13,
+          "type": "u8",
+          "value": 0
+        },
+        {
+          "offset": 14,
+          "type": "u8",
+          "value": 16
+        },
+        {
+          "offset": 15,
+          "bytes": 16,
+          "parameter": "cdb"
+        }
+      ],
+      "tag_rule": {
+        "initial": 1,
+        "increment": 1,
+        "wrap_modulus": 4294967296
+      }
+    },
+    "csw": {
+      "bytes": 13,
+      "signature": {
+        "offset": 0,
+        "hex": "55 53 42 53"
+      },
+      "tag": {
+        "offset": 4,
+        "type": "u32le"
+      },
+      "residue": {
+        "offset": 8,
+        "type": "u32le"
+      },
+      "status": {
+        "offset": 12,
+        "type": "u8",
+        "success_value": 0
+      },
+      "checks": {
+        "signature_matches": true,
+        "tag_matches_cbw": true,
+        "data_bytes_plus_residue_matches_cbw": true,
+        "success_status": 0,
+        "success_residue": 0,
+        "allow_full_length_residue": true
+      }
+    },
+    "commands": {
+      "send_frame": {
+        "cdb_hex": "FF 2A 00 00 00 00 00 00 00 00 00 00 00 00 47 50",
+        "direction": "0x00",
+        "data": {
+          "parameter": "request_frame"
+        },
+        "data_bytes": {
+          "length_of": "request_frame"
+        }
+      },
+      "fetch_response": {
+        "cdb_hex": "FF 28 00 00 00 00 00 00 00 00 00 00 00 00 47 50",
+        "direction": "0x80",
+        "data_bytes": {
+          "parameter": "fetch_bytes"
+        }
+      }
+    }
+  },
+  "frame": {
+    "fields": [
+      {
+        "offset": 0,
+        "type": "u8",
+        "value": "0xA1"
+      },
+      {
+        "offset": 1,
+        "type": "u8",
+        "parameter": "class"
+      },
+      {
+        "offset": 2,
+        "type": "u8",
+        "parameter": "command"
+      },
+      {
+        "offset": 3,
+        "type": "u16be",
+        "derived": {
+          "operation": "length",
+          "parameter": "payload"
+        }
+      },
+      {
+        "offset": 5,
+        "derived": {
+          "operation": "copy",
+          "parameter": "payload"
+        }
+      },
+      {
+        "offset": {
+          "add": [
+            5,
+            {
+              "length_of": "payload"
+            }
+          ]
+        },
+        "type": "u16be",
+        "derived": {
+          "operation": "sum_modulo",
+          "parameter": "payload",
+          "modulus": 65536
+        }
+      },
+      {
+        "offset": {
+          "add": [
+            7,
+            {
+              "length_of": "payload"
+            }
+          ]
+        },
+        "type": "u8",
+        "value": "0xA4"
+      }
+    ],
+    "checks": {
+      "delimiters_match_fields": true,
+      "length_matches_fields": true,
+      "checksum_matches_fields": true
+    },
+    "response_checks": {
+      "class_or_mask": "0x80",
+      "command_matches_request": true,
+      "minimum_payload_bytes": 1,
+      "success_payload_offset": 0,
+      "success_value": "0x01"
+    }
+  },
+  "polling": {
+    "delay_before_each_fetch_ms": 20,
+    "bulk_transfer_timeout_ms": 3000,
+    "empty_response": {
+      "all_bytes_equal": 0,
+      "validate_csw": true,
+      "continue_polling": true
+    },
+    "nonempty_response": {
+      "validate_frame": true,
+      "validate_command_fields": true,
+      "validate_csw": true
+    },
+    "timeout": {
+      "fail_on_poll_limit": true,
+      "publish_partial_image": false
+    }
+  },
+  "methods": {
+    "identify": {
+      "sequence": [
+        {
+          "class": "0x00",
+          "command": "0x03",
+          "payload_hex": "",
+          "repeat": 1,
+          "fetch_bytes": 265,
+          "poll_limit_per_repeat": 21,
+          "expected": "model_response"
+        }
+      ],
+      "model_response": {
+        "frame_offset": 6,
+        "bytes": 16,
+        "encoding": "ASCII",
+        "expected_hex": "43 53 38 30 30 00 00 00 00 00 00 00 00 00 00 00"
+      },
+      "setup": {
+        "class": "0x00",
+        "command": "0x15",
+        "payload_hex": "",
+        "fetch_bytes": 10,
+        "poll_limit": 21,
+        "expected_response_hex": "A1 80 15 00 02 01 00 00 01 A4"
+      }
+    },
+    "read_block": {
+      "request_class": "0x00",
+      "region_commands": {
+        "main": "0x10"
+      },
+      "block_bytes": 2048,
+      "selector": {
+        "rules_in_priority_order": [
+          {
+            "when": {
+              "otherwise": true
+            },
+            "or_with_block_index": "0x0000"
+          }
+        ],
+        "index_mask": "0xFFFF",
+        "maximum_block_index": 65535
+      },
+      "request_payload": [
+        {
+          "payload_offset": 0,
+          "type": "u16be",
+          "parameter": "selector"
+        },
+        {
+          "payload_offset": 2,
+          "type": "u16be",
+          "value": 2048
+        }
+      ],
+      "fetch_bytes": 2063,
+      "poll_limit": 21,
+      "response": {
+        "payload_bytes": 2055,
+        "fields": {
+          "success": {
+            "frame_offset": 5,
+            "type": "u8",
+            "expected": 1
+          },
+          "block_index": {
+            "frame_offset": 6,
+            "type": "u16be"
+          },
+          "region_size": {
+            "frame_offset": 8,
+            "type": "u32be"
+          },
+          "data": {
+            "frame_offset": 12,
+            "bytes": 2048
+          }
+        },
+        "checks": {
+          "block_index_matches_selector_mask": true,
+          "region_size_minimum": 1,
+          "region_size_maximum": 33554432,
+          "region_size_matches_previous": true,
+          "block_within_region": true
+        }
+      }
+    },
+    "read_codeplug": {
+      "operations": [
+        {
+          "operation": "identify"
+        },
+        {
+          "operation": "read_region",
+          "region": "main",
+          "command": "0x10",
+          "discover_size_from": "region_size"
+        }
+      ],
+      "assembly": {
+        "region_order": [
+          "main"
+        ],
+        "block_placement": "region_base_plus_block_index",
+        "valid_bytes_per_block": "clamp_to_region_end",
+        "require_every_block_once": true,
+        "representation": "decoded_radio_image"
+      },
+      "sparse_selection": null
+    },
+    "cancel_read": {
+      "finish_active_exchange": true,
+      "check_before_next_request": true,
+      "cleanup": "interface_lifecycle",
+      "publish_partial_image": false,
+      "radio_exit_program_mode": null
+    },
+    "write_codeplug": {
+      "codeplug_definition_id": "cs800",
+      "representation": "decoded_radio_image",
+      "operations": [
+        {
+          "operation": "validate_codeplug"
+        },
+        {
+          "operation": "identify",
+          "method": "identify",
+          "include_read_setup": false
+        },
+        {
+          "operation": "write_setup",
+          "class": "0x00",
+          "command": "0x14",
+          "fetch_bytes": 10,
+          "poll_limit": 30,
+          "expected_response_hex": "A1 80 14 00 02 01 00 00 01 A4"
+        },
+        {
+          "operation": "write_region",
+          "region": "main"
+        }
+      ],
+      "block_bytes": 2048,
+      "block_source": "full_image",
+      "require_full_block": true,
+      "regions": {
+        "main": {
+          "command": "0x11",
+          "start": 0,
+          "size": {
+            "field": "channels__declared_file_size"
+          },
+          "selection": "all_blocks",
+          "skip_initial_blocks": 4,
+          "extent": "region_size"
+        }
+      },
+      "request": {
+        "class": "0x00",
+        "first_selector": "0x0000",
+        "other_selector_or": "0x0000",
+        "final_region_selector_or": {
+          "region": "main",
+          "value": "0x0000"
+        },
+        "payload": [
+          {
+            "type": "u16be",
+            "parameter": "selector"
+          },
+          {
+            "type": "u32be",
+            "parameter": "extent"
+          },
+          {
+            "hex": "08 00"
+          },
+          {
+            "parameter": "image_block",
+            "bytes": 2048
+          }
+        ]
+      },
+      "acknowledgement": {
+        "fetch_bytes": 9,
+        "poll_limit": 30,
+        "payload_bytes": 1,
+        "index_check": "none",
+        "duplicate": "accept"
+      },
+      "final_block_padding_hex": "00"
+    },
+    "exit_program_mode": null
+  }
+}

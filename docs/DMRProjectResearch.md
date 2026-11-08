@@ -360,7 +360,7 @@ Start with [radio.cc][q-radio] → `Radio::detect`, then follow the selected int
 | DR-1801 A6 | [dr1801uv_interface.cc][q-dr1801-interface]; serial preparation, password/program-mode exchange, negotiated transfer speed and codeplug transfer |
 | DM-32UV | [dm32uv_interface.cc][q-dm32-interface]; serial protocol with page-oriented transfer and address translation |
 
-AnyTone interfaces cover both GD32 USB IDs `28E9:018A` and STM32 IDs `2E3C:5740`. DR-1801 and DM-32UV share adapter IDs `067B:23A3`, reinforcing the need for explicit protocol/model identification.
+AnyTone interfaces cover both GD32 USB IDs `28E9:018A` and STM32 IDs `2E3C:5740`. The referenced DR-1801 and DM-32UV implementations use adapter ID `067B:23A3`. A WaffleCPS DM-32UV tester uses a CH340 cable with ID `1A86:7523`. These IDs identify the USB adapter, so protocol/model identification is also required.
 
 **Naming trap:** QDMR's `C7000Device` is used by the GD-73 transport. Its name is not evidence of support for the Connect Systems CS7000.
 
@@ -419,6 +419,14 @@ Licensing must be checked per reused file:
 [QDMR license][q-license] · [EditCP license][e-license] · [codeplug package license][e-codeplug-license] · [DFU package license][e-dfu-license].
 
 The next verification step for any adapter is a controlled CPS comparison and hardware testing for the exact model and firmware. Existing source code is evidence of an implementation, not proof of compatibility with Waffle's radios.
+
+## DM-32UV hardware test with WaffleCPS v0.1.1
+
+A tester reported successful radio operation using the Windows v0.1.1 release and a programming cable identified by Windows as `USB_SERIAL CH340 (COM4)`, USB ID `1A86:7523` (revision `8134`). The previous release could not find this cable; v0.1.1 added its ID alongside `067B:23A3`.
+
+The tester confirmed that WaffleCPS read the radio and displayed its zones, created a new zone using existing channels, wrote the edited programming back successfully, and completed several on-air calls afterward. The tester reported no observed corruption during this workflow. This establishes a hardware read/edit/write result for the tested setup; it is not an exhaustive comparison of every setting.
+
+The tester inspected the new-channel workflow but did not report creating and writing a brand-new channel. The radio firmware and CPS versions were not supplied. Scan-list editing and additional Radio Settings controls were requested as future improvements; they were not part of this test.
 
 [m-readme]: https://github.com/travisgoodspeed/md380tools/blob/d7f4206c146a7580da5ff55c71784be6fc06b282/README.md
 [m-dfu]: https://github.com/travisgoodspeed/md380tools/blob/d7f4206c146a7580da5ff55c71784be6fc06b282/md380_dfu.py

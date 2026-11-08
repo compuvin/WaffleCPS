@@ -505,6 +505,10 @@ bool validateTransportRules(const QJsonObject &root, QString *error)
         || fetch.value(QStringLiteral("data_bytes")).toObject().value(QStringLiteral("parameter"))
             != QJsonValue(QStringLiteral("fetch_bytes")))
         return fail(error, QStringLiteral("Radio transport commands are incomplete."));
+    if (cswChecks.contains(QStringLiteral("allow_full_length_residue"))
+        && !cswChecks.value(QStringLiteral("allow_full_length_residue")).isBool())
+        return fail(error, QStringLiteral("Invalid CSW residue policy."));
+
     const QJsonObject frame = root.value(QStringLiteral("frame")).toObject();
     const QJsonArray frameFields = frame.value(QStringLiteral("fields")).toArray();
     const QJsonObject frameChecks = frame.value(QStringLiteral("checks")).toObject();
@@ -745,6 +749,11 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
         || plan.value(QStringLiteral("require_full_block")) != QJsonValue(true))
         return fail(error, QStringLiteral("Radio write plan has invalid block size, regions, or operations."));
 
+    if (plan.contains(QStringLiteral("final_block_padding_hex"))
+        && (!hexBytes(plan.value(QStringLiteral("final_block_padding_hex")))
+            || plan.value(QStringLiteral("final_block_padding_hex")).toString().size() != 2))
+        return fail(error, QStringLiteral("Final write block padding must be one byte."));
+
     QSet<QString> usedRegions;
     for (int index = 0; index < operations.size(); ++index) {
         if (!operations.at(index).isObject())
@@ -783,6 +792,12 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
             || !((start.isDouble() && start.toInt(-1) == 0) || fieldReference(start))
             || !fieldReference(region.value(QStringLiteral("size"))))
             return fail(error, QStringLiteral("Invalid radio write region: %1").arg(it.key()));
+        if (region.contains(QStringLiteral("skip_initial_blocks"))) {
+            quint32 skip = 0;
+            if (!unsignedValue(region.value(QStringLiteral("skip_initial_blocks")), &skip)
+                || region.value(QStringLiteral("selection")) != QStringLiteral("all_blocks"))
+                return fail(error, QStringLiteral("Invalid protected write prefix."));
+        }
         const QJsonValue selection = region.value(QStringLiteral("selection"));
         if (selection == QJsonValue(QStringLiteral("all_blocks"))) {
             if (region.value(QStringLiteral("extent")) != QJsonValue(QStringLiteral("region_size")))
@@ -844,13 +859,17 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
     if (ack.value(QStringLiteral("fetch_bytes")).toInt() < 1
         || ack.value(QStringLiteral("poll_limit")).toInt() < 1
         || ack.value(QStringLiteral("payload_bytes")).toInt() < 1
-        || ack.value(QStringLiteral("index_offset")).toInt(-1) < 0
+        || (ack.value(QStringLiteral("index_check")) != QStringLiteral("none") && (
+            ack.value(QStringLiteral("index_offset")).toInt(-1) < 0
         || typeBytes(ack.value(QStringLiteral("index_type")).toString()) < 1
         || ack.value(QStringLiteral("index_offset")).toInt(-1)
             + typeBytes(ack.value(QStringLiteral("index_type")).toString())
             > ack.value(QStringLiteral("fetch_bytes")).toInt()
-        || !wordValue(ack.value(QStringLiteral("index_mask")), &mask)
-        || ack.value(QStringLiteral("duplicate")) != QJsonValue(QStringLiteral("skip_previous")))
+        || !wordValue(ack.value(QStringLiteral("index_mask")), &mask)))
+        || (ack.contains(QStringLiteral("index_check"))
+            && ack.value(QStringLiteral("index_check")) != QStringLiteral("none"))
+        || (ack.value(QStringLiteral("duplicate")) != QStringLiteral("skip_previous")
+            && ack.value(QStringLiteral("duplicate")) != QStringLiteral("accept")))
         return fail(error, QStringLiteral("Invalid radio write acknowledgement format."));
     return true;
 }

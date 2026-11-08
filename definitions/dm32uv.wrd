@@ -3,7 +3,7 @@
   "definition_version": 1,
   "id": "dm32uv",
   "notation": {
-    "source": "Baofeng DM-32UV page-mapped serial protocol, based on QDMR dm32uv_interface.cc and DM32-Protocol-Spec hardware captures. Radio transfer remains untested in WaffleCPS.",
+    "source": "Baofeng DM-32UV page-mapped serial protocol, based on QDMR dm32uv_interface.cc and DM32-Protocol-Spec hardware captures. A Windows tester confirmed reading zones, writing a new zone using existing channels, and on-air calls with WaffleCPS v0.1.1 and a CH340 1A86:7523 cable.",
     "numbers": "Addresses, offsets, and lengths are bytes; 0x-prefixed values are hexadecimal."
   },
   "serial_transport": {

@@ -47,7 +47,7 @@ Included codeplug definitions cover these radios and file formats. Compatibility
 | OpenGD77 | `.g77` | Yes |
 | DM-32UV | `.data` | Yes |
 
-Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, and a DM-1701 running OpenGD77. The presence of a transfer definition for MD-380 or DM-32UV does not establish successful hardware testing. Other OpenGD77 radio types also need their own verification.
+Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 transfer definition and other OpenGD77 radio types still need hardware verification.
 
 Keep your original codeplug and a backup of your radio's programming. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 

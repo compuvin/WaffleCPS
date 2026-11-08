@@ -362,11 +362,13 @@ public:
                                          cswRule.value(QStringLiteral("residue")).toObject()
                                              .value(QStringLiteral("type")).toString());
         const Object checks = cswRule.value(QStringLiteral("checks")).toObject();
-        require(uint64_t(data.size()) + residue == length, "Radio CSW residue mismatch");
+        const bool fullLengthResidue = checks.value(QStringLiteral("allow_full_length_residue")).toBool(false)
+            && data.size() == length && residue == length;
+        require(uint64_t(data.size()) + residue == length || fullLengthResidue, "Radio CSW residue mismatch");
         require(integer(csw, number(cswRule.value(QStringLiteral("status")).toObject().value(QStringLiteral("offset"))),
                         cswRule.value(QStringLiteral("status")).toObject().value(QStringLiteral("type")).toString())
                     == number(checks.value(QStringLiteral("success_status")))
-                && residue == number(checks.value(QStringLiteral("success_residue"))), "Radio USB transaction failed");
+                && (residue == number(checks.value(QStringLiteral("success_residue"))) || fullLengthResidue), "Radio USB transaction failed");
         return data;
 #endif
     }
@@ -504,7 +506,10 @@ std::vector<RadioExecutor::WriteBlock> buildWriteBlocks(const Object &root, cons
         std::set<uint32_t> selected;
         uint32_t extent = size;
         if (region.value(QStringLiteral("selection")) == QStringLiteral("all_blocks")) {
-            for (uint32_t index = 0; index < count; ++index) selected.insert(index);
+            const uint32_t first = region.contains(QStringLiteral("skip_initial_blocks"))
+                ? number(region.value(QStringLiteral("skip_initial_blocks"))) : 0;
+            require(first < count, "Write region has no blocks after protected prefix");
+            for (uint32_t index = first; index < count; ++index) selected.insert(index);
         } else {
             const Object choice = region.value(QStringLiteral("selection")).toObject();
             require(choice.value(QStringLiteral("operation")) == QStringLiteral("table_blocks"),
@@ -535,7 +540,11 @@ std::vector<RadioExecutor::WriteBlock> buildWriteBlocks(const Object &root, cons
         for (uint32_t index : selected) {
             require(index < count && index <= UINT16_MAX, "Write block index exceeds region");
             const size_t at = size_t(start) + size_t(index) * blockBytes;
-            require(at + blockBytes <= image.size(), "Incomplete source write block");
+            const Bytes padding = write.contains(QStringLiteral("final_block_padding_hex"))
+                ? hex(write.value(QStringLiteral("final_block_padding_hex"))) : Bytes{};
+            const size_t sourceEnd = padding.empty() ? image.size() : size_t(start) + size;
+            const size_t available = std::min(size_t(blockBytes), sourceEnd - at);
+            require(available == blockBytes || padding.size() == 1, "Incomplete source write block");
             uint32_t selector = index == 0 ? number(request.value(QStringLiteral("first_selector")))
                 : index | number(request.value(QStringLiteral("other_selector_or")));
             const Object final = request.value(QStringLiteral("final_region_selector_or")).toObject();
@@ -548,7 +557,8 @@ std::vector<RadioExecutor::WriteBlock> buildWriteBlocks(const Object &root, cons
                     const Bytes bytes = hex(field.value(QStringLiteral("hex")));
                     payload.insert(payload.end(), bytes.begin(), bytes.end());
                 } else if (field.value(QStringLiteral("parameter")) == QStringLiteral("image_block")) {
-                    payload.insert(payload.end(), image.begin() + at, image.begin() + at + blockBytes);
+                    payload.insert(payload.end(), image.begin() + at, image.begin() + at + available);
+                    if (available < blockBytes) payload.insert(payload.end(), blockBytes - available, padding.front());
                 } else {
                     const QString parameter = field.value(QStringLiteral("parameter")).toString();
                     require(parameter == QStringLiteral("selector") || parameter == QStringLiteral("extent")
@@ -767,17 +777,20 @@ void RadioExecutor::write(const RadioDefinition &definition, const QJsonObject &
                     const Bytes response = exchange(usb, root, uint8_t(number(write.value(QStringLiteral("request"))
                         .toObject().value(QStringLiteral("class")))), block.command, block.payload,
                         number(ack.value(QStringLiteral("fetch_bytes"))),
-                        number(ack.value(QStringLiteral("poll_limit"))), true, {}, previousAck);
+                        number(ack.value(QStringLiteral("poll_limit"))), true, {},
+                        ack.value(QStringLiteral("duplicate")) == QStringLiteral("skip_previous") ? previousAck : Bytes{});
                     const Object lengthField = root.value(QStringLiteral("frame")).toObject()
                         .value(QStringLiteral("fields")).toArray().at(3).toObject();
                     require(integer(response, frameOffset(lengthField.value(QStringLiteral("offset")), 0),
                                     lengthField.value(QStringLiteral("type")).toString())
                                 == number(ack.value(QStringLiteral("payload_bytes"))),
                             "Radio write acknowledgement payload size mismatch");
-                    const uint32_t returned = integer(response, number(ack.value(QStringLiteral("index_offset"))),
-                                                      ack.value(QStringLiteral("index_type")).toString());
-                    require(returned == (block.selector & number(ack.value(QStringLiteral("index_mask")))),
-                            "Radio write acknowledgement block index mismatch");
+                    if (ack.value(QStringLiteral("index_check")) != QStringLiteral("none")) {
+                        const uint32_t returned = integer(response, number(ack.value(QStringLiteral("index_offset"))),
+                                                          ack.value(QStringLiteral("index_type")).toString());
+                        require(returned == (block.selector & number(ack.value(QStringLiteral("index_mask")))),
+                                "Radio write acknowledgement block index mismatch");
+                    }
                     previousAck = response;
                 } catch (const std::exception &error) {
                     throw std::runtime_error("Write " + region.toStdString() + " block "
