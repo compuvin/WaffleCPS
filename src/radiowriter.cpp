@@ -31,17 +31,14 @@ void RadioWriter::start(const QByteArray &encoded, const QString &definitionPath
     CodeplugDefinition codeplugDefinition;
     QByteArray decoded;
     QString error;
-    if (definitionPath.isEmpty() || !RadioDefinition::load(definitionPath, &radioDefinition, &error)) {
+    if (definitionPath.isEmpty()
+        || !RadioDefinition::loadProfile(definitionPath, &radioDefinition, &codeplugDefinition, nullptr, &error)) {
         emit failed(error.isEmpty() ? tr("No radio definition selected.") : error);
         return;
     }
     std::fprintf(stdout, "[radio definitions] Write uses FILE: %s\n", qUtf8Printable(radioDefinition.sourcePath()));
     std::fflush(stdout);
-    const QString wcpPath = QFileInfo(definitionPath).dir().filePath(
-        QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp"));
-    if (!CodeplugDefinition::load(wcpPath, &codeplugDefinition, &error)
-        || !radioDefinition.compatibleWithCodeplug(codeplugDefinition.document(), &error)
-        || !codeplugDefinition.decodedImage(encoded, &decoded, &error)) {
+    if (!codeplugDefinition.decodedImage(encoded, &decoded, &error)) {
         emit failed(error);
         return;
     }

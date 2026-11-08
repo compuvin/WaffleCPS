@@ -32,18 +32,13 @@ void RadioReader::start(const QString &definitionPath)
     if (busy()) return;
     RadioDefinition definition;
     QByteArray radioTemplate;
+    QString packagePath;
     if (!m_read) {
         QString error;
-        if (definitionPath.isEmpty() || !RadioDefinition::load(definitionPath, &definition, &error)) {
-            emit failed(error.isEmpty() ? tr("No radio definition selected.") : error);
-            return;
-        }
-        const QString wcpPath = QFileInfo(definitionPath).dir().filePath(
-            QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp"));
         CodeplugDefinition codeplug;
-        if (!CodeplugDefinition::load(wcpPath, &codeplug, &error)
-            || !definition.compatibleWithCodeplug(codeplug.document(), &error)) {
-            emit failed(error);
+        if (definitionPath.isEmpty()
+            || !RadioDefinition::loadProfile(definitionPath, &definition, &codeplug, &packagePath, &error)) {
+            emit failed(error.isEmpty() ? tr("No radio definition selected.") : error);
             return;
         }
         if (definition.usesDfu() || definition.usesSerial()) radioTemplate = codeplug.defaultCodeplug();
@@ -55,7 +50,7 @@ void RadioReader::start(const QString &definitionPath)
     m_status = tr("Connecting to radio…");
     struct Result { QByteArray encoded; QString error; };
     const auto result = std::make_shared<Result>();
-    m_thread = QThread::create([this, result, definition, definitionPath, radioTemplate] {
+    m_thread = QThread::create([this, result, definition, packagePath, radioTemplate] {
         try {
             const auto progress = [this](const std::string &region, uint32_t completed, uint32_t total) {
                 QMetaObject::invokeMethod(this, [this, region, completed, total] {
@@ -70,9 +65,9 @@ void RadioReader::start(const QString &definitionPath)
             };
             const auto bytes = m_read ? m_read(progress, m_cancelled)
 #ifdef __APPLE__
-                : MacRadioTransfer::read(definition, definitionPath, progress, m_cancelled);
+                : MacRadioTransfer::read(definition, definition.sourcePath(), progress, m_cancelled);
 #elif defined(_WIN32)
-                : WindowsRadioTransfer::read(definition, definitionPath, progress, m_cancelled);
+                : WindowsRadioTransfer::read(definition, definition.sourcePath(), progress, m_cancelled);
 #else
                 : RadioExecutor::read(definition, progress, m_cancelled);
 #endif
@@ -80,8 +75,7 @@ void RadioReader::start(const QString &definitionPath)
             result->encoded = assembleRadioImage(definition, radioTemplate,
                 QByteArray(reinterpret_cast<const char *>(bytes.data()), qsizetype(bytes.size())));
             ImportedCodeplug checked;
-            const QString wcpName = definitionPath.isEmpty() ? QString()
-                : QFileInfo(definitionPath).completeBaseName() + QStringLiteral(".wcp");
+            const QString wcpName = packagePath.isEmpty() ? QString() : QFileInfo(packagePath).fileName();
             if (!CodeplugDefinitions::read(result->encoded, &checked, &result->error, wcpName))
                 result->encoded.clear();
         } catch (const RadioExecutor::Cancelled &) {

@@ -1,8 +1,18 @@
 #pragma once
 
 #include "importedcodeplug.h"
+#include "codeplugdefinition.h"
 #include <QByteArray>
 #include <QVariantList>
+
+struct RadioProfileData {
+    CodeplugDefinition codeplug;
+    QByteArray json;
+    QString packagePath;
+    QString reference;
+    QString description;
+    QStringList companionIds;
+};
 
 // Catalog loaded from the definitions folder on disk at first use.
 class CodeplugDefinitions
@@ -15,8 +25,8 @@ public:
     static QVariantList radioReadOptions();
     static QByteArray iconPng(const QString &definitionFile);
     static QString modelName(const QString &definitionFile);
-    static bool hasCompanionWrd(const QString &definitionFile);
-    static QString companionWrdPath(const QString &definitionFile);
+    static QString radioDefinitionSource(const QString &definitionFile, const QString &version = {});
+    static bool loadRadioProfile(const QString &source, RadioProfileData *result, QString *error);
     static QString defaultDefinitionFile();
     static QString exportFileFilter(const QByteArray &source,
                                     QString *extension, QString *error,

@@ -487,8 +487,6 @@ std::vector<RadioExecutor::WriteBlock> buildWriteBlocks(const Object &root, cons
 {
     const Object write = root.value(QStringLiteral("methods")).toObject()
         .value(QStringLiteral("write_codeplug")).toObject();
-    require(write.value(QStringLiteral("codeplug_definition_id")) == wcp.value(QStringLiteral("id")),
-            "Radio and codeplug definitions do not match");
     ImageFields fields(wcp, image);
     const uint32_t blockBytes = number(write.value(QStringLiteral("block_bytes")));
     const Object request = write.value(QStringLiteral("request")).toObject();
@@ -612,6 +610,9 @@ std::vector<RadioExecutor::WriteBlock> RadioExecutor::planWrite(
     const RadioDefinition &definition, const QJsonObject &codeplugDefinition, const RadioExecutor::Bytes &image)
 {
     require(definition.canWrite(), "Radio definition has no write operation");
+    QString error;
+    if (!definition.compatibleWithCodeplug(codeplugDefinition, &error))
+        throw std::runtime_error(error.toStdString());
     return buildWriteBlocks(definition.document(), codeplugDefinition, image);
 }
 
@@ -732,17 +733,14 @@ void RadioExecutor::write(const RadioDefinition &definition, const QJsonObject &
                           const RadioExecutor::Bytes &image, const RadioExecutor::Progress &progress)
 {
     require(definition.canWrite(), "Radio definition has no write operation");
+    QString error;
+    if (!definition.compatibleWithCodeplug(codeplugDefinition, &error))
+        throw std::runtime_error(error.toStdString());
     if (definition.usesDfu()) {
-        require(definition.writePlan().value(QStringLiteral("codeplug_definition_id"))
-                    == codeplugDefinition.value(QStringLiteral("id")),
-                "Radio and codeplug definitions do not match");
         DfuExecutor::write(definition, image, progress);
         return;
     }
     if (definition.usesSerial()) {
-        require(definition.writePlan().value(QStringLiteral("codeplug_definition_id"))
-                    == codeplugDefinition.value(QStringLiteral("id")),
-                "Radio and codeplug definitions do not match");
         SerialExecutor::write(definition, image, progress);
         return;
     }

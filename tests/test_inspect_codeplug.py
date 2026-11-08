@@ -816,7 +816,7 @@ class PackagedDefinitionTests(unittest.TestCase):
         path = root / "definitions" / "cs7000-m17-plus.wcp"
         definition = inspector.load_definition(path)
         with zipfile.ZipFile(path) as archive:
-            self.assertEqual(archive.namelist(), ["definition.json", "templates/default.rdbx", "icon.png"])
+            self.assertEqual(archive.namelist(), ["definition.json", "templates/default.rdbx", "icon.png", "usb.json"])
             template = archive.read(definition["creation"]["template"])
         self.assertEqual(hashlib.sha256(template).hexdigest(),
                          definition["creation"]["template_sha256"])

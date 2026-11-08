@@ -73,6 +73,16 @@ int main(int argc, char *argv[])
     const QByteArray radioMode = argc > 2 ? QByteArray(argv[2]) : QByteArray();
     const bool exerciseRadio = radioMode == "--radio-success" || radioMode == "--radio-cancel"
                                || radioMode == "--radio-failure";
+    std::unique_ptr<QTemporaryDir> transferDefinitions;
+    if (radioMode == "--radio-definition-gate") {
+        transferDefinitions = std::make_unique<QTemporaryDir>();
+        QString error;
+        if (!transferDefinitions->isValid()
+            || !definitionsWithoutUsb(transferDefinitions->path(), "cs750.wcp", &error)) {
+            qCritical() << error;
+            return 90;
+        }
+    }
     RepeaterStore store;
     RadioReader::ReadOperation read;
     if (exerciseRadio) {
@@ -249,8 +259,8 @@ int main(int argc, char *argv[])
         auto *writeButton = root->findChild<QQuickItem *>("writeRadioButton");
         if (!readButton || !writeButton || !readButton->isEnabled() || writeButton->isEnabled()) return 40;
         const QString sample = QCoreApplication::applicationDirPath()
-            + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
-        if (!store.importCodeplugFromFile(sample, "cs800.wcp")) return 41;
+            + "/../Codeplugs/CS750-W1OEM 2024-10-14.rdb";
+        if (!store.importCodeplugFromFile(sample, "cs750.wcp")) return 41;
         QCoreApplication::processEvents();
         if (readButton->isEnabled() || writeButton->isEnabled()) return 42;
         store.newProject();

@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QUrl>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -28,6 +29,8 @@ bool fail(QString *error, const QString &message)
 
 struct Version {
     QString id;
+    QString member = QStringLiteral("definition.json");
+    bool usb = false;
     QJsonObject match;
     CodeplugDefinition definition;
 };
@@ -40,7 +43,7 @@ struct Entry {
     QString loadError;
     QString editorError;
     bool loaded = false;
-    bool companionWrd = false;
+    bool rootUsb = false;
 
     const CodeplugDefinition &definition() const { return versions[defaultVersion].definition; }
 
@@ -68,10 +71,32 @@ struct Entry {
     }
 };
 
-bool loadEntry(const QString &path, Entry *entry, QString *error)
+QString usbMember(const QMap<QString, QByteArray> &members,
+                  const QString &definitionMember, bool versionSelected)
+{
+    if (versionSelected) {
+        const QString folder = QFileInfo(definitionMember).path();
+        const QString candidate = folder == "." ? "usb.json" : folder + "/usb.json";
+        if (members.contains(candidate)) return candidate;
+    }
+    return members.contains("usb.json") ? QStringLiteral("usb.json") : QString();
+}
+
+QString profileReference(const QString &path, const QString &version)
+{
+    if (version.isEmpty()) return QFileInfo(path).absoluteFilePath();
+    QUrl url = QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath());
+    url.setFragment(version);
+    return url.toString(QUrl::FullyEncoded);
+}
+
+bool loadEntry(const QString &path, Entry *entry, QString *error,
+               QMap<QString, QByteArray> *contents = nullptr)
 {
     QMap<QString, QByteArray> members;
     if (!ZipArchive::read(path, &members, error)) return false;
+    if (contents) *contents = members;
+    entry->rootUsb = members.contains(QStringLiteral("usb.json"));
     if (!members.contains(QStringLiteral("manifest.json"))) {
         Version version;
         if (!CodeplugDefinition::load(path, &version.definition, error)) return false;
@@ -105,6 +130,9 @@ bool loadEntry(const QString &path, Entry *entry, QString *error)
         version.id = itemObject.value(QStringLiteral("id")).toString();
         version.match = itemObject.value(QStringLiteral("match")).toObject();
         const QString member = itemObject.value(QStringLiteral("definition")).toString();
+        version.member = member;
+        const QString folder = QFileInfo(member).path();
+        version.usb = members.contains(folder == "." ? "usb.json" : folder + "/usb.json");
         if (version.id.isEmpty() || ids.contains(version.id) || member.isEmpty()
             || !itemObject.value(QStringLiteral("match")).isObject() || version.match.isEmpty()) {
             *error = QStringLiteral("Invalid or duplicate manifest version ID, definition, or match.");
@@ -171,7 +199,6 @@ struct Catalog {
         for (const auto &name : files) {
             Entry entry;
             entry.fileName = name;
-            entry.companionWrd = QFileInfo::exists(directory.filePath(QFileInfo(name).completeBaseName() + ".wrd"));
             entry.loaded = loadEntry(directory.filePath(name), &entry, &entry.loadError);
             if (!entry.loaded) {
                 rejected.append(name + ": " + entry.loadError);
@@ -359,7 +386,7 @@ QVariantList CodeplugDefinitions::radioReadOptions()
 {
     QVariantList options;
     for (const auto &entry : catalog().entries) {
-        if (!entry.loaded || !entry.companionWrd) continue;
+        if (!entry.loaded || radioDefinitionSource(entry.fileName).isEmpty()) continue;
         options.append(QVariantMap{
             {QStringLiteral("model"), entry.model},
             {QStringLiteral("fileName"), entry.fileName},
@@ -385,18 +412,68 @@ QString CodeplugDefinitions::modelName(const QString &definitionFile)
     return {};
 }
 
-bool CodeplugDefinitions::hasCompanionWrd(const QString &definitionFile)
+QString CodeplugDefinitions::radioDefinitionSource(const QString &definitionFile, const QString &version)
 {
-    for (const auto &entry : catalog().entries)
-        if (entry.loaded && entry.fileName == definitionFile)
-            return entry.companionWrd;
-    return false;
+    for (const auto &entry : catalog().entries) {
+        if (!entry.loaded || entry.fileName != definitionFile) continue;
+        bool override = false;
+        if (!version.isEmpty()) {
+            bool found = false;
+            for (const auto &candidate : entry.versions) {
+                if (candidate.id != version) continue;
+                override = candidate.usb;
+                found = true;
+                break;
+            }
+            if (!found) return {};
+        }
+        const QDir folder(catalog().directoryPath);
+        if (override || entry.rootUsb)
+            return profileReference(folder.filePath(definitionFile), version);
+    }
+    return {};
 }
 
-QString CodeplugDefinitions::companionWrdPath(const QString &definitionFile)
+bool CodeplugDefinitions::loadRadioProfile(const QString &source, RadioProfileData *result, QString *error)
 {
-    if (!hasCompanionWrd(definitionFile)) return {};
-    return QDir(catalog().directoryPath).absoluteFilePath(QFileInfo(definitionFile).completeBaseName() + ".wrd");
+    if (!result) return fail(error, "Missing radio profile output.");
+    QString path = source, version;
+    if (source.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+        const QUrl url(source);
+        if (!url.isValid() || !url.isLocalFile() || url.hasQuery())
+            return fail(error, "Invalid radio profile reference.");
+        path = url.toLocalFile();
+        version = url.fragment(QUrl::FullyDecoded);
+        if (url.hasFragment() && version.isEmpty()) return fail(error, "Missing radio profile version.");
+    }
+    path = QFileInfo(path).absoluteFilePath();
+    if (QFileInfo(path).suffix().compare("wcp", Qt::CaseInsensitive) != 0)
+        return fail(error, "Radio profile must be embedded in a .wcp package.");
+    const QString package = path;
+    Entry entry;
+    QMap<QString, QByteArray> members;
+    if (!loadEntry(package, &entry, error, &members)) return false;
+    const Version *selected = &entry.versions[entry.defaultVersion];
+    if (!version.isEmpty()) {
+        selected = nullptr;
+        for (const auto &candidate : entry.versions)
+            if (candidate.id == version) { selected = &candidate; break; }
+        if (!selected) return fail(error, QStringLiteral("Unknown radio profile version: %1").arg(version));
+    }
+    RadioProfileData loaded;
+    loaded.packagePath = package;
+    loaded.codeplug = selected->definition;
+    loaded.reference = profileReference(path, version);
+    for (const auto &candidate : entry.versions) loaded.companionIds.append(candidate.definition.id());
+    const QString member = usbMember(members, selected->member, !version.isEmpty());
+    if (member.isEmpty()) return fail(error, QStringLiteral("No USB profile is available in %1 for this selection.").arg(package));
+    loaded.json = members.value(member);
+    loaded.description = package + " [" + member + "]";
+    if (loaded.json.isEmpty() || loaded.json.size() > 4 * 1024 * 1024)
+        return fail(error, "Radio profile is empty or oversized: " + loaded.description);
+    *result = std::move(loaded);
+    if (error) error->clear();
+    return true;
 }
 
 QString CodeplugDefinitions::defaultDefinitionFile()

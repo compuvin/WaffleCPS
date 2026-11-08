@@ -9,7 +9,7 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// Sends the CDBs declared by a mass-storage .wrd through the Windows storage driver.
+// Sends the CDBs declared by a mass-storage USB profile through the Windows storage driver.
 class WindowsMassStorage {
 public:
     using Bytes = std::vector<uint8_t>;

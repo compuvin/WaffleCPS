@@ -19,7 +19,7 @@ int main(int argc, char **argv)
         QString error;
         RadioDefinition radio;
         CodeplugDefinition codeplug;
-        check(RadioDefinition::load(base + QStringLiteral(".wrd"), &radio, &error),
+        check(RadioDefinition::loadProfile(base + QStringLiteral(".wcp"), &radio, &codeplug, nullptr, &error),
               qPrintable(error));
         check(CodeplugDefinition::load(base + QStringLiteral(".wcp"), &codeplug, &error),
               qPrintable(error));

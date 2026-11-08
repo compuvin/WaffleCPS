@@ -16,9 +16,12 @@ struct RadioReadOperation {
     QString sizeCheckType;
 };
 
+class CodeplugDefinition;
+
 class RadioDefinition {
 public:
-    static bool load(const QString &path, RadioDefinition *out, QString *error);
+    static bool loadProfile(const QString &source, RadioDefinition *out,
+                            CodeplugDefinition *codeplug, QString *packagePath, QString *error);
     static bool fromJson(const QByteArray &json, RadioDefinition *out, QString *error);
     bool canRead() const { return m_dfu || m_serial || !m_readOperations.isEmpty(); }
     bool canWrite() const { return !m_writePlan.isEmpty(); }
@@ -31,6 +34,7 @@ public:
     bool compatibleWithCodeplug(const QJsonObject &codeplugDocument, QString *error) const;
 
 private:
+    QString m_codeplugId;
     QVector<RadioReadOperation> m_readOperations;
     QJsonObject m_writePlan;
     QJsonObject m_document;

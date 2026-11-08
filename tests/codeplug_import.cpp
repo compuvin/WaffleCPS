@@ -15,6 +15,13 @@
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+    QTemporaryDir transferDefinitions;
+    QString fixtureError;
+    if (!transferDefinitions.isValid()
+        || !definitionsWithoutUsb(transferDefinitions.path(), "cs750.wcp", &fixtureError)) {
+        qCritical() << fixtureError;
+        return 90;
+    }
     if (argc >= 4 && QByteArray(argv[1]) == "--default") {
         QFile source(QString::fromLocal8Bit(argv[2]));
         ImportedCodeplug parsed;
@@ -84,18 +91,18 @@ int main(int argc, char *argv[])
         return 7;
     }
     const QString filters = CodeplugDefinitions::importFileFilter(&error);
-    if (!CodeplugDefinitions::hasCompanionWrd("cs7000-m17-plus.wcp")
-        || CodeplugDefinitions::hasCompanionWrd("cs750.wcp")
-        || CodeplugDefinitions::hasCompanionWrd("cs800.wcp")
-        || !CodeplugDefinitions::hasCompanionWrd("opengd77-128k.wcp")) {
+    if (CodeplugDefinitions::radioDefinitionSource("cs7000-m17-plus.wcp").isEmpty()
+        || !CodeplugDefinitions::radioDefinitionSource("cs750.wcp").isEmpty()
+        || CodeplugDefinitions::radioDefinitionSource("cs800.wcp").isEmpty()
+        || CodeplugDefinitions::radioDefinitionSource("opengd77-128k.wcp").isEmpty()) {
         qCritical() << "Companion radio definition detection failed";
         return 51;
     }
     RepeaterStore radioGate;
-    const QString cs800Sample = QCoreApplication::applicationDirPath()
-        + "/../Codeplugs/CS800-KB1JDX 2017-01-22.rdb";
+    const QString cs750Sample = QCoreApplication::applicationDirPath()
+        + "/../Codeplugs/CS750-W1OEM 2024-10-14.rdb";
     if (radioGate.radioTransferAvailable()
-        || !radioGate.importCodeplugFromFile(cs800Sample, "cs800.wcp")
+        || !radioGate.importCodeplugFromFile(cs750Sample, "cs750.wcp")
         || radioGate.radioTransferAvailable()) {
         qCritical() << "Radio write was available without a project radio definition";
         return 52;
@@ -104,7 +111,7 @@ int main(int argc, char *argv[])
     if (radioGate.radioTransferAvailable()
         || radioGate.radioDefinitionPath() != QString()
         || radioGate.radioDefinitionPathFor("cs7000-m17-plus.wcp").isEmpty()
-        || !radioGate.radioDefinitionPathFor("cs800.wcp").isEmpty()) {
+        || !radioGate.radioDefinitionPathFor("cs750.wcp").isEmpty()) {
         qCritical() << "Radio paths or write gate were wrong after a blank New project";
         return 53;
     }

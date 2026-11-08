@@ -41,7 +41,7 @@ jobs:
           mkdir -p build/deploy/definitions
           cp build/wafflecps.exe build/deploy/
           cp build/radio-transfer-helper.exe build/deploy/
-          cp definitions/*.wcp definitions/*.wrd build/deploy/definitions/
+          cp definitions/*.wcp build/deploy/definitions/
           cp packaging/qt.conf build/deploy/
           windeployqt --release --qmldir qml --dir build/deploy \
             build/deploy/wafflecps.exe
@@ -115,7 +115,7 @@ jobs:
           mkdir -p "$app/Contents/definitions" "$app/Contents/Frameworks" "$app/Contents/Resources"
           helper="$app/Contents/MacOS/radio-transfer-helper"
           cp build/radio-transfer-helper "$helper"
-          cp definitions/*.wcp definitions/*.wrd "$app/Contents/definitions/"
+          cp definitions/*.wcp "$app/Contents/definitions/"
           cp LICENSE "$app/Contents/Resources/"
           "$(brew --prefix)/bin/macdeployqt" "$app" -qmldir=qml -executable="$helper"
           executable="$app/Contents/MacOS/wafflecps"

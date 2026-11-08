@@ -108,7 +108,7 @@ Keep the `definitions/` directory available beside the project or executable. Us
 ./build/wafflecps path/to/codeplug.rdbx
 ```
 
-File handling uses external `.wcp` definitions; radio transfers use companion `.wrd` definitions. See [radio reading](docs/RadioReading.md) for the CS7000 read workflow and Linux USB permission instructions.
+File handling and radio transfers use `.wcp` packages. USB transfer rules are stored as `usb.json` inside each package, with version-specific overrides when needed. See [radio reading](docs/RadioReading.md) for the CS7000 read workflow and Linux USB permission instructions.
 
 Run the automated checks with:
 

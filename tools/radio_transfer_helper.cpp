@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     const QStringList args = app.arguments();
     if (args.size() != 6 && args.size() != 7) {
-        std::fprintf(stderr, "Usage: radio-transfer-helper read|write definition.wrd image.bin progress.json cancel-marker|- [error.txt]\n");
+        std::fprintf(stderr, "Usage: radio-transfer-helper read|write profile-source image.bin progress.json cancel-marker|- [error.txt]\n");
         return 2;
     }
     const QString mode = args[1];
@@ -81,11 +81,7 @@ int main(int argc, char *argv[])
     RadioDefinition radio;
     CodeplugDefinition codeplug;
     QString error;
-    const QString wcpPath = QFileInfo(wrdPath).dir().filePath(
-        QFileInfo(wrdPath).completeBaseName() + QStringLiteral(".wcp"));
-    if (!RadioDefinition::load(wrdPath, &radio, &error)
-        || !CodeplugDefinition::load(wcpPath, &codeplug, &error)
-        || !radio.compatibleWithCodeplug(codeplug.document(), &error)) {
+    if (!RadioDefinition::loadProfile(wrdPath, &radio, &codeplug, nullptr, &error)) {
         std::fprintf(stderr, "%s\n", qUtf8Printable(error));
         reportError(errorPath, error);
         return 1;

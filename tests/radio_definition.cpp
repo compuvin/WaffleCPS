@@ -1,4 +1,5 @@
 #include "../src/radiodefinition.h"
+#include "../src/codeplugdefinition.h"
 #include "../src/ziparchive.h"
 
 #include <QCoreApplication>
@@ -20,10 +21,11 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     try {
-        const QString path = QStringLiteral(WAFFLE_SOURCE_DIR "/definitions/cs7000-m17-plus.wrd");
+        const QString path = QStringLiteral(WAFFLE_SOURCE_DIR "/definitions/cs7000-m17-plus.wcp");
         RadioDefinition definition;
+        CodeplugDefinition codeplug;
         QString error;
-        check(RadioDefinition::load(path, &definition, &error), "Packaged radio read plan was rejected");
+        check(RadioDefinition::loadProfile(path, &definition, &codeplug, nullptr, &error), "Packaged radio read plan was rejected");
         check(definition.canRead() && definition.canWrite(), "Unexpected radio capabilities");
         check(definition.readOperations().size() == 3, "Wrong read operation count");
         check(definition.readOperations().at(1).region == QStringLiteral("main")
@@ -65,9 +67,7 @@ int main(int argc, char **argv)
                 check(tables.contains(table.toString()), "Sparse write region references a missing codeplug table");
         }
 
-        QFile file(path);
-        check(file.open(QIODevice::ReadOnly), "Cannot open packaged radio definition");
-        const QJsonObject original = QJsonDocument::fromJson(file.readAll()).object();
+        const QJsonObject original = definition.document();
         const auto expectDocumentRejected = [&](const QJsonObject &root, const char *message) {
             RadioDefinition candidate;
             QString detail;

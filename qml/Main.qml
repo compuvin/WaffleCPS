@@ -237,7 +237,7 @@ ApplicationWindow {
                                 ToolTip.text: radioReader.busy || radioWriter.busy
                                               ? "A radio transfer is in progress."
                                               : store.hasImportedCodeplug
-                                                ? "No USB definition (.wrd) is available for this radio."
+                                                ? "No USB transfer definition is available for this radio."
                                                 : "No radio read definitions are available."
                                 enabled: (store.hasImportedCodeplug
                                           ? store.radioTransferAvailable
@@ -263,7 +263,7 @@ ApplicationWindow {
                                 ToolTip.text: radioReader.busy || radioWriter.busy
                                               ? "A radio transfer is in progress."
                                               : store.hasImportedCodeplug
-                                                ? "No USB definition (.wrd) is available for this radio."
+                                                ? "No USB transfer definition is available for this radio."
                                                 : "Create or load a radio project before writing."
                                 enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
                                 onClicked: radioWriteConfirmation.open()

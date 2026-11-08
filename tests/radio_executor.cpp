@@ -21,7 +21,7 @@ int main(int argc, char **argv)
         RadioDefinition radio;
         CodeplugDefinition codeplug;
         QString error;
-        check(RadioDefinition::load(base + QStringLiteral(".wrd"), &radio, &error),
+        check(RadioDefinition::loadProfile(base + QStringLiteral(".wcp"), &radio, &codeplug, nullptr, &error),
               "Packaged radio definition failed to load");
         check(CodeplugDefinition::load(base + QStringLiteral(".wcp"), &codeplug, &error),
               "Packaged codeplug definition failed to load");

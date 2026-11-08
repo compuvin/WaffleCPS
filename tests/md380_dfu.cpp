@@ -21,12 +21,13 @@ int main(int argc, char **argv)
         QString error;
         RadioDefinition radio;
         CodeplugDefinition codeplug;
-        check(RadioDefinition::load(base + QStringLiteral(".wrd"), &radio, &error),
+        check(RadioDefinition::loadProfile(base + QStringLiteral(".wcp"), &radio, &codeplug, nullptr, &error),
               "MD-380 radio definition was rejected");
         check(radio.usesDfu() && radio.canRead() && radio.canWrite(),
               "MD-380 DFU capabilities are missing");
         RadioDefinition cs700;
-        check(RadioDefinition::load(QStringLiteral(WAFFLE_SOURCE_DIR "/definitions/cs700.wrd"), &cs700, &error),
+        CodeplugDefinition cs700Codeplug;
+        check(RadioDefinition::loadProfile(QStringLiteral(WAFFLE_SOURCE_DIR "/definitions/cs700.wcp"), &cs700, &cs700Codeplug, nullptr, &error),
               "CS700 radio definition was rejected");
         for (const RadioDefinition *definition : {&radio, &cs700}) {
             const QJsonObject methods = definition->document().value(QStringLiteral("methods")).toObject();
@@ -79,9 +80,7 @@ int main(int argc, char **argv)
         catch (const std::exception &) { rejected = true; }
         check(rejected, "Truncated DFU write image was accepted");
 
-        QFile wrd(base + QStringLiteral(".wrd"));
-        check(wrd.open(QIODevice::ReadOnly), "Cannot read MD-380 radio definition");
-        QJsonObject invalid = QJsonDocument::fromJson(wrd.readAll()).object();
+        QJsonObject invalid = radio.document();
         QJsonObject methods = invalid.value(QStringLiteral("methods")).toObject();
         QJsonObject read = methods.value(QStringLiteral("read_codeplug")).toObject();
         QJsonArray operations = read.value(QStringLiteral("operations")).toArray();

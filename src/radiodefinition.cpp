@@ -1,9 +1,8 @@
 #include "radiodefinition.h"
+#include "codeplugdefinitions.h"
 #include "serialexecutor.h"
 
 #include <QCryptographicHash>
-#include <QFile>
-#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -875,28 +874,34 @@ bool validateWritePlan(const QJsonObject &root, const QJsonObject &methods, QStr
 }
 }
 
-bool RadioDefinition::load(const QString &path, RadioDefinition *out, QString *error)
+bool RadioDefinition::loadProfile(const QString &source, RadioDefinition *out,
+                                  CodeplugDefinition *codeplug, QString *packagePath, QString *error)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        std::fprintf(stdout, "[radio definitions] ERROR opening FILE: %s\n", qUtf8Printable(path));
-        std::fflush(stdout);
-        return fail(error, QStringLiteral("Cannot read radio definition: %1").arg(path));
-    }
-    const QByteArray json = file.readAll();
-    const QString absolutePath = QFileInfo(file).absoluteFilePath();
-    const QByteArray hash = QCryptographicHash::hash(json, QCryptographicHash::Sha256).toHex();
+    if (!out || !codeplug) return fail(error, QStringLiteral("Missing radio profile output."));
+    RadioProfileData data;
+    if (!CodeplugDefinitions::loadRadioProfile(source, &data, error)) return false;
+    const QByteArray hash = QCryptographicHash::hash(data.json, QCryptographicHash::Sha256).toHex();
     std::fprintf(stdout, "[radio definitions] Reading FILE: %s\n[radio definitions] JSON SHA-256: %s\n",
-                 qUtf8Printable(absolutePath), hash.constData());
+                 qUtf8Printable(data.description), hash.constData());
     std::fflush(stdout);
-    if (!fromJson(json, out, error)) {
-        std::fprintf(stdout, "[radio definitions] ERROR loading FILE: %s: %s\n",
-                     qUtf8Printable(absolutePath), error ? qUtf8Printable(*error) : "invalid definition");
-        std::fflush(stdout);
+    RadioDefinition loaded;
+    if (!fromJson(data.json, &loaded, error)) {
+        if (error) *error = data.description + ": " + *error;
         return false;
     }
-    out->m_sourcePath = absolutePath;
-    std::fprintf(stdout, "[radio definitions] Loaded ID: %s\n", qUtf8Printable(out->m_document.value(QStringLiteral("id")).toString()));
+    // The companion archive establishes the radio family. Its versions may use
+    // distinct codeplug IDs while sharing one USB profile.
+    if (!data.companionIds.contains(loaded.document().value(QStringLiteral("id")).toString()))
+        return fail(error, QStringLiteral("Radio profile ID is absent from its companion package."));
+    loaded.m_codeplugId = data.codeplug.id();
+    loaded.m_sourcePath = data.reference;
+    if (!loaded.compatibleWithCodeplug(data.codeplug.document(), error)) return false;
+    *out = std::move(loaded);
+    *codeplug = std::move(data.codeplug);
+    if (packagePath) *packagePath = data.packagePath;
+    std::fprintf(stdout, "[radio definitions] Loaded ID: %s\n[radio definitions] Companion definition ID: %s\n",
+                 qUtf8Printable(out->document().value(QStringLiteral("id")).toString()),
+                 qUtf8Printable(codeplug->id()));
     std::fflush(stdout);
     return true;
 }
@@ -921,6 +926,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
         out->m_document = root;
         out->m_sourcePath.clear();
+        out->m_codeplugId.clear();
         out->m_dfu = false;
         out->m_serial = true;
         if (error) error->clear();
@@ -932,6 +938,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
         out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
         out->m_document = root;
         out->m_sourcePath.clear();
+        out->m_codeplugId.clear();
         out->m_dfu = true;
         out->m_serial = false;
         if (error) error->clear();
@@ -1000,6 +1007,7 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
     out->m_writePlan = methods.value(QStringLiteral("write_codeplug")).toObject();
     out->m_document = root;
     out->m_sourcePath.clear();
+    out->m_codeplugId.clear();
     out->m_dfu = false;
     out->m_serial = false;
     if (error) error->clear();
@@ -1008,7 +1016,9 @@ bool RadioDefinition::fromJson(const QByteArray &json, RadioDefinition *out, QSt
 
 bool RadioDefinition::compatibleWithCodeplug(const QJsonObject &codeplugDocument, QString *error) const
 {
-    if (m_document.value(QStringLiteral("id")) != codeplugDocument.value(QStringLiteral("id")))
+    const QString expectedId = m_codeplugId.isEmpty()
+        ? m_document.value(QStringLiteral("id")).toString() : m_codeplugId;
+    if (expectedId != codeplugDocument.value(QStringLiteral("id")).toString())
         return fail(error, QStringLiteral("Radio and codeplug definitions have different IDs."));
     const QJsonObject methods = m_document.value(QStringLiteral("methods")).toObject();
     const QString readName = methods.value(QStringLiteral("read_codeplug")).toObject()

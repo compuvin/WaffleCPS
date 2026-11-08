@@ -114,7 +114,7 @@ if(UNIX AND NOT APPLE)
             DESTINATION bin RENAME wafflecps)
     install(DIRECTORY definitions/
             DESTINATION lib/wafflecps/definitions
-            FILES_MATCHING PATTERN "*.wcp" PATTERN "*.wrd")
+            FILES_MATCHING PATTERN "*.wcp")
     install(FILES packaging/70-wafflecps.rules
             DESTINATION lib/udev/rules.d)
     install(FILES packaging/wafflecps.desktop
@@ -155,6 +155,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(radio_profile_test tests/radio_profile.cpp)
+    target_link_libraries(radio_profile_test PRIVATE radioreader codeplugdefinition)
+    target_compile_definitions(radio_profile_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME radio_profile COMMAND radio_profile_test)
     add_executable(radio_executor_test tests/radio_executor.cpp)
     target_compile_definitions(radio_executor_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(radio_executor_test PRIVATE radioreader codeplugdefinition)

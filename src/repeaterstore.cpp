@@ -221,16 +221,18 @@ bool RepeaterStore::hasImportedCodeplug() const { return !m_importedCodeplug.mod
 bool RepeaterStore::radioTransferAvailable() const
 {
     return hasImportedCodeplug()
-        && CodeplugDefinitions::hasCompanionWrd(m_importedCodeplug.definitionFile);
+        && !CodeplugDefinitions::radioDefinitionSource(m_importedCodeplug.definitionFile,
+                                                       m_importedCodeplug.definitionVersion).isEmpty();
 }
 QString RepeaterStore::radioDefinitionPath() const
 {
     return hasImportedCodeplug()
-        ? CodeplugDefinitions::companionWrdPath(m_importedCodeplug.definitionFile) : QString();
+        ? CodeplugDefinitions::radioDefinitionSource(m_importedCodeplug.definitionFile,
+                                                      m_importedCodeplug.definitionVersion) : QString();
 }
 QString RepeaterStore::radioDefinitionPathFor(const QString &definitionFile) const
 {
-    return CodeplugDefinitions::companionWrdPath(definitionFile);
+    return CodeplugDefinitions::radioDefinitionSource(definitionFile);
 }
 QVariantList RepeaterStore::newProjectOptions() const
 {
