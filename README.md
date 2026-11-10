@@ -41,13 +41,13 @@ Included codeplug definitions cover these radios and file formats. Compatibility
 | --- | --- | --- |
 | CS7000-M17 Plus | `.rdbx` | Yes |
 | CS700 / CS701 | `.rdt` | Yes |
-| CS750 | `.rdb` (D4.0.03 and D4.3.01 layouts) | No |
-| CS800 | `.rdb` | No |
+| CS750 | `.rdb` (D4.0.03 and D4.3.01 layouts) | Yes |
+| CS800 | `.rdb` | Yes |
 | MD-380 | `.rdt` | Yes |
 | OpenGD77 | `.g77` | Yes |
 | DM-32UV | `.data` | Yes |
 
-Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 transfer definition and other OpenGD77 radio types still need hardware verification.
+Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 transfer definition and other OpenGD77 radio types still need hardware verification.
 
 Keep your original codeplug and a backup of your radio's programming. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 

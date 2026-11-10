@@ -114,8 +114,8 @@ Treat each model and firmware variant as a separate compatibility target. File i
 - [x] Connect Systems CS7000 GPS — owned radio; the codeplug used for current import work came from this radio, which runs the same firmware as the Plus.
 - [x] Connect Systems CS700 — owned radio.
 - [x] Connect Systems CS701 — owned radio.
-- [ ] Connect Systems CS750 — public sample codeplugs listed in the research note; no owned radio identified.
-- [ ] Connect Systems CS800 — owned radio.
+- [x] Connect Systems CS750 — public sample codeplugs listed in the research note; no owned radio identified.
+- [x] Connect Systems CS800 — owned radio.
 - [ ] Connect Systems CS800D — owned radio.
 - [ ] TYT MD-380 — codeplug available; no radio available for direct device tests.
 - [ ] Radioddity GD-77 — public sample codeplugs listed in the research note; no owned radio identified.

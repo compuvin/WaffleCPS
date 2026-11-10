@@ -39,6 +39,16 @@ Verification depends on the transfer protocol:
 
 Read-back checks cover the data written by the operation. They do not replace a backup or prove that every radio feature behaves correctly.
 
+## Hardware test results
+
+User-reported tests after moving USB transfer definitions into `.wcp` packages:
+
+| Radio | Read | Write |
+| --- | --- | --- |
+| CS7000 | Successful | Previously tested; not repeated in this round |
+| CS750 | Successful | Successful |
+| CS800 | Successful | Successful |
+
 ## Device access
 
 Windows and macOS may request administrator authorization when the storage-style USB transport requires it. WaffleCPS tries normal access first and uses its helper when that access is denied. Serial and DFU connections use their normal device-access paths.
