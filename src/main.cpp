@@ -13,7 +13,6 @@
 #include <QQuickStyle>
 #include <QUrl>
 #include <cstdio>
-#include <cstring>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -38,16 +37,7 @@ public:
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
-    bool consoleRequested = false;
-    for (int i = 1; i < argc; ++i)
-        consoleRequested |= std::strcmp(argv[i], "--console") == 0;
-
-    if (consoleRequested) {
-        if (!AttachConsole(ATTACH_PARENT_PROCESS) && !AllocConsole()) {
-            MessageBoxW(nullptr, L"Could not open the diagnostic console.",
-                        L"WaffleCPS", MB_OK | MB_ICONERROR);
-            return 1;
-        }
+    if (AttachConsole(ATTACH_PARENT_PROCESS)) {
         std::freopen("CONOUT$", "w", stdout);
         std::freopen("CONOUT$", "w", stderr);
         qputenv("QT_FORCE_STDERR_LOGGING", "1");
@@ -66,7 +56,6 @@ int main(int argc, char *argv[])
                      &store, &RepeaterStore::importRadioCodeplug);
     QStringList arguments = app.arguments();
     arguments.removeFirst();
-    arguments.removeAll(QStringLiteral("--console"));
     if (arguments.size() == 1) {
         const QString path = arguments.first();
         const QString extension = QFileInfo(path).suffix().toLower();
