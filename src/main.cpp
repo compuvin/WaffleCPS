@@ -12,6 +12,12 @@
 #include <QQuickImageProvider>
 #include <QQuickStyle>
 #include <QUrl>
+#include <cstdio>
+#include <cstring>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 class RadioIconProvider : public QQuickImageProvider
 {
@@ -31,6 +37,22 @@ public:
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    bool consoleRequested = false;
+    for (int i = 1; i < argc; ++i)
+        consoleRequested |= std::strcmp(argv[i], "--console") == 0;
+
+    if (consoleRequested) {
+        if (!AttachConsole(ATTACH_PARENT_PROCESS) && !AllocConsole()) {
+            MessageBoxW(nullptr, L"Could not open the diagnostic console.",
+                        L"WaffleCPS", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+        std::freopen("CONOUT$", "w", stdout);
+        std::freopen("CONOUT$", "w", stderr);
+        qputenv("QT_FORCE_STDERR_LOGGING", "1");
+    }
+#endif
     QApplication app(argc, argv);
 #ifdef __APPLE__
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -42,8 +64,11 @@ int main(int argc, char *argv[])
     RadioReader radioReader;
     QObject::connect(&radioReader, &RadioReader::completed,
                      &store, &RepeaterStore::importRadioCodeplug);
-    if (argc == 2) {
-        const QString path = QString::fromLocal8Bit(argv[1]);
+    QStringList arguments = app.arguments();
+    arguments.removeFirst();
+    arguments.removeAll(QStringLiteral("--console"));
+    if (arguments.size() == 1) {
+        const QString path = arguments.first();
         const QString extension = QFileInfo(path).suffix().toLower();
         const bool project = extension == QStringLiteral("waffle") || extension == QStringLiteral("zip");
         if (!(project ? store.openProjectFromFile(path) : store.importCodeplugFromFile(path))) {

@@ -103,6 +103,7 @@ endif()
 
 if(WIN32)
     enable_language(RC)
+    set_target_properties(wafflecps PROPERTIES WIN32_EXECUTABLE TRUE)
     target_sources(wafflecps PRIVATE assets/waffle-radio.rc)
     target_include_directories(wafflecps PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/assets")
