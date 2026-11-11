@@ -48,6 +48,7 @@ User-reported tests after moving USB transfer definitions into `.wcp` packages:
 | CS7000 | Successful | Previously tested; not repeated in this round |
 | CS750 | Successful | Successful |
 | CS800 | Successful | Successful |
+| CS800D | Successful | Successful |
 
 ## Device access
 

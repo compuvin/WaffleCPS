@@ -20,6 +20,7 @@ ApplicationWindow {
         function onAboutToResetProject() {
             createZoneDialog.close()
             channelOrderDialog.close()
+            zoneOrderDialog.close()
             window.clearingProject = true
             window.currentSection = "repeaters"
         }
@@ -365,10 +366,17 @@ ApplicationWindow {
 
                     Item { Layout.fillHeight: true }
 
-                    SidebarAction {
-                        text: "Attach original codeplug"
-                        Layout.fillWidth: true
-                        onClicked: store.attachSourceDialog()
+                    PageAction {
+                        objectName: "orderZonesButton"
+                        text: "Order zones / repeaters"
+                        Layout.alignment: Qt.AlignHCenter
+                        implicitHeight: 30
+                        font.pixelSize: 12
+                        font.bold: false
+                        enabled: store.hasImportedCodeplug
+                                 ? store.importedRepeaterNames.length + store.importedZoneNames.length > 1
+                                 : store.repeaterNames.length > 1
+                        onClicked: zoneOrderDialog.openForProject()
                     }
 
                     SidebarAction {
@@ -477,6 +485,19 @@ ApplicationWindow {
                             }
                         }
                     }
+                    PageAction {
+                        objectName: "orderZonesButton"
+                        text: "Order zones / repeaters"
+                        Layout.alignment: Qt.AlignHCenter
+                        implicitHeight: 30
+                        font.pixelSize: 12
+                        font.bold: false
+                        enabled: store.hasImportedCodeplug
+                                 ? store.importedRepeaterNames.length + store.importedZoneNames.length > 1
+                                 : store.repeaterNames.length > 1
+                        onClicked: zoneOrderDialog.openForProject()
+                    }
+
                     Label {
                         text: store.importedCodeplugSummary
                         Layout.fillWidth: true
@@ -1969,6 +1990,125 @@ ApplicationWindow {
                             window.currentSection = "repeaters"
                             createZoneDialog.close()
                         } else createZoneError.text = "Could not create this zone. Check the name and radio capacity."
+                    }
+                }
+            }
+        }
+    }
+
+    ListModel { id: zoneOrderModel; objectName: "zoneOrderModel" }
+
+    PageDialog {
+        id: zoneOrderDialog
+        objectName: "zoneOrderDialog"
+        width: Math.min(600, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        title: "Order zones / repeaters"
+        modal: true
+        standardButtons: Dialog.NoButton
+
+        function openForProject() {
+            store.leaveZoneEditor()
+            zoneOrderModel.clear()
+            for (const entry of store.zoneOrderEntries())
+                zoneOrderModel.append({zoneNumber: entry.number, entryName: entry.name, kind: entry.kind})
+            zoneOrderError.text = ""
+            open()
+        }
+
+        function sortAlphabetically() {
+            const rows = []
+            for (let i = 0; i < zoneOrderModel.count; ++i) {
+                const entry = zoneOrderModel.get(i)
+                rows.push({zoneNumber: entry.zoneNumber, entryName: entry.entryName,
+                           kind: entry.kind, position: i})
+            }
+            rows.sort((a, b) => a.entryName.toLocaleLowerCase().localeCompare(b.entryName.toLocaleLowerCase())
+                               || a.position - b.position)
+            zoneOrderModel.clear()
+            for (const entry of rows)
+                zoneOrderModel.append({zoneNumber: entry.zoneNumber, entryName: entry.entryName, kind: entry.kind})
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                text: "This combined order is used on the radio. The sidebar shows repeaters and zones separately."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            PageAction {
+                objectName: "zoneOrderAlphabetical"
+                text: "Sort A–Z"
+                enabled: zoneOrderModel.count > 1
+                onClicked: zoneOrderDialog.sortAlphabetically()
+            }
+            ListView {
+                id: zoneOrderList
+                objectName: "zoneOrderList"
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(360, zoneOrderModel.count * 54)
+                clip: true
+                spacing: 4
+                model: zoneOrderModel
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Frame {
+                    required property int index
+                    required property string entryName
+                    required property string kind
+                    width: zoneOrderList.width
+                    height: 50
+                    padding: 6
+                    RowLayout {
+                        anchors.fill: parent
+                        Label { text: index + 1; Layout.preferredWidth: 24 }
+                        Label { text: entryName; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Label { text: kind; color: "#64776c" }
+                        PageAction {
+                            quiet: true
+                            objectName: "zoneOrderUp"
+                            property int rowIndex: index
+                            text: "Up"
+                            enabled: index > 0
+                            Accessible.name: "Move " + entryName + " up"
+                            onClicked: zoneOrderModel.move(index, index - 1, 1)
+                        }
+                        PageAction {
+                            quiet: true
+                            objectName: "zoneOrderDown"
+                            property int rowIndex: index
+                            text: "Down"
+                            enabled: index < zoneOrderModel.count - 1
+                            Accessible.name: "Move " + entryName + " down"
+                            onClicked: zoneOrderModel.move(index, index + 1, 1)
+                        }
+                    }
+                }
+            }
+            Label {
+                id: zoneOrderError
+                color: "#b33a32"
+                visible: text.length > 0
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction {
+                    objectName: "zoneOrderCancel"
+                    text: "Cancel"
+                    onClicked: zoneOrderDialog.close()
+                }
+                PageAction {
+                    objectName: "zoneOrderSave"
+                    text: "Save"
+                    onClicked: {
+                        const numbers = []
+                        for (let i = 0; i < zoneOrderModel.count; ++i)
+                            numbers.push(zoneOrderModel.get(i).zoneNumber)
+                        if (store.reorderZones(numbers)) zoneOrderDialog.close()
+                        else zoneOrderError.text = "Could not apply this order. Close and reopen the dialog to refresh the list."
                     }
                 }
             }

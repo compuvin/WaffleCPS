@@ -1523,11 +1523,19 @@ private:
         const auto rows = wanted.value(role);
         if (r.contains("capacity")) require(rows.size() <= integer(r.value("capacity")), "Record capacity exceeded.");
         if (r.value("resize_to_end").toBool()) {
-            require(add(tableAt(baseImage, table), multiply(original.value(role).size(), stride(table))) == baseImage.size(),
+            const qint64 oldEnd = add(tableAt(baseImage, table),
+                                     multiply(original.value(role).size(), stride(table)));
+            const bool preserveTrailing = r.value("preserve_trailing_bytes").toBool();
+            require(oldEnd <= baseImage.size()
+                        && (preserveTrailing || oldEnd == baseImage.size()),
                     "End-resize table does not occupy the end of the source image.");
+            const QByteArray trailing = preserveTrailing
+                ? image.mid(int(oldEnd)) : QByteArray{};
             const qint64 end = add(tableAt(image, table), multiply(rows.size(), stride(table)));
-            require(end <= std::numeric_limits<int>::max(), "Resized image exceeds capacity.");
+            require(add(end, trailing.size()) <= std::numeric_limits<int>::max(),
+                    "Resized image exceeds capacity.");
             image.resize(int(end));
+            image.append(trailing);
         }
         if (r.contains("count_field")) writeGlobal(r.value("count_field").toString(), rows.size());
         const auto removed = r.value("removed_records").toObject();
@@ -1881,13 +1889,17 @@ private:
             } else if (operation == "branch_if_tables_equal") {
                 keys(r, {"operation", "tables", "next_step"}); requireNames(r.value("tables"), {"channels", "contacts", "zones"}, "Incomplete identity-only comparison."); require(operationName(r.value("next_step").toString(), object(plan.value(r.value("next_step").toString()), "branch destination")) == "encode_base_representation", "Identity-only branch must lead to encoding.");
             } else if (operation == "rebuild_fixed_table") {
-                keys(r, {"operation", "count_field", "index_table", "names_table", "records_table", "index", "removed_records", "unused_records", "record_selection", "writes", "preserve_fields", "masked_field_writes", "capacity", "resize_to_end", "clear_ranges", "reset_selection"});
+                keys(r, {"operation", "count_field", "index_table", "names_table", "records_table", "index", "removed_records", "unused_records", "record_selection", "writes", "preserve_fields", "masked_field_writes", "capacity", "resize_to_end", "preserve_trailing_bytes", "clear_ranges", "reset_selection"});
                 require(r.value("unused_records") == QJsonValue("preserve") || r.value("unused_records") == QJsonValue("clear"), "Unknown unused-record policy.");
                 if (r.value("unused_records") == QJsonValue("clear")) require(r.contains("capacity"), "Clearing unused records requires capacity.");
                 if (r.contains("reset_selection")) require(r.value("reset_selection").isBool(), "Invalid selection reset option.");
                 policy(r, "masked_field_writes", "preserve_unmasked_bits");
                 if (r.contains("capacity")) require(integer(r.value("capacity")) > 0, "Invalid fixed-table capacity.");
                 if (r.contains("resize_to_end")) require(r.value("resize_to_end").isBool(), "Invalid end-resize option.");
+                if (r.contains("preserve_trailing_bytes"))
+                    require(r.value("preserve_trailing_bytes").isBool()
+                                && r.value("resize_to_end").toBool(),
+                            "Trailing-byte preservation requires end-resize.");
                 for (const auto &entry : r.value("clear_ranges").toArray()) {
                     const auto c = object(entry, "record clear range"); keys(c, {"offset", "bytes", "fill_hex"});
                     const qint64 offset = integer(c.value("offset")), count = integer(c.value("bytes"));

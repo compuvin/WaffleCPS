@@ -116,7 +116,7 @@ Treat each model and firmware variant as a separate compatibility target. File i
 - [x] Connect Systems CS701 — owned radio.
 - [x] Connect Systems CS750 — public sample codeplugs listed in the research note; no owned radio identified.
 - [x] Connect Systems CS800 — owned radio.
-- [ ] Connect Systems CS800D — owned radio.
+- [x] Connect Systems CS800D — owned radio.
 - [ ] TYT MD-380 — codeplug available; no radio available for direct device tests.
 - [ ] Radioddity GD-77 — public sample codeplugs listed in the research note; no owned radio identified.
 - [x] Baofeng DM-1701 running OpenGD77 — owned radio; verify its firmware version before adapter work.
@@ -124,7 +124,7 @@ Treat each model and firmware variant as a separate compatibility target. File i
 ## Possible future items
 
 - [ ] Consider applying a talkgroup change across multiple repeaters after duplication and a shared talkgroup library work. The workflow needs careful design because it could confuse users and is difficult to implement with the current setup.
-- [ ] Reorder zones/repeaters
+- [x] Reorder zones/repeaters
 
 ## Agreed implementation order
 

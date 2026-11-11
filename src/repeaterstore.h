@@ -95,6 +95,8 @@ public:
     Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);
     Q_INVOKABLE bool updateSelectedZoneChannelFrequencies(int zonePosition, const QString &rx, const QString &tx);
     Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers);
+    Q_INVOKABLE QVariantList zoneOrderEntries() const;
+    Q_INVOKABLE bool reorderZones(const QVariantList &zoneNumbers);
     Q_INVOKABLE void leaveZoneEditor();
     Q_INVOKABLE void selectRepeater(int index);
     Q_INVOKABLE bool addRepeater(const QString &name, const QString &rxFrequency,

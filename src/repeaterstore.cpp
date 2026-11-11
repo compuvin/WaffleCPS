@@ -1023,6 +1023,68 @@ bool RepeaterStore::reorderSelectedZone(const QVariantList &channelNumbers)
     return true;
 }
 
+QVariantList RepeaterStore::zoneOrderEntries() const
+{
+    QVariantList result;
+    if (!hasImportedCodeplug()) {
+        for (int i = 0; i < int(m_repeaters.size()); ++i)
+            result.append(QVariantMap{{QStringLiteral("number"), i + 1},
+                {QStringLiteral("name"), m_repeaters[i].name},
+                {QStringLiteral("kind"), QStringLiteral("Repeater")}});
+        return result;
+    }
+    QSet<int> repeaterZones;
+    for (const auto &group : m_importedGroups)
+        if (group.repeater)
+            for (int index : group.zoneIndexes) repeaterZones.insert(index);
+    for (int i = 0; i < m_importedCodeplug.zones.size(); ++i)
+        result.append(QVariantMap{{QStringLiteral("number"), i + 1},
+            {QStringLiteral("name"), m_importedCodeplug.zones[i].name},
+            {QStringLiteral("kind"), repeaterZones.contains(i)
+                ? QStringLiteral("Repeater") : QStringLiteral("Zone")}});
+    return result;
+}
+
+bool RepeaterStore::reorderZones(const QVariantList &zoneNumbers)
+{
+    const bool imported = hasImportedCodeplug();
+    const int count = imported ? m_importedCodeplug.zones.size() : int(m_repeaters.size());
+    if (zoneNumbers.size() != count) return false;
+    QVector<int> order;
+    QSet<int> seen;
+    bool changed = false;
+    for (const auto &value : zoneNumbers) {
+        bool ok = false;
+        const int number = value.toInt(&ok);
+        if (!ok || value.toDouble() != number || number < 1 || number > count
+            || seen.contains(number)) return false;
+        changed |= number != order.size() + 1;
+        seen.insert(number);
+        order.append(number - 1);
+    }
+    if (!changed) return true;
+    if (imported) {
+        leaveZoneEditor();
+        const int selectedZone = selectedZoneIndex();
+        const auto original = m_importedCodeplug.zones;
+        for (int i = 0; i < count; ++i)
+            m_importedCodeplug.zones[i] = original[order[i]];
+        rebuildImportedGroups();
+        selectZoneIndex(order.indexOf(selectedZone));
+    } else {
+        const int selectedRepeater = m_selectedIndex;
+        const auto original = m_repeaters;
+        for (int i = 0; i < count; ++i) m_repeaters[i] = original[order[i]];
+        m_selectedIndex = order.indexOf(selectedRepeater);
+        emit repeatersChanged();
+        emit selectedRepeaterChanged();
+        emit talkgroupsChanged();
+        emit simplexFrequenciesChanged();
+    }
+    setModified(true);
+    return true;
+}
+
 void RepeaterStore::rebuildImportedGroups()
 {
     m_zoneClassificationPending = false;
