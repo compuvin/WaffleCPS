@@ -44,7 +44,7 @@ Included codeplug definitions cover these radios and file formats. Compatibility
 | CS750 | `.rdb` (D4.0.03 and D4.3.01 layouts) | Yes |
 | CS800 | `.rdb` | Yes |
 | CS800D | `.rdb` (D4.3.01 layout) | Yes |
-| MD-380 | `.rdt` | Yes |
+| MD-380 / MD-390 | `.rdt` | Yes |
 | OpenGD77 | `.g77` | Yes |
 | DM-32UV | `.data` | Yes |
 
