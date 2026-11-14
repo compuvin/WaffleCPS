@@ -1,6 +1,6 @@
 # Public codeplug sample sources
 
-These public collections may provide test files for future WaffleCPS import adapters. Their listings have been checked, but the linked codeplug files have not been downloaded or validated. A listing for a radio model does not establish compatibility with another model or CPS version.
+These public collections provide sample-codeplug sources for research and compatibility testing. Some samples have been downloaded and inspected; a listing alone does not establish compatibility with another model or CPS version. See [Radio support](../README.md#radio-support) for current support.
 
 | Source | Listed samples | Why it may help |
 |---|---|---|
@@ -10,12 +10,12 @@ These public collections may provide test files for future WaffleCPS import adap
 
 ## Radios to investigate
 
-These pages list downloadable codeplugs; the files have not been downloaded or checked in WaffleCPS. Match the exact model and CPS version before using a sample.
+These pages list downloadable codeplugs. Completion marks record support work; they do not mean every listed model or firmware variant has been tested on hardware. The combined MD-UV380 / MD-UV390 entry is checked for MD-UV390 support. Match the exact model and CPS version before using a sample.
 
 | # | Manufacturer | Model | Type | Codeplug listing | Complete |
 |---|---|---|---|---|---|
 | 1 | AnyTone | AT-D878UVII Plus | Portable | [NEDECN: v3.04 `.rdt` samples](https://nedecn.org/downloads/codeplugs/) | ☐ |
-| 2 | TYT | MD-UV380 / MD-UV390 | Portable | [Mid-Atlantic Wireless: MD-UV380/UV390 VHF](https://mawcg.org/codeplugs-and-configs/); [MD-UV390 research and deferred work](MD-UV390DefinitionResearch.md) | ☐ |
+| 2 | TYT | MD-UV380 / MD-UV390 | Portable | [Mid-Atlantic Wireless: MD-UV380/UV390 VHF](https://mawcg.org/codeplugs-and-configs/); [MD-UV390 definition research](MD-UV390DefinitionResearch.md) | ☑ |
 | 3 | Baofeng | DM-1701 | Portable | [NEDECN: DM1701 `.rdt`](https://nedecn.org/downloads/codeplugs/) | ☐ |
 | 4 | Radioddity | GD-77 | Portable | [Mid-Atlantic Wireless: GD-77](https://mawcg.org/codeplugs-and-configs/) | ☐ |
 | 5 | BTECH | DMR-6X2 PRO | Portable | No verified sample listing found; [BTECH provides CPS and firmware](https://baofengtech.com/dmr/dmr-6x2-pro/). | ☐ |
@@ -50,4 +50,4 @@ Keep a small collection of legally reusable sample files outside the source tree
 - Contacts, talkgroups, and time slots.
 - Radio settings that the adapter claims to support.
 
-The current importer is for the tested CS7000 M17 Plus `.rdbx` layout. CS700, CS750, and other listed formats would require separate format research and adapters. They are potential future test cases, not existing WaffleCPS import support.
+WaffleCPS now imports and exports several radio formats through its `.wcp` definitions. See [Radio support](../README.md#radio-support) for the current list and hardware-test status. Unchecked entries remain research targets.

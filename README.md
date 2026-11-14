@@ -45,10 +45,11 @@ Included codeplug definitions cover these radios and file formats. Compatibility
 | CS800 | `.rdb` | Yes |
 | CS800D | `.rdb` (D4.3.01 layout) | Yes |
 | MD-380 / MD-390 | `.rdt` | Yes |
+| MD-UV390 | `.rdt` | Yes |
 | OpenGD77 | `.g77` | Yes |
 | DM-32UV | `.data` | Yes |
 
-Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 transfer definition and other OpenGD77 radio types still need hardware verification.
+Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 and MD-UV390 transfer definitions and other OpenGD77 radio types still need hardware verification.
 
 Keep your original codeplug and a backup of your radio's programming. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 
@@ -78,16 +79,21 @@ These views use an imported CS7000 GPS codeplug.
 - Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
 - Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
 - Create a new codeplug for a selected radio, or export an edited import using its radio definition and preserved source bytes.
+- Reorder zones and repeaters, including alphabetically, and arrange channels in radio order.
+- Assign channels to Top, Bottom, or Both displays on radios with separate channel lists, and order each display independently.
+- View and edit transmit and receive CTCSS tones for analog channels when supported by the selected definition.
 - Read and write radios using the included transfer definitions, as described in Radio support above.
+
+The application version and build commit ID appear beneath the WaffleCPS name. Include these when reporting a problem.
 
 The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
 
 ## Build from source
 
-WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer with Qt SerialPort, zlib, and libusb. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
+WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer with Qt SerialPort, zlib, libusb, and Git for build identification. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
 
 ```sh
-sudo apt install cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-serialport-dev \
+sudo apt install git cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-serialport-dev \
   qml6-module-qtqml qml6-module-qtqml-workerscript \
   qml6-module-qtquick qml6-module-qtquick-controls \
   qml6-module-qtquick-layouts qml6-module-qtquick-templates \

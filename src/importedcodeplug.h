@@ -17,6 +17,8 @@ struct ImportedChannel {
     int sourceRecord = -1; // Original channel record in the retained export base.
     bool useDefaultTemplate = false; // Mode changes start from the matching mode defaults.
     QString powerSetting; // Definition enum value for settings beyond legacy High/Low.
+    std::optional<int> receiveCtcss; // Tenths of Hz; zero means None, unset preserves an unrecognised tone.
+    std::optional<int> transmitCtcss;
     QString powerValue() const { return highPower ? (*highPower ? QStringLiteral("high") : QStringLiteral("low")) : powerSetting; }
     void setPowerValue(const QString &value) {
         powerSetting = value;
@@ -58,4 +60,5 @@ struct ImportedCodeplug {
     int zoneCapacity = 250;
     int zoneMemberCapacity = 16;
     bool separateDisplayLists = false;
+    QVector<int> ctcssTones; // Canonical choices declared by both tone bindings, including zero for None.
 };

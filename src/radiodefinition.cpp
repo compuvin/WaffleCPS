@@ -111,6 +111,28 @@ bool falseField(const QJsonObject &object, const char *name)
     return object.value(QLatin1String(name)) == QJsonValue(false);
 }
 
+bool validDfuRegions(const QJsonArray &regions, int wrapperBytes, int payloadBytes)
+{
+    if (regions.isEmpty() || regions.size() > 1024 || wrapperBytes < 1 || wrapperBytes > 64 * 1024 * 1024
+        || payloadBytes < 1 || payloadBytes > 64 * 1024 * 1024) return false;
+    int next = 0;
+    QVector<QPair<int, int>> destinations;
+    for (const auto &value : regions) {
+        if (!value.isObject()) return false;
+        const auto region = value.toObject();
+        const int source = region.value("payload_offset").toInt(-1);
+        const int target = region.value("image_offset").toInt(-1);
+        const int bytes = region.value("bytes").toInt(-1);
+        if (source != next || target < 0 || bytes < 1 || target > wrapperBytes || bytes > wrapperBytes - target
+            || next > payloadBytes || bytes > payloadBytes - next) return false;
+        for (const auto &range : destinations)
+            if (target < range.second && range.first < target + bytes) return false;
+        destinations.append({target, target + bytes});
+        next += bytes;
+    }
+    return next == payloadBytes;
+}
+
 bool validateDfuRules(const QJsonObject &root, QString *error)
 {
     if (root.contains(QStringLiteral("bulk_only_transport")))
@@ -179,8 +201,9 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
     const auto validCompletion = [&status](const QJsonObject &rule) {
         const QJsonArray steps = rule.value(QStringLiteral("after_download")).toArray();
         if (steps.isEmpty() || steps.last() != QStringLiteral("get_status")
-            || !status.value(QStringLiteral("states")).toObject()
-                    .contains(rule.value(QStringLiteral("require_state")).toString())
+            || (rule.value(QStringLiteral("require_state")) != QStringLiteral("any")
+                && !status.value(QStringLiteral("states")).toObject()
+                    .contains(rule.value(QStringLiteral("require_state")).toString()))
             || (rule.contains(QStringLiteral("then"))
                 && rule.value(QStringLiteral("then")) != QStringLiteral("enter_dfu_idle"))
             || !rule.value(QStringLiteral("fail_on_nonzero_status")).isBool()) return false;
@@ -242,25 +265,40 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
     const QJsonObject source = write.value(QStringLiteral("source")).toObject();
     const QJsonArray readSteps = read.value(QStringLiteral("operations")).toArray();
     const QJsonArray writeSteps = write.value(QStringLiteral("operations")).toArray();
+    const bool regions = assembly.value("operation") == QStringLiteral("replace_regions_in_template");
     if (readSteps.isEmpty() || writeSteps.isEmpty()
-        || assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_payload_in_template")
-        || assembly.value(QStringLiteral("representation")).toString().isEmpty()
-        || assembly.value(QStringLiteral("bytes")).toInt() < 1
-        || assembly.value(QStringLiteral("wcp_payload_bytes")).toInt() != assembly.value(QStringLiteral("bytes")).toInt()
-        || assembly.value(QStringLiteral("wcp_payload_offset")).toInt(-1) < 0
-        || assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt(-1) < 0
-        || assembly.value(QStringLiteral("wcp_wrapper_bytes")).toInt()
-            != assembly.value(QStringLiteral("wcp_payload_offset")).toInt()
-               + assembly.value(QStringLiteral("bytes")).toInt()
-               + assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt()
-        || write.value(QStringLiteral("codeplug_definition_id")) != root.value(QStringLiteral("id"))
-        || write.value(QStringLiteral("representation")) != assembly.value(QStringLiteral("representation"))
-        || source.value(QStringLiteral("image_bytes")).toInt() != assembly.value(QStringLiteral("wcp_wrapper_bytes")).toInt()
-        || source.value(QStringLiteral("payload_offset")).toInt() != assembly.value(QStringLiteral("wcp_payload_offset")).toInt()
-        || source.value(QStringLiteral("payload_bytes")).toInt() != assembly.value(QStringLiteral("bytes")).toInt()
-        || source.value(QStringLiteral("suffix_bytes")).toInt(-1) != assembly.value(QStringLiteral("wcp_suffix_bytes")).toInt()
-        || source.value(QStringLiteral("magic_ascii")).toString().isEmpty())
+        || (!regions && assembly.value("operation") != QStringLiteral("replace_payload_in_template"))
+        || assembly.value("representation").toString().isEmpty()
+        || assembly.value("bytes").toInt() < 1
+        || write.value("codeplug_definition_id") != root.value("id")
+        || write.value("representation") != assembly.value("representation")
+        || source.value("image_bytes").toInt() != assembly.value("wcp_wrapper_bytes").toInt()
+        || source.value("payload_bytes").toInt() != assembly.value("bytes").toInt()
+        || source.value("magic_ascii").toString().isEmpty())
         return fail(error, QStringLiteral("DFU image assembly or write source is incomplete."));
+    if (regions) {
+        if (!validDfuRegions(assembly.value("regions").toArray(), assembly.value("wcp_wrapper_bytes").toInt(), assembly.value("bytes").toInt())
+            || source.value("regions") != assembly.value("regions"))
+            return fail(error, QStringLiteral("DFU image regions are incomplete, overlapping, or outside the image."));
+    } else if (assembly.value("wcp_payload_bytes").toInt() != assembly.value("bytes").toInt()
+        || assembly.value("wcp_payload_offset").toInt(-1) < 0
+        || assembly.value("wcp_suffix_bytes").toInt(-1) < 0
+        || qint64(assembly.value("wcp_wrapper_bytes").toInt()) != qint64(assembly.value("wcp_payload_offset").toInt())
+            + assembly.value("bytes").toInt() + assembly.value("wcp_suffix_bytes").toInt()
+        || source.value("payload_offset").toInt() != assembly.value("wcp_payload_offset").toInt()
+        || source.value("suffix_bytes").toInt(-1) != assembly.value("wcp_suffix_bytes").toInt())
+        return fail(error, QStringLiteral("DFU image assembly or write source is incomplete."));
+    const auto validUpload = [](const QJsonObject &step) {
+        const int bytes = step.value("bytes").toInt();
+        if (step.value("value").toInt(-1) < 0 || step.value("value").toInt() > 65535
+            || bytes < 1 || bytes > 65535 || step.value("status_after") != QJsonValue(true)) return false;
+        if (step.contains("expected_ascii")) {
+            const QString expected = step.value("expected_ascii").toString();
+            if (expected.isEmpty() || expected.size() >= bytes) return false;
+            for (QChar c : expected) if (c.unicode() == 0 || c.unicode() > 127) return false;
+        }
+        return true;
+    };
     const auto validCommandStep = [&commands](const QJsonObject &step) {
         const QString name = step.value(QStringLiteral("name")).toString();
         const int repeat = step.contains(QStringLiteral("repeat"))
@@ -291,7 +329,7 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
         || (writeExits && !validExit(writeSteps.last().toObject())))
         return fail(error, QStringLiteral("DFU exit command is missing or invalid."));
     bool readsBlocks = false, writesBlocks = false;
-    quint64 writtenBytes = 0;
+    quint64 writtenBytes = 0, readBytes = 0;
     if (readSteps.first().toObject().value(QStringLiteral("operation")) != QStringLiteral("enter_dfu_idle")
         || readSteps.at(readSteps.size() - 1 - int(readExits)).toObject().value(QStringLiteral("operation"))
             != QStringLiteral("read_blocks")
@@ -304,7 +342,6 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
         const QJsonObject step = value.toObject();
         const QString operation = step.value(QStringLiteral("operation")).toString();
         if (operation == QStringLiteral("read_blocks")) {
-            if (readsBlocks) return fail(error, QStringLiteral("Duplicate DFU read block operation."));
             readsBlocks = true;
             if (step.value(QStringLiteral("first_block_number")).toInt(-1) < 2
                 || step.value(QStringLiteral("block_count")).toInt() < 1
@@ -315,8 +352,11 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
                 || step.value(QStringLiteral("request")) != QStringLiteral("upload")
                 || step.value(QStringLiteral("status_after_each_block")) != QJsonValue(true)
                 || qint64(step.value(QStringLiteral("block_count")).toInt()) * step.value(QStringLiteral("block_bytes")).toInt()
-                    != assembly.value(QStringLiteral("bytes")).toInt())
+                    > assembly.value(QStringLiteral("bytes")).toInt() - qint64(readBytes))
                 return fail(error, QStringLiteral("Invalid DFU read block range."));
+            readBytes += quint64(step.value("block_count").toInt()) * step.value("block_bytes").toInt();
+        } else if (operation == QStringLiteral("upload")) {
+            if (!validUpload(step)) return fail(error, QStringLiteral("Invalid DFU read identity upload."));
         } else if (operation == QStringLiteral("command")) {
             if (!validCommandStep(step)) return fail(error, QStringLiteral("Invalid DFU read command."));
         } else if (operation == QStringLiteral("exit_program_mode")) {
@@ -352,10 +392,7 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
         } else if (operation == QStringLiteral("command")) {
             if (!validCommandStep(step)) return fail(error, QStringLiteral("Invalid DFU write command."));
         } else if (operation == QStringLiteral("upload")) {
-            if (step.value(QStringLiteral("bytes")).toInt() < 1
-                || step.value(QStringLiteral("bytes")).toInt() > 65535
-                || step.value(QStringLiteral("value")).toInt(-1) < 0)
-                return fail(error, QStringLiteral("Invalid DFU setup upload."));
+            if (!validUpload(step)) return fail(error, QStringLiteral("Invalid DFU setup upload."));
         } else if (operation == QStringLiteral("delay")) {
             if (step.value(QStringLiteral("milliseconds")).toInt(-1) < 0
                 || step.value(QStringLiteral("milliseconds")).toInt() > 60000)
@@ -379,6 +416,8 @@ bool validateDfuRules(const QJsonObject &root, QString *error)
                    && operation != QStringLiteral("get_status"))
             return fail(error, QStringLiteral("Unsupported DFU write operation: %1.").arg(operation));
     }
+    if (readBytes != quint64(assembly.value("bytes").toInt()))
+        return fail(error, QStringLiteral("DFU read does not cover the declared payload."));
     if (!readsBlocks || !writesBlocks
         || writtenBytes != quint64(source.value(QStringLiteral("payload_bytes")).toInt()))
         return fail(error, QStringLiteral("DFU read or write block operation is missing."));

@@ -1,9 +1,13 @@
 # TYT MD-UV390 definition research
 
-Checkpoint: 2026-11-12.
+Current status: 2026-11-14. `definitions/md-uv390.wcp` now includes codeplug
+import/export, paired Top/Bottom channel lists, a radio icon, and embedded
+USB read/write instructions. Local file inspection and software checks have
+passed; USB hardware verification remains pending.
 
-Work is deferred because complete support needs generic parser/model
-changes and an A/B editing interface. No UV390 package has been created.
+The findings and implementation checklists below are the original
+2026-11-12 research checkpoint. Its proposed interface is historical;
+the implemented editor uses Top, Bottom, and Both channel assignments.
 
 ## Sample and verified findings
 
@@ -56,14 +60,14 @@ may have different lists; they must not be merged or overwritten.
 ## Revised interface recommendation
 
 Pending future review:
-- [ ] Keep one sidebar entry per named zone or repeater.
-- [ ] Hide the physical storage split.
-- [ ] Present Upper display (A) and Lower display (B) inside the editor.
+- [x] Keep one sidebar entry per named zone or repeater.
+- [x] Hide the physical storage split.
+- [x] Present Upper display (A) and Lower display (B) inside the editor.
 - [ ] When both lists match, offer a shared-list view with
       “Use the same channels on both displays” enabled.
 - [ ] Allow independent editing when that option is disabled.
-- [ ] Preserve differing imported lists and their order.
-- [ ] Define classification behavior when A and B describe different
+- [x] Preserve differing imported lists and their order.
+- [x] Define classification behavior when A and B describe different
       repeaters or channel combinations.
 
 Separate A/B sidebar entries were considered and superseded by this
@@ -71,20 +75,20 @@ recommendation.
 
 ## Future implementation checklist
 
-- [ ] Add generic support for arrays split across storage regions.
-- [ ] Represent paired channel lists in the shared programming model.
-- [ ] Declare storage locations, limits, and list roles in the WCP;
+- [x] Add generic support for arrays split across storage regions.
+- [x] Represent paired channel lists in the shared programming model.
+- [x] Declare storage locations, limits, and list roles in the WCP;
       do not hard-code UV390 behavior into Waffle.
-- [ ] Implement complete import, export, starter generation, and
+- [x] Implement complete import, export, starter generation, and
       project save/reopen for both lists.
-- [ ] Preserve list pairing through zone/repeater reordering.
-- [ ] Repair both lists when channels are moved or deleted.
-- [ ] Verify extended zones and differing A/B lists.
-- [ ] Verify unchanged and edited export/reimport.
+- [x] Preserve list pairing through zone/repeater reordering.
+- [x] Repair both lists when channels are moved or deleted.
+- [x] Verify extended zones and differing A/B lists.
+- [x] Verify unchanged and edited export/reimport.
 - [ ] Obtain hardware validation separately.
 
 Do not assume MD-UV380 compatibility solely from the shared family.
-USB support remains a separate future step.
+USB instructions are now included in the WCP; hardware testing remains separate.
 
 ## References
 

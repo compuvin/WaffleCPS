@@ -127,6 +127,39 @@ class Scope:
         return values, raw
 
 
+def bit_segments(field):
+    parts = field.get("bit_segments")
+    if not isinstance(parts, list) or not 1 <= len(parts) <= 8:
+        raise DefinitionError("Invalid split-bit segment count")
+    used, storage = 0, {}
+    for part in parts:
+        if not isinstance(part, dict) or set(part) - {"type", "offset", "mask", "shift", "value_shift"}:
+            raise DefinitionError("Unsupported bit segment parameters")
+        encoding = integer_type(part.get("type"))
+        if not encoding or encoding[0] not in (1, 2, 4):
+            raise DefinitionError("Bit segments require fixed unsigned integers")
+        size, order = encoding
+        offset, mask = integer(part["offset"]), integer(part["mask"])
+        shift, position = integer(part["shift"]), integer(part["value_shift"])
+        if not (0 <= offset <= 64 * 1024 * 1024 - size and 0 <= shift < size * 8
+                and 0 <= position <= 31 and 0 < mask < 1 << (size * 8)):
+            raise DefinitionError("Invalid bit segment extent or mask")
+        bits = mask >> shift
+        if not bits or bits & (bits + 1) or bits << shift != mask or bits << position >= 1 << 53:
+            raise DefinitionError("Bit segment mask must be contiguous and fit canonical storage")
+        dest = bits << position
+        if used & dest:
+            raise DefinitionError("Overlapping canonical bit segments")
+        used |= dest
+        for i in range(size):
+            byte = size - 1 - i if order == "big" else i
+            byte_mask = (mask >> (8 * byte)) & 255
+            if storage.get(offset + i, 0) & byte_mask:
+                raise DefinitionError("Overlapping storage bit segments")
+            storage[offset + i] = storage.get(offset + i, 0) | byte_mask
+    return parts
+
+
 class DefinitionReader:
     def __init__(self, image, definition, max_records=100000):
         self.image, self.definition = image, definition
@@ -257,6 +290,8 @@ class DefinitionReader:
     @staticmethod
     def storage_size(field):
         encoding = integer_type(field["type"])
+        if field["type"] == "bit_segments":
+            return max(integer(p["offset"]) + integer_type(p["type"])[0] for p in bit_segments(field))
         if field["type"] == "u12split":
             return 2
         return encoding[0] if encoding else integer(field["bytes"])
@@ -265,7 +300,11 @@ class DefinitionReader:
         name = field["type"]
         encoding = integer_type(name)
         storage = byte_range(self.image, at, self.storage_size(field))
-        if name in ("bcdle", "bcdbe"):
+        if name == "bit_segments":
+            raw = 0
+            for part in bit_segments(field):
+                raw |= self.read_scalar(part, at + integer(part["offset"]), path)["raw"] << integer(part["value_shift"])
+        elif name in ("bcdle", "bcdbe"):
             if not storage:
                 raise DefinitionError("BCD storage must not be empty")
             raw = decode_bcd(storage, "little" if name == "bcdle" else "big")
@@ -960,6 +999,18 @@ def write_field(image, reader, field, value, scope):
     kind = field["type"]
     numeric = integer_type(kind)
     value = raw_value(field, value)
+    if kind == "bit_segments":
+        parts = bit_segments(field)
+        used = 0
+        for part in parts:
+            used |= (integer(part["mask"]) >> integer(part["shift"])) << integer(part["value_shift"])
+        require(type(value) is int and value >= 0 and value & ~used == 0, "Default exceeds bit segment storage")
+        for part in parts:
+            mask = integer(part["mask"]) >> integer(part["shift"])
+            leaf = {k: v for k, v in part.items() if k not in ("offset", "value_shift")}
+            write_field(image, reader, dict(leaf, at=at + integer(part["offset"])),
+                        (value >> integer(part["value_shift"])) & mask, scope)
+        return
     if kind == "u12split":
         require(type(value) is int and integer(field.get("minimum", 0)) <= value <= 0xFFF,
                 "Split 12-bit default is outside field bounds")

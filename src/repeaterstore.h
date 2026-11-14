@@ -19,6 +19,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(int colorCode READ colorCode NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QString selectedPower READ selectedPower NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QStringList powerChoices READ powerChoices NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(QVariantList ctcssChoices READ ctcssChoices NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QString radioName READ radioName NOTIFY radioSettingsChanged)
     Q_PROPERTY(int radioId READ radioId NOTIFY radioSettingsChanged)
     Q_PROPERTY(QString radioModel READ radioModel NOTIFY radioSettingsChanged)
@@ -55,6 +56,7 @@ public:
     int colorCode() const;
     QString selectedPower() const;
     QStringList powerChoices() const;
+    QVariantList ctcssChoices() const;
     Q_INVOKABLE int powerChoice(const QString &label) const;
     QString radioName() const;
     int radioId() const;
@@ -90,10 +92,12 @@ public:
     Q_INVOKABLE bool renameSelectedZone(const QString &name);
     Q_INVOKABLE bool addExistingChannelToSelectedZone(int channelNumber, int displays = 3);
     Q_INVOKABLE bool createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
-        bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays = 3);
+        bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays = 3,
+        int receiveCtcss = 0, int transmitCtcss = 0);
     Q_INVOKABLE bool updateSelectedZoneChannel(int zonePosition, const QString &name,
         const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
-        int contactIndex, int powerChoice, int displays = -1);
+        int contactIndex, int powerChoice, int displays = -1,
+        int receiveCtcss = -1, int transmitCtcss = -1);
     Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);
     Q_INVOKABLE bool updateSelectedZoneChannelFrequencies(int zonePosition, const QString &rx, const QString &tx);
     Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers, int display = 1);

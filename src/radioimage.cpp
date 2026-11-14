@@ -59,6 +59,27 @@ QByteArray assembleRadioImage(const RadioDefinition &definition,
     const QJsonObject assembly = definition.document().value(QStringLiteral("methods")).toObject()
         .value(QStringLiteral("read_codeplug")).toObject()
         .value(QStringLiteral("assembly")).toObject();
+    if (assembly.value("operation") == QStringLiteral("replace_regions_in_template")) {
+        const int expected = assembly.value("bytes").toInt(-1);
+        if (expected < 1 || downloaded.size() != expected
+            || codeplugTemplate.size() != assembly.value("wcp_wrapper_bytes").toInt(-1))
+            throw std::runtime_error("DFU regional image or packaged template has the wrong size");
+        QByteArray result = codeplugTemplate;
+        int next = 0;
+        for (const auto &value : assembly.value("regions").toArray()) {
+            const auto region = value.toObject();
+            const int source = region.value("payload_offset").toInt(-1);
+            const int target = region.value("image_offset").toInt(-1);
+            const int bytes = region.value("bytes").toInt(-1);
+            if (source != next || target < 0 || bytes < 1 || target > result.size() || bytes > result.size() - target
+                || next > expected || bytes > expected - next)
+                throw std::runtime_error("DFU read image region is outside its payload or template");
+            result.replace(target, bytes, downloaded.constData() + source, bytes);
+            next += bytes;
+        }
+        if (next != expected) throw std::runtime_error("Incomplete DFU read image regions");
+        return result;
+    }
     if (assembly.value(QStringLiteral("operation")) != QStringLiteral("replace_payload_in_template"))
         throw std::runtime_error("Unsupported DFU radio image assembly");
     const int offset = assembly.value(QStringLiteral("wcp_payload_offset")).toInt(-1);

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(WaffleCPS VERSION 0.1.1 LANGUAGES CXX)
+project(WaffleCPS VERSION 0.1.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,6 +55,19 @@ qt_add_executable(wafflecps
     src/ziparchive.cpp
     src/ziparchive.h
 )
+
+set(WAFFLE_BUILD_NUMBER "" CACHE STRING "Build commit ID; empty uses the current Git checkout")
+add_custom_target(waffle_build_info
+    COMMAND "${CMAKE_COMMAND}"
+        "-DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}/generated/wafflebuildinfo.h"
+        "-DAPP_VERSION=${PROJECT_VERSION}"
+        "-DBUILD_NUMBER=${WAFFLE_BUILD_NUMBER}"
+        "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/packaging/write-build-info.cmake"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/generated/wafflebuildinfo.h"
+    VERBATIM)
+add_dependencies(wafflecps waffle_build_info)
+target_include_directories(wafflecps PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 qt_add_resources(wafflecps "qml"
     PREFIX "/"

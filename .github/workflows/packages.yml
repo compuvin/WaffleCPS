@@ -32,6 +32,7 @@ jobs:
         shell: msys2 {0}
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DWAFFLE_BUILD_NUMBER="${GITHUB_SHA}" \
             -DBUILD_TESTING=OFF
           cmake --build build --target wafflecps radio-transfer-helper -j 2
       - name: Package installer
@@ -78,6 +79,7 @@ jobs:
       - name: Build and test
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DWAFFLE_BUILD_NUMBER="${GITHUB_SHA}" \
             -DCMAKE_INSTALL_PREFIX=/usr
           cmake --build build -j 2
           ctest --test-dir build --output-on-failure -j 2 \
@@ -105,6 +107,7 @@ jobs:
       - name: Build app bundle
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DWAFFLE_BUILD_NUMBER="${GITHUB_SHA}" \
             -DBUILD_TESTING=OFF -DCMAKE_PREFIX_PATH="$(brew --prefix)"
           cmake --build build --target wafflecps radio-transfer-helper -j 2
       - name: Create DMG

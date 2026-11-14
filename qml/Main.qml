@@ -176,11 +176,19 @@ ApplicationWindow {
                         fillMode: Image.PreserveAspectFit
                         Accessible.name: "Waffle and portable radio"
                     }
-                    Label {
-                        text: "WaffleCPS"
-                        color: "white"
-                        font.pixelSize: 22
-                        font.bold: true
+                    ColumnLayout {
+                        spacing: 2
+                        Label {
+                            text: "WaffleCPS"
+                            color: "white"
+                            font.pixelSize: 22
+                            font.bold: true
+                        }
+                        Label {
+                            text: Qt.application.version
+                            color: "#c1d8cb"
+                            font.pixelSize: 11
+                        }
                     }
                     Rectangle {
                         Layout.preferredWidth: 92
@@ -903,7 +911,7 @@ ApplicationWindow {
                             slotNumber: 1
                             groups: importedContent.group.slot1Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.canAddBoth
+                            canAdd: !!importedContent.group.canAddBoth
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -914,7 +922,7 @@ ApplicationWindow {
                             slotNumber: 2
                             groups: importedContent.group.slot2Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.canAddBoth
+                            canAdd: !!importedContent.group.canAddBoth
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -978,7 +986,7 @@ ApplicationWindow {
                                 PageAction {
                                     text: "+ Add simplex"
                                     primary: true
-                                    enabled: importedContent.group.canAddBoth
+                                    enabled: !!importedContent.group.canAddBoth
                                     onClicked: simplexDialog.openForCurrent(true)
                                 }
                             }

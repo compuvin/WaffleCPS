@@ -221,7 +221,7 @@ public:
         const Object states = statusRule.value(QStringLiteral("states")).toObject();
         const QString target = rule.value(QStringLiteral("require_state")).toString();
         require(hasStatus && last.result == number(statusRule.value(QStringLiteral("success_status")))
-                    && last.state == number(states.value(target)),
+                    && (target == QStringLiteral("any") || last.state == number(states.value(target))),
                 "DFU command did not reach required state");
         if (rule.value(QStringLiteral("then")) == QStringLiteral("enter_dfu_idle")) enterIdle();
     }
@@ -324,12 +324,47 @@ void runCommand(Usb &usb, const Object &step, bool writing)
         usb.command(name, step.contains(QStringLiteral("address"))
                           ? number(step.value(QStringLiteral("address"))) : 0, writing);
 }
+
+void runUpload(Usb &usb, const Object &step)
+{
+    const Bytes response = usb.transfer(QStringLiteral("upload"), uint16_t(number(step.value("value"))),
+                                        Bytes(number(step.value("bytes"))), true);
+    if (step.contains("expected_ascii")) {
+        QByteArray expected = step.value("expected_ascii").toString().toLatin1();
+        expected.append(char(0));
+        require(response.size() >= size_t(expected.size())
+                    && std::equal(expected.begin(), expected.end(), response.begin(),
+                        [](char a, uint8_t b) { return uint8_t(a) == b; }),
+                "DFU device identity does not match the selected radio definition");
+    }
+    if (step.value("status_after") == QJsonValue(true)) usb.status();
+}
+
 }
 
 RadioExecutor::Bytes DfuExecutor::writePayload(const RadioDefinition &definition, const Bytes &image)
 {
     const Object source = definition.writePlan().value(QStringLiteral("source")).toObject();
     const size_t imageBytes = number(source.value(QStringLiteral("image_bytes")));
+    if (source.contains("regions")) {
+        require(image.size() == imageBytes, "DFU write image has the wrong size");
+        const QByteArray magic = source.value("magic_ascii").toString().toLatin1();
+        require(image.size() >= size_t(magic.size()) && std::equal(magic.begin(), magic.end(), image.begin()),
+                "DFU write image has the wrong file signature");
+        Bytes result;
+        const size_t expected = number(source.value("payload_bytes"));
+        for (const auto &value : source.value("regions").toArray()) {
+            const auto region = value.toObject();
+            const size_t at = number(region.value("image_offset"));
+            const size_t bytes = number(region.value("bytes"));
+            require(number(region.value("payload_offset")) == result.size() && bytes && at <= image.size()
+                        && bytes <= image.size() - at && result.size() <= expected && bytes <= expected - result.size(),
+                    "DFU write image region is outside its payload or image");
+            result.insert(result.end(), image.begin() + at, image.begin() + at + bytes);
+        }
+        require(result.size() == expected, "Incomplete DFU write image regions");
+        return result;
+    }
     const size_t offset = number(source.value(QStringLiteral("payload_offset")));
     const size_t length = number(source.value(QStringLiteral("payload_bytes")));
     const size_t suffix = number(source.value(QStringLiteral("suffix_bytes")));
@@ -353,25 +388,30 @@ RadioExecutor::Bytes DfuExecutor::read(const RadioDefinition &definition,
                                        .value(QStringLiteral("bytes")));
     Usb usb(definition, &cancelled);
     Bytes image;
+    image.reserve(expected);
+    uint32_t totalBlocks = 0, finishedBlocks = 0;
+    for (const auto &entry : plan.value("operations").toArray())
+        if (entry.toObject().value("operation") == QStringLiteral("read_blocks"))
+            totalBlocks += number(entry.toObject().value("block_count"));
     for (const QJsonValue &entry : plan.value(QStringLiteral("operations")).toArray()) {
         const Object step = entry.toObject();
         const QString operation = step.value(QStringLiteral("operation")).toString();
         if (operation == QStringLiteral("enter_dfu_idle")) usb.enterIdle();
         else if (operation == QStringLiteral("command")) runCommand(usb, step, false);
+        else if (operation == QStringLiteral("upload")) runUpload(usb, step);
         else if (operation == QStringLiteral("read_blocks")) {
             const uint32_t first = number(step.value(QStringLiteral("first_block_number")));
             const uint32_t count = number(step.value(QStringLiteral("block_count")));
             const uint32_t bytes = number(step.value(QStringLiteral("block_bytes")));
-            require(count && bytes && count <= 65535 - first && uint64_t(count) * bytes == expected,
-                    "Invalid DFU read block range");
-            image.reserve(expected);
+            require(count && bytes && count <= 65535 - first && image.size() <= expected
+                        && uint64_t(count) * bytes <= expected - image.size(), "Invalid DFU read block range");
             for (uint32_t i = 0; i < count; ++i) {
                 usb.checkpoint();
                 const Bytes block = usb.transfer(step.value(QStringLiteral("request")).toString(),
                     uint16_t(first + i), Bytes(bytes), true);
                 if (step.value(QStringLiteral("status_after_each_block")) == QJsonValue(true)) usb.status();
                 image.insert(image.end(), block.begin(), block.end());
-                if (progress) progress("codeplug", i + 1, count);
+                if (progress) progress("codeplug", ++finishedBlocks, totalBlocks);
             }
         } else if (operation == QStringLiteral("exit_program_mode")) {
             require(image.size() == expected, "Incomplete DFU radio image");
@@ -401,9 +441,7 @@ void DfuExecutor::write(const RadioDefinition &definition, const Bytes &image,
         if (operation == QStringLiteral("enter_dfu_idle")) usb.enterIdle();
         else if (operation == QStringLiteral("command")) runCommand(usb, step, true);
         else if (operation == QStringLiteral("upload")) {
-            usb.transfer(QStringLiteral("upload"), uint16_t(number(step.value(QStringLiteral("value")))),
-                         Bytes(number(step.value(QStringLiteral("bytes")))), true);
-            if (step.value(QStringLiteral("status_after")) == QJsonValue(true)) usb.status();
+            runUpload(usb, step);
         } else if (operation == QStringLiteral("delay")) {
             std::this_thread::sleep_for(std::chrono::milliseconds(number(step.value(QStringLiteral("milliseconds")))));
         } else if (operation == QStringLiteral("erase_blocks")) {

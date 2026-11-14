@@ -273,21 +273,37 @@ public:
             if (result < 0 && result != LIBUSB_ERROR_NOT_SUPPORTED)
                 requireUsbAccess(result, "Inspect radio USB driver");
 #ifdef __APPLE__
-            int claimResult = libusb_claim_interface(handle, interfaceNumber);
+            const int driverState = result;
+            const int claimResult = libusb_claim_interface(handle, interfaceNumber);
             if (claimResult == 0) {
                 claimed = true;
-            } else
-#endif
+            } else {
+                // macOS can reject a claim even when its driver query reports no driver.
+                // Capture once before any transfer, including inside the elevated helper.
+                if (driverState == 1 || claimResult == LIBUSB_ERROR_BUSY
+                    || claimResult == LIBUSB_ERROR_ACCESS || claimResult == LIBUSB_ERROR_OTHER) {
+                    result = libusb_detach_kernel_driver(handle, interfaceNumber);
+                    requireUsbAccess(result, "Capture radio USB device after failed claim ("
+                        + std::string(libusb_error_name(claimResult)) + ", driver state "
+                        + std::to_string(driverState) + ")");
+                    detached = true;
+                    result = libusb_claim_interface(handle, interfaceNumber);
+                    requireUsbAccess(result, "Claim radio USB interface after device capture");
+                    claimed = true;
+                } else {
+                    requireUsbAccess(claimResult, "Claim radio USB interface");
+                }
+            }
+#else
             if (result == 1) {
                 result = libusb_detach_kernel_driver(handle, interfaceNumber);
                 requireUsbAccess(result, "Detach radio USB driver");
                 detached = true;
             }
-            if (!claimed) {
-                result = libusb_claim_interface(handle, interfaceNumber);
-                requireUsbAccess(result, "Claim radio USB interface");
-                claimed = true;
-            }
+            result = libusb_claim_interface(handle, interfaceNumber);
+            requireUsbAccess(result, "Claim radio USB interface");
+            claimed = true;
+#endif
             const int alternate = int(number(usb.value(QStringLiteral("alternate_setting"))));
             if (alternate != 0) {
                 result = libusb_set_interface_alt_setting(handle, interfaceNumber, alternate);

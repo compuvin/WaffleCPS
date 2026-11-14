@@ -274,6 +274,15 @@ QStringList RepeaterStore::importedZoneNames() const
 
 int RepeaterStore::selectedImportedIndex() const { return m_selectedImportedIndex; }
 
+QVariantList RepeaterStore::ctcssChoices() const
+{
+    QVariantList result;
+    for (int tone : m_importedCodeplug.ctcssTones)
+        result.append(QVariantMap{{"value", tone}, {"label", tone == 0 ? tr("None")
+            : QString::number(tone / 10.0, 'f', 1) + QStringLiteral(" Hz")}});
+    return result;
+}
+
 QVector<int> RepeaterStore::zoneMembers(const ImportedZone &zone) const
 {
     auto members = zone.channelIndexes;
@@ -401,6 +410,8 @@ QVariantMap RepeaterStore::selectedImportedGroup() const
                 {QStringLiteral("displays"), separateDisplayLists()
                      ? (zone.channelIndexes.contains(channelIndex) ? 1 : 0) | (zone.bottomChannelIndexes.contains(channelIndex) ? 2 : 0) : 3},
                 {QStringLiteral("contactIndex"), channel.contactIndex},
+                {QStringLiteral("receiveCtcss"), channel.receiveCtcss.value_or(-1)},
+                {QStringLiteral("transmitCtcss"), channel.transmitCtcss.value_or(-1)},
                 {QStringLiteral("receiveFrequency"), formatFrequency(channel.frequencyBHz)},
                 {QStringLiteral("transmitFrequency"), formatFrequency(channel.frequencyAHz)},
                 {QStringLiteral("mode"), channel.digital ? QStringLiteral("Digital") : QStringLiteral("Analog / other")},
@@ -684,11 +695,16 @@ bool RepeaterStore::addExistingChannelToSelectedZone(int channelNumber, int disp
 }
 
 bool RepeaterStore::createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
-    bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays)
+    bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays,
+    int receiveCtcss, int transmitCtcss)
 {
     const int zoneIndex = selectedZoneIndex();
     if (digital && (contactIndex < 1 || contactIndex > m_importedCodeplug.contacts.size()))
         return fail(tr("Select a contact for this digital channel."));
+    if (!digital && ((!m_importedCodeplug.ctcssTones.isEmpty()
+            && (!m_importedCodeplug.ctcssTones.contains(receiveCtcss) || !m_importedCodeplug.ctcssTones.contains(transmitCtcss)))
+        || (m_importedCodeplug.ctcssTones.isEmpty() && (receiveCtcss != 0 || transmitCtcss != 0))))
+        return fail(tr("Select CTCSS tones supported by this definition."));
     qint64 rxHz = 0, txHz = 0;
     const auto cleanName = name.trimmed();
     if (powerChoice < 0 || powerChoice >= m_importedCodeplug.powerSettings.size() || zoneIndex < 0 || cleanName.isEmpty() || cleanName.size() > 16
@@ -704,6 +720,10 @@ bool RepeaterStore::createChannelInSelectedZone(const QString &name, const QStri
     m_importedCodeplug.channels.append({cleanName, quint32(txHz), quint32(rxHz), digital,
         digital ? colorCode : 0, digital ? timeSlot : 0, digital ? contactIndex : 0, std::nullopt});
     m_importedCodeplug.channels.last().setPowerValue(m_importedCodeplug.powerSettings.at(powerChoice));
+    if (!digital && !m_importedCodeplug.ctcssTones.isEmpty()) {
+        m_importedCodeplug.channels.last().receiveCtcss = receiveCtcss;
+        m_importedCodeplug.channels.last().transmitCtcss = transmitCtcss;
+    }
     zoneEdited();
     return true;
 }
@@ -734,11 +754,15 @@ bool RepeaterStore::updateSelectedZoneChannelFrequencies(int zonePosition, const
 
 bool RepeaterStore::updateSelectedZoneChannel(int zonePosition, const QString &name,
     const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
-    int contactIndex, int powerChoice, int displays)
+    int contactIndex, int powerChoice, int displays, int receiveCtcss, int transmitCtcss)
 {
     const int zoneIndex = selectedZoneIndex();
     if (digital && (contactIndex < 1 || contactIndex > m_importedCodeplug.contacts.size()))
         return fail(tr("Select a contact for this digital channel."));
+    if (!digital && (receiveCtcss < -1 || transmitCtcss < -1
+        || (receiveCtcss >= 0 && !m_importedCodeplug.ctcssTones.contains(receiveCtcss))
+        || (transmitCtcss >= 0 && !m_importedCodeplug.ctcssTones.contains(transmitCtcss))))
+        return fail(tr("Select CTCSS tones supported by this definition."));
     qint64 rxHz = 0, txHz = 0;
     const QString cleanName = name.trimmed();
     if (zoneIndex < 0 || cleanName.isEmpty() || cleanName.size() > 16
@@ -771,11 +795,23 @@ bool RepeaterStore::updateSelectedZoneChannel(int zonePosition, const QString &n
     corrected.colorCode = digital ? colorCode : 0;
     corrected.timeSlot = digital ? timeSlot : 0;
     corrected.contactIndex = digital ? contactIndex : 0;
+    if (digital) {
+        corrected.receiveCtcss.reset();
+        corrected.transmitCtcss.reset();
+    } else {
+        if (original.digital && !m_importedCodeplug.ctcssTones.isEmpty()) {
+            corrected.receiveCtcss = 0;
+            corrected.transmitCtcss = 0;
+        }
+        if (receiveCtcss >= 0) corrected.receiveCtcss = receiveCtcss;
+        if (transmitCtcss >= 0) corrected.transmitCtcss = transmitCtcss;
+    }
     if (powerChoice >= 0) corrected.setPowerValue(m_importedCodeplug.powerSettings.at(powerChoice));
     if (corrected.name == original.name && corrected.frequencyBHz == original.frequencyBHz
         && corrected.frequencyAHz == original.frequencyAHz && corrected.digital == original.digital
         && corrected.colorCode == original.colorCode && corrected.timeSlot == original.timeSlot
-        && corrected.contactIndex == original.contactIndex && corrected.powerValue() == original.powerValue())
+        && corrected.contactIndex == original.contactIndex && corrected.powerValue() == original.powerValue()
+        && corrected.receiveCtcss == original.receiveCtcss && corrected.transmitCtcss == original.transmitCtcss)
         return displays == -1 || setSelectedChannelDisplays(zonePosition, displays);
     if (digital != original.digital) {
         corrected.sourceRecord = -1;
@@ -1050,6 +1086,10 @@ bool RepeaterStore::addSimplexToSelectedImportedRepeater(int zoneInGroup, const 
     m_importedCodeplug.channels.append({cleanName, static_cast<quint32>(hz),
                                        static_cast<quint32>(hz), digital,
                                        digital ? colorCode : 0, digital ? timeSlot : 0});
+    if (!digital && !m_importedCodeplug.ctcssTones.isEmpty()) {
+        m_importedCodeplug.channels.last().receiveCtcss = 0;
+        m_importedCodeplug.channels.last().transmitCtcss = 0;
+    }
     auto members = zoneMembers(m_importedCodeplug.zones[zoneIndex]);
     members.append(channelIndex);
     applyZoneMembers(m_importedCodeplug.zones[zoneIndex], members);
@@ -1763,7 +1803,7 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), 9},
+                     {QStringLiteral("schemaVersion"), 10},
                      {QStringLiteral("repeaters"), repeaters}};
     root.insert(QStringLiteral("generatedCodeplug"), m_generatedCodeplug);
     root.insert(QStringLiteral("radioSettings"),
@@ -1786,6 +1826,8 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                         {QStringLiteral("powerSetting"), channel.powerValue()},
                                         {QStringLiteral("frequencyAHz"), int(channel.frequencyAHz)},
                                         {QStringLiteral("frequencyBHz"), int(channel.frequencyBHz)},
+                                        {QStringLiteral("receiveCtcss"), channel.receiveCtcss ? QJsonValue(*channel.receiveCtcss) : QJsonValue(QJsonValue::Null)},
+                                        {QStringLiteral("transmitCtcss"), channel.transmitCtcss ? QJsonValue(*channel.transmitCtcss) : QJsonValue(QJsonValue::Null)},
                                         {QStringLiteral("digital"), channel.digital},
                                         {QStringLiteral("colorCode"), channel.colorCode},
                                         {QStringLiteral("timeSlot"), channel.timeSlot},
@@ -1867,7 +1909,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 9, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 10, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
@@ -2088,6 +2130,17 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
             if (!defaultTemplate.isUndefined() && !defaultTemplate.isBool())
                 return fail(QStringLiteral("An imported channel has invalid mode defaults."));
             channel.useDefaultTemplate = defaultTemplate.toBool();
+            if (version >= 10) {
+                for (auto entry : {qMakePair(QStringLiteral("receiveCtcss"), &channel.receiveCtcss),
+                                   qMakePair(QStringLiteral("transmitCtcss"), &channel.transmitCtcss)}) {
+                    const auto value = item.value(entry.first);
+                    if (value.isNull()) continue;
+                    qint64 tone = 0;
+                    if (!integerValue(value, 0, 9999, &tone) || channel.digital)
+                        return fail(tr("An imported channel has invalid CTCSS settings."));
+                    *entry.second = int(tone);
+                }
+            }
             imported.channels.append(channel);
         }
         for (const QJsonValue &value : zonesValue.toArray()) {
@@ -2188,6 +2241,28 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         if (CodeplugDefinitions::read(sourceBytes, &sourceParsed, &sourceError, imported.definitionFile)) {
             loadedRadioName = sourceParsed.radioName;
             loadedRadioId = sourceParsed.radioId;
+        }
+    }
+
+    if (!imported.model.isEmpty() && !sourceBytes.isEmpty()) {
+        ImportedCodeplug metadata;
+        QString error;
+        if (!CodeplugDefinitions::read(sourceBytes, &metadata, &error, imported.definitionFile))
+            return fail(tr("Cannot restore tone settings from the project definition: %1").arg(error));
+        imported.ctcssTones = metadata.ctcssTones;
+        QMap<int, ImportedChannel> originals;
+        for (const auto &channel : metadata.channels) originals.insert(channel.sourceRecord, channel);
+        for (auto &channel : imported.channels) {
+            if (version < 10 && !channel.digital && !channel.useDefaultTemplate && originals.contains(channel.sourceRecord)) {
+                const auto &original = originals[channel.sourceRecord];
+                if (!original.digital) {
+                    channel.receiveCtcss = original.receiveCtcss;
+                    channel.transmitCtcss = original.transmitCtcss;
+                }
+            }
+            for (const auto tone : {channel.receiveCtcss, channel.transmitCtcss})
+                if (tone && !imported.ctcssTones.contains(*tone))
+                    return fail(tr("A saved CTCSS tone is not supported by this definition."));
         }
     }
 

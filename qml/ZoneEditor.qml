@@ -5,6 +5,9 @@ import QtQuick.Layouts
 ColumnLayout {
     id: editor
     required property var group
+    function toneLabel(tone) {
+        return tone < 0 ? "Other tone" : tone === 0 ? "None" : (tone / 10).toFixed(1) + " Hz"
+    }
     signal orderRequested()
     readonly property var channels: (group.zones || []).length ? group.zones[0].channels : []
     Connections {
@@ -56,6 +59,14 @@ ColumnLayout {
                         Layout.fillWidth: true
                         wrapMode: Text.WordWrap
                         color: "#64776c"
+                    }
+                    Label {
+                        visible: modelData.mode !== "Digital" && store.ctcssChoices.length > 0
+                        text: "RX CTCSS: " + editor.toneLabel(modelData.receiveCtcss)
+                              + " · TX CTCSS: " + editor.toneLabel(modelData.transmitCtcss)
+                        color: "#64776c"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
                     }
                     RowLayout {
                         Item { Layout.fillWidth: true }
@@ -112,6 +123,20 @@ ColumnLayout {
         property bool editing: false
         property int position: 0
         property int originalMode: 0
+        property var receiveToneOptions: []
+        property var transmitToneOptions: []
+        function setToneChoices(receive, transmit) {
+            const options = store.ctcssChoices
+            const other = {label: "Other tone (unchanged)", value: -1}
+            receiveToneOptions = receive < 0 ? [other].concat(options) : options
+            transmitToneOptions = transmit < 0 ? [other].concat(options) : options
+            receiveTone.currentIndex = receiveToneOptions.findIndex(tone => tone.value === receive)
+            transmitTone.currentIndex = transmitToneOptions.findIndex(tone => tone.value === transmit)
+        }
+        readonly property int receiveCtcss: receiveTone.currentIndex >= 0
+            ? receiveToneOptions[receiveTone.currentIndex].value : -1
+        readonly property int transmitCtcss: transmitTone.currentIndex >= 0
+            ? transmitToneOptions[transmitTone.currentIndex].value : -1
         property int selectedChannelNumber: 0
         property int selectedContactIndex: 0
         property var contactChoices: []
@@ -140,6 +165,8 @@ ColumnLayout {
         }
         function openForAdd() {
             editing = false
+            originalMode = 0
+            setToneChoices(0, 0)
             position = 0
             channelError.text = ""
             channelDisplays.currentIndex = 2
@@ -168,6 +195,7 @@ ColumnLayout {
             channelName.text = channel.name
             channelRx.text = channel.receiveFrequency
             channelTx.text = channel.transmitFrequency
+            setToneChoices(channel.receiveCtcss, channel.transmitCtcss)
             originalMode = channel.mode === "Digital" ? 0 : 1
             channelMode.currentIndex = originalMode
             channelCc.value = channel.colorCode || 0
@@ -283,7 +311,16 @@ ColumnLayout {
                     PageField { id: channelTx; objectName: "zoneChannelTx"; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
                     RowLayout {
                         Label { text: "Mode" }
-                        PageComboBox { id: channelMode; objectName: "zoneChannelMode"; model: ["Digital", "Analog"]; Layout.fillWidth: true }
+                        PageComboBox {
+                            id: channelMode
+                            objectName: "zoneChannelMode"
+                            model: ["Digital", "Analog"]
+                            Layout.fillWidth: true
+                            onActivated: function(modeIndex) {
+                                if (modeIndex === 1 && channelDialog.originalMode === 0)
+                                    channelDialog.setToneChoices(0, 0)
+                            }
+                        }
                         Label { text: "Power" }
                         PageComboBox {
                             id: channelPower
@@ -299,6 +336,30 @@ ColumnLayout {
                         PageSpinBox { id: channelCc; objectName: "zoneChannelColorCode"; from: 0; to: 15 }
                         Label { text: "Time slot" }
                         PageComboBox { id: channelSlot; objectName: "zoneChannelTimeSlot"; model: ["1", "2"] }
+                    }
+                    ColumnLayout {
+                        visible: channelMode.currentIndex === 1 && store.ctcssChoices.length > 0
+                        Layout.fillWidth: true
+                        Label { text: "CTCSS" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: "Transmit" }
+                            PageComboBox {
+                                id: transmitTone
+                                objectName: "zoneChannelTransmitCtcss"
+                                model: channelDialog.transmitToneOptions
+                                textRole: "label"
+                                Layout.fillWidth: true
+                            }
+                            Label { text: "Receive" }
+                            PageComboBox {
+                                id: receiveTone
+                                objectName: "zoneChannelReceiveCtcss"
+                                model: channelDialog.receiveToneOptions
+                                textRole: "label"
+                                Layout.fillWidth: true
+                            }
+                        }
                     }
                     Label { visible: channelMode.currentIndex === 0; text: "Contact" }
                     ColumnLayout {
@@ -384,12 +445,16 @@ ColumnLayout {
                             ? store.updateSelectedZoneChannel(channelDialog.position, channelName.text, channelRx.text, channelTx.text,
                                 channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
                                 channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText),
-                                store.separateDisplayLists ? channelDisplays.currentIndex + 1 : -1)
+                                store.separateDisplayLists ? channelDisplays.currentIndex + 1 : -1,
+                                channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : -1,
+                                channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : -1)
                             : channelDialog.choosingExisting
                               ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber, channelDisplays.currentIndex + 1)
                               : store.createChannelInSelectedZone(channelName.text, channelRx.text, channelTx.text,
                                   channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText), channelDisplays.currentIndex + 1)
+                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText), channelDisplays.currentIndex + 1,
+                                  channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : 0,
+                                  channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : 0)
                         if (saved) channelDialog.close()
                         else channelError.text = "Could not save this channel. Check its name, frequencies, and available capacity."
                     }

@@ -1,3 +1,4 @@
+#include "wafflebuildinfo.h"
 #include "radiowriter.h"
 #include "repeaterstore.h"
 #include "radioreader.h"
@@ -48,6 +49,8 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 #endif
     QApplication::setApplicationName(QStringLiteral("WaffleCPS"));
+    QApplication::setApplicationVersion(
+        QStringLiteral(WAFFLE_VERSION " (build " WAFFLE_BUILD_NUMBER ")"));
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/waffle-radio.png")));
 
     RepeaterStore store;

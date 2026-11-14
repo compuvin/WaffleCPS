@@ -74,6 +74,8 @@ QJsonObject object(const QJsonValue &value, const QString &where)
     return value.toObject();
 }
 
+int bitStorageWidth(const QJsonObject &schema);
+
 // Validate descriptors even when a template has no selected rows in a table.
 void validateSchema(const QJsonObject &definition)
 {
@@ -131,8 +133,9 @@ void validateSchema(const QJsonObject &definition)
             if (f.contains("value")) continue;
             const QString type = f.value("type").toString();
             require(QStringList{"u8", "u16le", "u24le", "u32le", "u16be", "u24be", "u32be", "u12split",
-                                "bcdle", "bcdbe", "ascii", "utf16le", "packed6"}.contains(type),
+                                "bcdle", "bcdbe", "ascii", "utf16le", "packed6", "bit_segments"}.contains(type),
                     QStringLiteral("Unsupported definition field type: %1").arg(type));
+            if (type == "bit_segments") bitStorageWidth(f);
             require(f.contains("at") || f.contains("offset"), QStringLiteral("Field lacks an address: %1").arg(it.key()));
             if (type == "ascii" || type == "utf16le" || type == "packed6" || type.startsWith("bcd"))
                 require(integer(f.value("bytes")) > 0, QStringLiteral("Field size must be positive."));
@@ -331,6 +334,58 @@ private:
     QMap<QString, QString> roles;
     QMap<QString, FieldBinding> indexes;
 };
+
+// Combine disjoint storage bits into one canonical numeric field. All addresses
+// and masks are supplied by the definition; unrelated bits remain untouched.
+QJsonArray bitSegments(const QJsonObject &schema)
+{
+    require(schema.value("bit_segments").isArray(), "Split-bit field requires bit_segments.");
+    const auto segments = schema.value("bit_segments").toArray();
+    require(!segments.isEmpty() && segments.size() <= 8, "Invalid split-bit segment count.");
+    quint64 used = 0;
+    QMap<qint64, quint8> storageBits;
+    for (const auto &entry : segments) {
+        const auto part = object(entry, "bit segment");
+        for (auto it = part.begin(); it != part.end(); ++it)
+            require(QStringList{"type", "offset", "mask", "shift", "value_shift"}.contains(it.key()), "Unsupported bit segment parameter.");
+        const QString type = part.value("type").toString();
+        const int size = type == "u8" ? 1 : (type == "u16le" || type == "u16be") ? 2
+            : (type == "u32le" || type == "u32be") ? 4 : 0;
+        require(size > 0, "Bit segments must use fixed unsigned integer storage.");
+        const qint64 offset = integer(part.value("offset"));
+        const qint64 shift = integer(part.value("shift"));
+        const qint64 position = integer(part.value("value_shift"));
+        const qint64 mask = integer(part.value("mask"));
+        require(offset >= 0 && offset <= maximumImage - size && shift >= 0 && shift < size * 8
+                    && position >= 0 && position <= 31 && mask > 0
+                    && quint64(mask) < (quint64(1) << (size * 8)), "Invalid bit segment extent or mask.");
+        const quint64 bits = quint64(mask) >> shift;
+        require(bits && !(bits & (bits + 1)) && (bits << shift) == quint64(mask)
+                    && bits <= ((quint64(1) << 53) - 1) >> position,
+                "Bit segment mask must be contiguous and fit the canonical integer.");
+        const quint64 destination = bits << position;
+        require(!(used & destination), "Overlapping canonical bit segments.");
+        used |= destination;
+        for (int i = 0; i < size; ++i) {
+            const int byte = type.endsWith("be") ? size - 1 - i : i;
+            const quint8 byteMask = quint8(quint64(mask) >> (8 * byte));
+            require(!(storageBits.value(offset + i) & byteMask), "Overlapping storage bit segments.");
+            storageBits[offset + i] |= byteMask;
+        }
+    }
+    return segments;
+}
+
+int bitStorageWidth(const QJsonObject &schema)
+{
+    qint64 size = 0;
+    for (const auto &entry : bitSegments(schema)) {
+        const auto part = entry.toObject();
+        const QString type = part.value("type").toString();
+        size = std::max(size, add(integer(part.value("offset")), type == "u8" ? 1 : type.startsWith("u16") ? 2 : 4));
+    }
+    return int(size);
+}
 
 class Decoder
 {
@@ -625,6 +680,27 @@ public:
         result.zoneCapacity = int(integer(editor.limits.value("zones").toObject().value("maximum")));
         result.zoneMemberCapacity = int(integer(editor.limits.value("zone_members_maximum")));
         result.separateDisplayLists = definition.contains("zone_member_lists");
+        require(editor.contains("channels", "receive_ctcss") == editor.contains("channels", "transmit_ctcss"),
+                "Definitions must declare both receive and transmit CTCSS bindings.");
+        if (editor.contains("channels", "receive_ctcss")) {
+            QSet<int> choices;
+            bool first = true;
+            for (const QString semantic : {QStringLiteral("receive_ctcss"), QStringLiteral("transmit_ctcss")}) {
+                QSet<int> values;
+                const auto enums = schemaFor(editor.get("channels", semantic)).value("enum").toObject();
+                require(!enums.isEmpty(), "CTCSS bindings require explicit numeric enum mappings.");
+                for (const auto &value : enums) {
+                    const qint64 tone = integer(value);
+                    require(tone >= 0 && tone <= 9999, "Invalid canonical CTCSS value.");
+                    values.insert(int(tone));
+                }
+                require(values.contains(0), "CTCSS bindings must declare None.");
+                if (first) choices = values; else choices.intersect(values);
+                first = false;
+            }
+            for (int tone : choices) result.ctcssTones.append(tone);
+            std::sort(result.ctcssTones.begin(), result.ctcssTones.end());
+        }
         const QString version = recognition.value("cps_version_field").toString(recognition.value("version_field").toString());
         if (!version.isEmpty()) result.cpsVersion = field(globals, version).raw.toString();
         result.radioName = read("radio", "radio_name", {}, -1).mapped.toString().trimmed();
@@ -677,6 +753,18 @@ public:
                     require(contactIndexes.contains(contact), "Channel contact is unavailable in the editor.");
                     c.contactIndex = contactIndexes.value(contact);
                 }
+            }
+            if (!c.digital && !result.ctcssTones.isEmpty()) {
+                const auto tone = [&](const QString &semantic) -> std::optional<int> {
+                    const auto value = read("channels", semantic, editor.channels, physical);
+                    const auto enums = schemaFor(editor.get("channels", semantic)).value("enum").toObject();
+                    if (!enums.contains(value.raw.toString())) return std::nullopt;
+                    const int selected = editorInteger(numeric(value.mapped), semantic);
+                    require(result.ctcssTones.contains(selected), "Tone is not available for both CTCSS bindings.");
+                    return selected;
+                };
+                c.receiveCtcss = tone("receive_ctcss");
+                c.transmitCtcss = tone("transmit_ctcss");
             }
             if (editor.contains("channels", "power")) {
                 const QString power = read("channels", "power", editor.channels, physical).mapped.toString();
@@ -755,6 +843,7 @@ private:
         const QString type = schema.value("type").toString();
         qint64 size = 0;
         if (type == "u8") size = 1;
+        else if (type == "bit_segments") size = bitStorageWidth(schema);
         else if (type == "u16le" || type == "u16be" || type == "u12split") size = 2;
         else if (type == "u24le" || type == "u24be") size = 3;
         else if (type == "u32le" || type == "u32be") size = 4;
@@ -763,7 +852,15 @@ private:
         require(size > 0, QStringLiteral("Field size must be positive."));
         const QByteArray bytes = range(at, size);
         Value result;
-        if (type == "u12split") {
+        if (type == "bit_segments") {
+            qint64 value = 0;
+            for (const auto &entry : bitSegments(schema)) {
+                const auto part = entry.toObject();
+                value |= numeric(scalar(part, add(at, integer(part.value("offset")))).raw)
+                    << integer(part.value("value_shift"));
+            }
+            result.raw = value;
+        } else if (type == "u12split") {
             result.raw = qint64(((quint8(bytes[0]) >> 4) << 8) | quint8(bytes[1]));
         } else if (type.startsWith('u') && type != "utf16le") {
             quint64 value = 0;
@@ -997,6 +1094,10 @@ Records editorRecords(const ImportedCodeplug &plug)
                    {"contact_number", qint64(c.contactIndex)}, {"source_record", qint64(c.sourceRecord)},
                    {"use_default_template", c.useDefaultTemplate}};
         if (!c.powerValue().isEmpty()) row["power"] = c.powerValue();
+        if (!c.digital) {
+            if (c.receiveCtcss) row["receive_ctcss"] = qint64(*c.receiveCtcss);
+            if (c.transmitCtcss) row["transmit_ctcss"] = qint64(*c.transmitCtcss);
+        }
         result["channels"].append(row);
     }
     for (const auto &c : plug.contacts)
@@ -1046,7 +1147,7 @@ QStringList targetFields(const QString &role, bool separateDisplayLists)
 {
     if (role == "radio") return {"radio_name", "radio_id"};
     if (role == "channels") return {"name", "transmit_frequency", "receive_frequency", "mode_marker",
-                                    "color_code", "time_slot", "contact_number", "power"};
+                                    "color_code", "time_slot", "contact_number", "power", "receive_ctcss", "transmit_ctcss"};
     if (role == "contacts") return {"name", "id", "call_type"};
     if (role == "zones") return separateDisplayLists
         ? QStringList{"name", "members", "members_bottom"} : QStringList{"name", "members"};
@@ -1056,6 +1157,7 @@ QStringList targetFields(const QString &role, bool separateDisplayLists)
 int storageWidth(const QJsonObject &f)
 {
     const QString t = f.value("type").toString();
+    if (t == "bit_segments") return bitStorageWidth(f);
     if (t == "u8") return 1;
     if (t == "u16le" || t == "u16be" || t == "u12split") return 2;
     if (t == "u24le" || t == "u24be") return 3;
@@ -1280,6 +1382,24 @@ private:
         }
         require(n >= 0 && (!f.contains("minimum") || n >= integer(f.value("minimum")))
                     && (!f.contains("maximum") || n <= integer(f.value("maximum"))), "Value violates field bounds.");
+        if (type == "bit_segments") {
+            require(!options.contains("clear_storage_hex"), "Split-bit writes must preserve unrelated storage.");
+            quint64 used = 0;
+            const auto segments = bitSegments(f);
+            for (const auto &entry : segments) {
+                const auto part = entry.toObject();
+                used |= (quint64(integer(part.value("mask"))) >> integer(part.value("shift")))
+                    << integer(part.value("value_shift"));
+            }
+            require(!(quint64(n) & ~used), "Value exceeds declared bit segments.");
+            for (const auto &entry : segments) {
+                const auto part = entry.toObject();
+                const qint64 mask = integer(part.value("mask")) >> integer(part.value("shift"));
+                writeScalar(bytes, add(at, integer(part.value("offset"))), part,
+                            qint64((n >> integer(part.value("value_shift"))) & mask), {});
+            }
+            return;
+        }
         if (type == "u12split") {
             require(n <= 0xFFF && !f.contains("mask") && !f.contains("shift"),
                     "Invalid split 12-bit field value or descriptor.");
@@ -1424,6 +1544,9 @@ private:
         for (const auto &c : wanted.value("channels")) {
             require(!c.contains("power") || editor->contains("channels", "power"),
                     "Definition does not declare a writable channel power binding.");
+            for (const QString &semantic : {QStringLiteral("receive_ctcss"), QStringLiteral("transmit_ctcss")})
+                require(!c.contains(semantic) || (editor->contains("channels", semantic)
+                        && basePlug.ctcssTones.contains(int(numeric(c.value(semantic))))), "Unsupported CTCSS choice.");
             nameValid(c.value("name").toString(), "channel_name", names);
             for (const QString &key : {QStringLiteral("transmit_frequency"), QStringLiteral("receive_frequency")})
                 bounded(numeric(c.value(key)), r.value("frequency_hz").toObject(), "Frequency");
@@ -1927,7 +2050,10 @@ private:
                                                          : QStringList{"name", "members"}}};
                 for (auto it = required.begin(); it != required.end(); ++it)
                     requireNames(compared.value(it.key()), it.value(), "Unsupported or incomplete record comparison.");
-                require(r.value("compare_if_supplied").toObject() == QJsonObject{{"channels", QJsonArray{"power"}}}, "Unsupported optional-field comparison.");
+                QJsonArray optionalChannelFields{"power"};
+                for (const QString &semantic : {QStringLiteral("receive_ctcss"), QStringLiteral("transmit_ctcss")})
+                    if (editor->contains("channels", semantic)) optionalChannelFields.append(semantic);
+                require(r.value("compare_if_supplied").toObject() == QJsonObject{{"channels", optionalChannelFields}}, "Unsupported optional-field comparison.");
             } else if (operation == "decode_representation") {
                 keys(r, {"operation", "representation", "retain_original_decoded_image", "retain_original_encoding_parameters"}); policy(r, "representation", "matched_base");
                 require(r.value("retain_original_decoded_image").toBool() && r.value("retain_original_encoding_parameters").toBool(), "Original data must be retained.");

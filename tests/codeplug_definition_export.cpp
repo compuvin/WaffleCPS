@@ -108,6 +108,7 @@ void fixedLayoutRoundtrip(const QJsonObject &completeDefinition, const QString &
         return result;
     };
     auto comparison = plan["unchanged_copy"].toObject();
+    comparison["compare_if_supplied"] = QJsonObject{{"channels", QJsonArray{"power"}}};
     comparison["compare_radio_fields"] = reverse(comparison["compare_radio_fields"].toArray());
     comparison["ordered_tables"] = reverse(comparison["ordered_tables"].toArray());
     auto comparedTables = comparison["compare_tables"].toObject();
