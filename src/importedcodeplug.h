@@ -39,6 +39,7 @@ struct ImportedZone {
     QVector<int> channelIndexes;
     std::optional<ImportedChannel> repeaterTemplate; // Settings for a newly created, empty repeater.
     int sourceRecord = -1;
+    QVector<int> bottomChannelIndexes;
 };
 
 struct ImportedCodeplug {
@@ -56,4 +57,5 @@ struct ImportedCodeplug {
     int contactCapacity = 10000;
     int zoneCapacity = 250;
     int zoneMemberCapacity = 16;
+    bool separateDisplayLists = false;
 };

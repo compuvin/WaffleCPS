@@ -20,7 +20,8 @@ Frame {
                     id: group.id,
                     groupCall: group.groupCall,
                     contactIndex: group.contactIndex,
-                    zonePosition: channel.zonePosition
+                    zonePosition: channel.zonePosition,
+                    displays: channel.displays
                 })
             }
         }
@@ -135,6 +136,12 @@ Frame {
                                 }
                             }
 
+                            Label {
+                                visible: panel.importedChannels && store.separateDisplayLists
+                                text: modelData.displays === 1 ? "Top" : modelData.displays === 2 ? "Bottom" : "Both"
+                                color: "#64776c"
+                                font.pixelSize: 12
+                            }
                             PageAction {
                                 objectName: "removeSlotChannelButton"
                                 property int zonePosition: modelData.zonePosition || 0

@@ -14,7 +14,10 @@ ColumnLayout {
     spacing: 12
     RowLayout {
         Layout.fillWidth: true
-        Label { text: "ZONE · " + editor.channels.length + " / " + editor.group.zoneMemberCapacity + " channels"; color: "#64776c"; Layout.fillWidth: true }
+        Label { text: store.separateDisplayLists && (editor.group.zones || []).length
+            ? "Top · " + editor.group.zones[0].topNumbers.length + " / " + editor.group.zoneMemberCapacity
+              + "    Bottom · " + editor.group.zones[0].bottomNumbers.length + " / " + editor.group.zoneMemberCapacity
+            : "ZONE · " + editor.channels.length + " / " + editor.group.zoneMemberCapacity + " channels"; color: "#64776c"; Layout.fillWidth: true }
         PageAction { text: "Rename"; onClicked: { renameField.text = editor.group.name; renameDialog.open() } }
     }
     Label {
@@ -79,7 +82,7 @@ ColumnLayout {
             objectName: "zoneAddChannelButton"
             text: "+ Add channel"
             primary: true
-            enabled: editor.channels.length < editor.group.zoneMemberCapacity
+            enabled: (editor.group.zones || []).length && editor.group.zones[0].canAddChannel
             onClicked: channelDialog.openForAdd()
         }
         PageAction { objectName: "zoneOrderChannelsButton"; text: "Order channels"; enabled: editor.channels.length > 1; onClicked: editor.orderRequested() }
@@ -139,6 +142,7 @@ ColumnLayout {
             editing = false
             position = 0
             channelError.text = ""
+            channelDisplays.currentIndex = 2
             selectedChannelNumber = 0
             channelSearch.text = ""
             existingChannels.currentIndex = -1
@@ -159,6 +163,7 @@ ColumnLayout {
         function openForEdit(channel) {
             editing = true
             position = channel.zonePosition
+            channelDisplays.currentIndex = channel.displays - 1
             channelError.text = ""
             channelName.text = channel.name
             channelRx.text = channel.receiveFrequency
@@ -190,6 +195,11 @@ ColumnLayout {
                 background: Rectangle { color: "#f7faf7"; radius: 10; border.color: "#dce4df" }
                 PageTabButton { text: "Existing channel" }
                 PageTabButton { text: "New channel" }
+            }
+            RowLayout {
+                visible: store.separateDisplayLists
+                Label { text: "Display" }
+                PageComboBox { id: channelDisplays; model: ["Top", "Bottom", "Both"]; currentIndex: 2; Layout.fillWidth: true }
             }
             ColumnLayout {
                 visible: channelDialog.choosingExisting
@@ -373,12 +383,13 @@ ColumnLayout {
                         const saved = channelDialog.editing
                             ? store.updateSelectedZoneChannel(channelDialog.position, channelName.text, channelRx.text, channelTx.text,
                                 channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText))
+                                channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText),
+                                store.separateDisplayLists ? channelDisplays.currentIndex + 1 : -1)
                             : channelDialog.choosingExisting
-                              ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber)
+                              ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber, channelDisplays.currentIndex + 1)
                               : store.createChannelInSelectedZone(channelName.text, channelRx.text, channelTx.text,
                                   channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText))
+                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText), channelDisplays.currentIndex + 1)
                         if (saved) channelDialog.close()
                         else channelError.text = "Could not save this channel. Check its name, frequencies, and available capacity."
                     }

@@ -266,6 +266,13 @@ public:
         channels = tableForRole("channels");
         contacts = tableForRole("contacts");
         zones = tableForRole("zones");
+        if (definition.contains("zone_member_lists")) {
+            const auto lists = object(definition.value("zone_member_lists"), "zone_member_lists");
+            require(lists.size() == 2 && contains("zones", "members_bottom")
+                        && lists.value("top").toString() == get("zones", "members").field
+                        && lists.value("bottom").toString() == get("zones", "members_bottom").field,
+                    "Invalid paired zone member bindings.");
+        }
         const auto tables = definition.value("tables").toObject();
         for (auto role = bindings.begin(); role != bindings.end(); ++role) {
             for (auto it = role.value().begin(); it != role.value().end(); ++it) {
@@ -617,6 +624,7 @@ public:
         result.contactCapacity = int(integer(editor.limits.value("contacts").toObject().value("maximum")));
         result.zoneCapacity = int(integer(editor.limits.value("zones").toObject().value("maximum")));
         result.zoneMemberCapacity = int(integer(editor.limits.value("zone_members_maximum")));
+        result.separateDisplayLists = definition.contains("zone_member_lists");
         const QString version = recognition.value("cps_version_field").toString(recognition.value("version_field").toString());
         if (!version.isEmpty()) result.cpsVersion = field(globals, version).raw.toString();
         result.radioName = read("radio", "radio_name", {}, -1).mapped.toString().trimmed();
@@ -684,18 +692,24 @@ public:
             ImportedZone z;
             z.sourceRecord = int(physical);
             z.name = read("zones", "name", editor.zones, physical).mapped.toString().trimmed();
-            const auto members = read("zones", "members", editor.zones, physical).raw.toList();
-            require(!z.name.isEmpty() && members.size() <= integer(editor.limits.value("zone_members_maximum")),
-                    "Invalid zone name or member count.");
-            const auto reference = schemaFor(editor.get("zones", "members")).value("reference").toObject();
-            require(reference.value("table").toString() == editor.channels, "Zone binding does not reference the channel record table.");
-            for (const auto &member : members) {
-                const qint64 number = numeric(member);
-                if (reference.contains("null_value") && number == integer(reference.value("null_value"))) continue;
-                const qint64 physical = add(number, -integer(reference.value("index_base")));
-                require(channelIndexes.contains(physical), "Zone channel is not selected by the declared channel index.");
-                z.channelIndexes.append(channelIndexes.value(physical));
-            }
+            const auto decodeMembers = [&](const QString &semantic) {
+                QVector<int> indexes;
+                const auto members = read("zones", semantic, editor.zones, physical).raw.toList();
+                require(!z.name.isEmpty() && members.size() <= integer(editor.limits.value("zone_members_maximum")),
+                        "Invalid zone name or member count.");
+                const auto reference = schemaFor(editor.get("zones", semantic)).value("reference").toObject();
+                require(reference.value("table").toString() == editor.channels, "Zone binding does not reference the channel record table.");
+                for (const auto &member : members) {
+                    const qint64 number = numeric(member);
+                    if (reference.contains("null_value") && number == integer(reference.value("null_value"))) continue;
+                    const qint64 physical = add(number, -integer(reference.value("index_base")));
+                    require(channelIndexes.contains(physical), "Zone channel is not selected by the declared channel index.");
+                    indexes.append(channelIndexes.value(physical));
+                }
+                return indexes;
+            };
+            z.channelIndexes = decodeMembers("members");
+            if (result.separateDisplayLists) z.bottomChannelIndexes = decodeMembers("members_bottom");
             result.zones.append(z);
         }
         bounded(result.channels.size(), "channels");
@@ -712,6 +726,27 @@ public:
         require(text.size() % 2 == 0 && QRegularExpression(QStringLiteral("^[0-9a-fA-F]*$")).match(text).hasMatch(),
                 QStringLiteral("Invalid hexadecimal bytes."));
         return QByteArray::fromHex(text.toLatin1());
+    }
+
+    QVector<qint64> arrayAddresses(const QJsonObject &schema, Scope &scope)
+    {
+        const qint64 count = expression(schema.value("count"), scope);
+        require(count >= 0 && count <= maximumItems, "Invalid array count.");
+        const auto segments = schema.contains("storage_segments")
+            ? schema.value("storage_segments").toArray() : QJsonArray{schema};
+        require(!segments.isEmpty(), "Array storage segments must not be empty.");
+        QVector<qint64> addresses;
+        for (const auto &entry : segments) {
+            const auto part = object(entry, "array storage segment");
+            const qint64 n = expression(part.value("count"), scope);
+            const qint64 step = expression(part.value("stride_bytes"), scope);
+            const qint64 at = part.contains("at") ? expression(part.value("at"), scope)
+                : add(scope.base, expression(part.value("offset"), scope));
+            require(n >= 0 && step > 0 && n <= count - addresses.size(), "Invalid array storage segment extent.");
+            for (qint64 i = 0; i < n; ++i) addresses.append(add(at, multiply(i, step)));
+        }
+        require(addresses.size() == count, "Array storage segments do not match count.");
+        return addresses;
     }
 
 private:
@@ -825,12 +860,10 @@ private:
                                               : add(scope.base, expression(schema.value("offset"), scope, depth + 1));
         if (!schema.contains("count")) return scalar(schema, at);
         const qint64 count = expression(schema.value("count"), scope, depth + 1);
-        const qint64 stride = expression(schema.value("stride_bytes"), scope, depth + 1);
-        require(stride > 0, QStringLiteral("Array stride must be positive."));
         reserve(count);
         QVariantList raw, mapped;
-        for (qint64 i = 0; i < count; ++i) {
-            const auto value = scalar(schema, add(at, multiply(i, stride)));
+        for (qint64 address : arrayAddresses(schema, scope)) {
+            const auto value = scalar(schema, address);
             raw.append(value.raw); mapped.append(value.mapped);
         }
         if (!count) range(at, 0);
@@ -971,7 +1004,13 @@ Records editorRecords(const ImportedCodeplug &plug)
     for (const auto &z : plug.zones) {
         QVariantList members;
         for (int i : z.channelIndexes) members.append(qint64(i));
-        result["zones"].append({{"name", z.name}, {"members", members}, {"source_record", qint64(z.sourceRecord)}});
+        Record row{{"name", z.name}, {"members", members}, {"source_record", qint64(z.sourceRecord)}};
+        if (plug.separateDisplayLists) {
+            QVariantList bottom;
+            for (int i : z.bottomChannelIndexes) bottom.append(qint64(i));
+            row["members_bottom"] = bottom;
+        }
+        result["zones"].append(row);
     }
     return result;
 }
@@ -1003,13 +1042,14 @@ void requireNames(const QJsonValue &value, QStringList expected, const QString &
     require(actual == expected, message); // Includes duplicate-name rejection.
 }
 
-QStringList targetFields(const QString &role)
+QStringList targetFields(const QString &role, bool separateDisplayLists)
 {
     if (role == "radio") return {"radio_name", "radio_id"};
     if (role == "channels") return {"name", "transmit_frequency", "receive_frequency", "mode_marker",
                                     "color_code", "time_slot", "contact_number", "power"};
     if (role == "contacts") return {"name", "id", "call_type"};
-    if (role == "zones") return {"name", "members"};
+    if (role == "zones") return separateDisplayLists
+        ? QStringList{"name", "members", "members_bottom"} : QStringList{"name", "members"};
     reject("Unknown editor target role: " + role);
 }
 
@@ -1289,9 +1329,8 @@ private:
             Decoder reader(bytes, d); auto scope = reader.recordScope(table, at, index);
             const auto values = value.toList();
             require(values.size() == reader.expression(f.value("count"), scope), "Array count differs from record count.");
-            const qint64 step = reader.expression(f.value("stride_bytes"), scope);
-            require(step > 0, "Invalid writable array stride.");
-            for (qsizetype i = 0; i < values.size(); ++i) writeScalar(bytes, add(address, multiply(i, step)), f, values[i], options);
+            const auto addresses = reader.arrayAddresses(f, scope);
+            for (qsizetype i = 0; i < values.size(); ++i) writeScalar(bytes, addresses[i], f, values[i], options);
         } else writeScalar(bytes, address, f, value, options);
     }
     void writeGlobal(const QString &field, qint64 value) { writeField(image, {}, field, 0, 0, value); }
@@ -1376,6 +1415,7 @@ private:
     void validateTarget(const QJsonObject &r)
     {
         require(target.model == basePlug.model && target.cpsVersion == basePlug.cpsVersion, "Target identity does not match its export base.");
+        require(target.separateDisplayLists == basePlug.separateDisplayLists, "Target display-list capability differs from its base.");
         const auto names = r.value("names").toObject();
         nameValid(globals.value("radio_name").toString(), "radio_name", names);
         bounded(numeric(globals.value("radio_id")), r.value("radio_id").toObject(), "Radio ID");
@@ -1405,11 +1445,14 @@ private:
         const auto ref = r.value("zone_reference").toObject();
         for (const auto &z : wanted.value("zones")) {
             nameValid(z.value("name").toString(), "zone_name", names);
-            const auto members = z.value("members").toList();
-            require(members.size() <= integer(r.value("zone_members_maximum")), "Zone member count exceeds definition limit.");
-            for (const auto &v : members) {
-                const qint64 index = add(numeric(v), -integer(ref.value("input_index_base")));
-                require(index >= 0 && index < wanted.value(ref.value("target_table").toString()).size(), "Zone references an unknown channel.");
+            for (const QString &memberField : target.separateDisplayLists
+                     ? QStringList{"members", "members_bottom"} : QStringList{"members"}) {
+                const auto members = z.value(memberField).toList();
+                require(members.size() <= integer(r.value("zone_members_maximum")), "Zone member count exceeds definition limit.");
+                for (const auto &v : members) {
+                    const qint64 index = add(numeric(v), -integer(ref.value("input_index_base")));
+                    require(index >= 0 && index < wanted.value(ref.value("target_table").toString()).size(), "Zone references an unknown channel.");
+                }
             }
         }
     }
@@ -1773,7 +1816,7 @@ private:
     {
         require(!writes.isEmpty(), "Empty writer field list.");
         const QString role = table.isEmpty() ? QStringLiteral("radio") : editor->roleForTable(table);
-        const auto fields = targetFields(role);
+        const auto fields = targetFields(role, target.separateDisplayLists);
         for (const auto &entry : writes) {
             const auto w = object(entry, "write");
             keys(w, {"table", "field", "from_target", "clear_storage_hex", "only_if_supplied", "when", "value_from_target_array_length", "input_index_base", "stored_index_base", "following_bytes_hex", "use_schema_alphabet", "use_schema_space_code", "use_schema_padding_code", "pad_to_schema_count", "padding_value"});
@@ -1873,11 +1916,15 @@ private:
                 keys(r, {"operation", "compare_radio_fields", "compare_tables", "compare_if_supplied", "ordered_tables", "ordered_array_fields"});
                 requireNames(r.value("compare_radio_fields"), {"radio_name", "radio_id"}, "Incomplete radio comparison.");
                 requireNames(r.value("ordered_tables"), {"channels", "contacts", "zones"}, "Incomplete table ordering policy.");
-                require(r.value("ordered_array_fields").toObject() == QJsonObject{{"zones", QJsonArray{"members"}}}, "Unsupported array ordering policy.");
+                const auto zoneArrays = target.separateDisplayLists
+                    ? QJsonArray{"members", "members_bottom"} : QJsonArray{"members"};
+                require(r.value("ordered_array_fields").toObject() == QJsonObject{{"zones", zoneArrays}}, "Unsupported array ordering policy.");
                 const auto compared = r.value("compare_tables").toObject(); require(compared.size() == 3, "Incomplete record comparison.");
                 const QMap<QString, QStringList> required{
                     {"channels", {"name", "transmit_frequency", "receive_frequency", "mode_marker", "color_code", "time_slot", "contact_number"}},
-                    {"contacts", {"name", "id", "call_type"}}, {"zones", {"name", "members"}}};
+                    {"contacts", {"name", "id", "call_type"}},
+                    {"zones", target.separateDisplayLists ? QStringList{"name", "members", "members_bottom"}
+                                                         : QStringList{"name", "members"}}};
                 for (auto it = required.begin(); it != required.end(); ++it)
                     requireNames(compared.value(it.key()), it.value(), "Unsupported or incomplete record comparison.");
                 require(r.value("compare_if_supplied").toObject() == QJsonObject{{"channels", QJsonArray{"power"}}}, "Unsupported optional-field comparison.");

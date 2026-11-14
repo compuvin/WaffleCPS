@@ -20,6 +20,7 @@ ApplicationWindow {
         function onAboutToResetProject() {
             createZoneDialog.close()
             channelOrderDialog.close()
+            displayChannelsDialog.close()
             zoneOrderDialog.close()
             window.clearingProject = true
             window.currentSection = "repeaters"
@@ -840,7 +841,10 @@ ApplicationWindow {
                     }
                     Label {
                         visible: !importedContent.showZoneEditor
-                        text: "ZONE · " + importedContent.group.zoneChannelCount + " / " + importedContent.group.zoneMemberCapacity + " channels"
+                        text: store.separateDisplayLists && (importedContent.group.zones || []).length
+                            ? "Top · " + importedContent.group.zones[0].topNumbers.length + " / " + importedContent.group.zoneMemberCapacity
+                              + "    Bottom · " + importedContent.group.zones[0].bottomNumbers.length + " / " + importedContent.group.zoneMemberCapacity
+                            : "ZONE · " + importedContent.group.zoneChannelCount + " / " + importedContent.group.zoneMemberCapacity + " channels"
                         color: "#64776c"
                     }
                     Frame {
@@ -899,7 +903,7 @@ ApplicationWindow {
                             slotNumber: 1
                             groups: importedContent.group.slot1Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
+                            canAdd: importedContent.group.canAddBoth
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -910,7 +914,7 @@ ApplicationWindow {
                             slotNumber: 2
                             groups: importedContent.group.slot2Talkgroups || []
                             importedChannels: true
-                            canAdd: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
+                            canAdd: importedContent.group.canAddBoth
                                     && importedContent.group.power !== "Unknown"
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignTop
@@ -919,7 +923,7 @@ ApplicationWindow {
                     }
                     Label {
                         visible: !importedContent.showZoneEditor
-                                 && importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
+                                 && importedContent.group.canAddBoth
                                  && importedContent.group.power === "Unknown"
                         text: "Choose High or Low transmit power in Repeater details before adding a talkgroup."
                         color: "#64776c"
@@ -935,6 +939,12 @@ ApplicationWindow {
                             onClicked: channelOrderDialog.openForSelectedZone()
                             ToolTip.visible: hovered
                             ToolTip.text: "Arrange the radio's channel order for this zone"
+                        }
+                        PageAction {
+                            objectName: "displayChannelsButton"
+                            visible: store.separateDisplayLists
+                            text: "Top / Bottom channels"
+                            onClicked: displayChannelsDialog.openForSelectedZone()
                         }
                         PageAction {
                             objectName: "importedEditAsZoneButton"
@@ -968,7 +978,7 @@ ApplicationWindow {
                                 PageAction {
                                     text: "+ Add simplex"
                                     primary: true
-                                    enabled: importedContent.group.zoneChannelCount < importedContent.group.zoneMemberCapacity
+                                    enabled: importedContent.group.canAddBoth
                                     onClicked: simplexDialog.openForCurrent(true)
                                 }
                             }
@@ -1443,6 +1453,14 @@ ApplicationWindow {
                                              || String(contact.id).includes(query)))
                                  .sort((a, b) => a.name.localeCompare(b.name))
         }
+        function chooseTalkgroup(contact) {
+            selectedTalkgroup = contact
+            talkgroupSearch.text = contact.name
+            if (!channelNameCustomized)
+                channelNameField.text = store.suggestedChannelName(contact.name)
+            errorLabel.text = ""
+        }
+
         function checkChannelName() {
             const available = store.availableChannelName(channelNameField.text)
             if (available && available !== channelNameField.text.trim()) {
@@ -1528,13 +1546,7 @@ ApplicationWindow {
                         text: modelData.name + "  ·  ID " + modelData.id
                         highlighted: addDialog.selectedTalkgroup !== null
                                      && addDialog.selectedTalkgroup.index === modelData.index
-                        onClicked: {
-                            addDialog.selectedTalkgroup = modelData
-                            talkgroupSearch.text = modelData.name
-                            if (!addDialog.channelNameCustomized)
-                                channelNameField.text = store.suggestedChannelName(modelData.name)
-                            errorLabel.text = ""
-                        }
+                        onClicked: addDialog.chooseTalkgroup(modelData)
                     }
                 }
             }
@@ -2115,6 +2127,75 @@ ApplicationWindow {
         }
     }
 
+    ListModel { id: displayChannelsModel }
+    PageDialog {
+        id: displayChannelsDialog
+        objectName: "displayChannelsDialog"
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(560, window.width - 32)
+        modal: true
+        title: "Top / Bottom channels"
+        standardButtons: Dialog.NoButton
+        function openForSelectedZone() {
+            const zones = store.selectedImportedGroup.zones || []
+            if (zones.length !== 1) return
+            displayChannelsModel.clear()
+            for (const channel of zones[0].channels)
+                displayChannelsModel.append({channelName: channel.name, displays: channel.displays})
+            displayChannelsError.text = ""
+            open()
+        }
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label { text: "Choose where each channel is available on the radio."; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            ListView {
+                id: displayChannelsList
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(400, Math.max(60, displayChannelsModel.count * 54))
+                clip: true
+                spacing: 4
+                model: displayChannelsModel
+                ScrollBar.vertical: ScrollBar {}
+                delegate: RowLayout {
+                    id: displayChannelRow
+                    required property int index
+                    required property string channelName
+                    required property int displays
+                    width: displayChannelsList.width
+                    height: 50
+                    Label { text: channelName; Layout.fillWidth: true; elide: Text.ElideRight }
+                    PageComboBox {
+                        Layout.preferredWidth: 140
+                        Layout.minimumWidth: 140
+                        model: ["Top", "Bottom", "Both"]
+                        currentIndex: displays - 1
+                        onActivated: function(optionIndex) {
+                            displayChannelsModel.setProperty(
+                                displayChannelRow.index, "displays", optionIndex + 1)
+                        }
+                        Accessible.name: "Display for " + channelName
+                    }
+                }
+            }
+            Label { id: displayChannelsError; visible: text.length > 0; color: "#b33a32"; wrapMode: Text.WordWrap; Layout.fillWidth: true }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction { text: "Cancel"; onClicked: displayChannelsDialog.close() }
+                PageAction {
+                    text: "Save"
+                    primary: true
+                    onClicked: {
+                        const assignments = []
+                        for (let i = 0; i < displayChannelsModel.count; ++i) assignments.push(displayChannelsModel.get(i).displays)
+                        if (store.setSelectedZoneDisplays(assignments)) displayChannelsDialog.close()
+                        else displayChannelsError.text = "A display list is full. Adjust the assignments and try again."
+                    }
+                }
+            }
+        }
+    }
+
     ListModel { id: channelOrderModel; objectName: "channelOrderModel" }
 
     PageDialog {
@@ -2122,6 +2203,29 @@ ApplicationWindow {
         objectName: "channelOrderDialog"
         property string zoneName: ""
         property bool manualProject: false
+        property int displayList: 1
+        property var topOrder: []
+        property var bottomOrder: []
+        function captureDisplayOrder() {
+            const order = []
+            for (let i = 0; i < channelOrderModel.count; ++i) order.push(channelOrderModel.get(i).channelNumber)
+            if (displayList === 1) topOrder = order
+            else bottomOrder = order
+        }
+        function loadDisplayOrder() {
+            const zones = store.selectedImportedGroup.zones || []
+            if (zones.length !== 1) return
+            channelOrderModel.clear()
+            const numbers = store.separateDisplayLists ? (displayList === 1 ? topOrder : bottomOrder)
+                                                      : zones[0].channels.map(c => c.number)
+            for (const number of numbers) {
+                const channel = zones[0].channels.find(c => c.number === number)
+                if (!channel) continue
+                const simplex = channel.receiveFrequency === channel.transmitFrequency
+                channelOrderModel.append({channelName: channel.name, channelNumber: channel.number,
+                    kind: simplex ? "Simplex" : (channel.timeSlot ? "TS " + channel.timeSlot : channel.mode)})
+            }
+        }
         width: Math.min(540, window.width - 32)
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
@@ -2148,19 +2252,13 @@ ApplicationWindow {
         function openForSelectedZone() {
             manualProject = false
             const zones = store.selectedImportedGroup.zones || []
-            if (zones.length !== 1)
-                return
+            if (zones.length !== 1) return
             zoneName = zones[0].name
-            channelOrderModel.clear()
-            for (const channel of zones[0].channels) {
-                const simplex = channel.receiveFrequency === channel.transmitFrequency
-                channelOrderModel.append({
-                    channelName: channel.name,
-                    channelNumber: channel.number,
-                    kind: simplex ? "Simplex" + (channel.timeSlot ? " · TS " + channel.timeSlot : "")
-                                  : (channel.timeSlot ? "TS " + channel.timeSlot : channel.mode)
-                })
-            }
+            displayList = 1
+            orderDisplay.currentIndex = 0
+            topOrder = zones[0].topNumbers || []
+            bottomOrder = zones[0].bottomNumbers || []
+            loadDisplayOrder()
             channelOrderError.text = ""
             open()
         }
@@ -2171,6 +2269,22 @@ ApplicationWindow {
                 text: "Arrange all channels in radio order. Each time-slot box follows this order, filtered to its slot."
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+            }
+            RowLayout {
+                visible: store.separateDisplayLists && !channelOrderDialog.manualProject
+                Label { text: "Display" }
+                PageComboBox {
+                    id: orderDisplay
+                    Layout.preferredWidth: 140
+                    Layout.minimumWidth: 140
+                    objectName: "orderDisplay"
+                    model: ["Top", "Bottom"]
+                    onActivated: {
+                        channelOrderDialog.captureDisplayOrder()
+                        channelOrderDialog.displayList = currentIndex + 1
+                        channelOrderDialog.loadDisplayOrder()
+                    }
+                }
             }
             ListView {
                 id: channelOrderList
@@ -2239,8 +2353,14 @@ ApplicationWindow {
                         const numbers = []
                         for (let i = 0; i < channelOrderModel.count; ++i)
                             numbers.push(channelOrderModel.get(i).channelNumber)
-                        if (channelOrderDialog.manualProject ? store.reorderSelectedRepeaterChannels(numbers)
-                                                            : store.reorderSelectedZone(numbers))
+                        let saved
+                        if (channelOrderDialog.manualProject) saved = store.reorderSelectedRepeaterChannels(numbers)
+                        else if (store.separateDisplayLists) {
+                            channelOrderDialog.captureDisplayOrder()
+                            saved = store.reorderSelectedZone(channelOrderDialog.topOrder, 1)
+                                 && store.reorderSelectedZone(channelOrderDialog.bottomOrder, 2)
+                        } else saved = store.reorderSelectedZone(numbers)
+                        if (saved)
                             channelOrderDialog.close()
                         else
                             channelOrderError.text = "Could not apply this order. Close and reopen the dialog to refresh the zone."

@@ -32,6 +32,7 @@ class RepeaterStore : public QObject
     Q_PROPERTY(QString sourceCodeplugName READ sourceCodeplugName NOTIFY projectChanged)
     Q_PROPERTY(bool modified READ modified NOTIFY projectChanged)
     Q_PROPERTY(bool hasImportedCodeplug READ hasImportedCodeplug NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(bool separateDisplayLists READ separateDisplayLists NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool radioTransferAvailable READ radioTransferAvailable NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QVariantList newProjectOptions READ newProjectOptions CONSTANT)
     Q_PROPERTY(QVariantList radioReadOptions READ radioReadOptions CONSTANT)
@@ -70,6 +71,7 @@ public:
     bool modified() const;
     bool hasImportedCodeplug() const;
     bool radioTransferAvailable() const;
+    bool separateDisplayLists() const { return m_importedCodeplug.separateDisplayLists; }
     Q_INVOKABLE QString radioDefinitionPath() const;
     Q_INVOKABLE QString radioDefinitionPathFor(const QString &definitionFile) const;
     QVariantList newProjectOptions() const;
@@ -86,15 +88,17 @@ public:
     Q_INVOKABLE QVariantList zoneContactChoices() const;
     Q_INVOKABLE bool createCustomZone(const QString &name);
     Q_INVOKABLE bool renameSelectedZone(const QString &name);
-    Q_INVOKABLE bool addExistingChannelToSelectedZone(int channelNumber);
+    Q_INVOKABLE bool addExistingChannelToSelectedZone(int channelNumber, int displays = 3);
     Q_INVOKABLE bool createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
-        bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice);
+        bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays = 3);
     Q_INVOKABLE bool updateSelectedZoneChannel(int zonePosition, const QString &name,
         const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
-        int contactIndex, int powerChoice);
+        int contactIndex, int powerChoice, int displays = -1);
     Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);
     Q_INVOKABLE bool updateSelectedZoneChannelFrequencies(int zonePosition, const QString &rx, const QString &tx);
-    Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers);
+    Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers, int display = 1);
+    Q_INVOKABLE bool setSelectedChannelDisplays(int zonePosition, int displays);
+    Q_INVOKABLE bool setSelectedZoneDisplays(const QVariantList &assignments);
     Q_INVOKABLE QVariantList zoneOrderEntries() const;
     Q_INVOKABLE bool reorderZones(const QVariantList &zoneNumbers);
     Q_INVOKABLE void leaveZoneEditor();
@@ -161,6 +165,10 @@ signals:
     void radioSettingsChanged();
 
 private:
+    QVector<int> zoneMembers(const ImportedZone &zone) const;
+    void applyZoneMembers(ImportedZone &zone, const QVector<int> &members);
+    bool zoneHasRoom(const ImportedZone &zone, int displays = 3) const;
+    void shiftZoneChannelIndexes(int removedIndex);
     struct Talkgroup {
         QString name;
         int id;

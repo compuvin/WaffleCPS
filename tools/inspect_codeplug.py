@@ -228,17 +228,31 @@ class DefinitionReader:
               else scope.base + integer(self.expression(field["offset"], scope)))
         if "count" in field:
             count = integer(self.expression(field["count"], scope))
-            stride = integer(self.expression(field["stride_bytes"], scope))
-            if stride <= 0:
-                raise DefinitionError("Array stride must be positive")
-            scalar = {k: v for k, v in field.items() if k not in ("count", "stride_bytes")}
-            size = self.storage_size(scalar)
-            byte_range(self.image, at, (count - 1) * stride + size if count else 0)
             self.reserve(count, path)
-            results = [self.read_scalar(scalar, at + i * stride, f"{path}[{i}]")
-                       for i in range(count)]
+            results = [self.read_scalar(field, address, f"{path}[{i}]")
+                       for i, address in enumerate(self.array_addresses(field, scope))]
             return {"raw": [r["raw"] for r in results], "value": [r["value"] for r in results]}
         return self.read_scalar(field, at, path)
+
+    def array_addresses(self, field, scope):
+        count = integer(self.expression(field["count"], scope))
+        if not 0 <= count <= self.max_records:
+            raise DefinitionError("Invalid array count")
+        parts = field.get("storage_segments", [field])
+        if not isinstance(parts, list) or not parts:
+            raise DefinitionError("Array storage segments must not be empty")
+        addresses = []
+        for part in parts:
+            n = integer(self.expression(part["count"], scope))
+            step = integer(self.expression(part["stride_bytes"], scope))
+            at = (self.expression(part["at"], scope) if "at" in part else
+                  scope.base + self.expression(part["offset"], scope))
+            if n < 0 or step <= 0 or n > count - len(addresses):
+                raise DefinitionError("Invalid array storage segment extent")
+            addresses.extend(at + i * step for i in range(n))
+        if len(addresses) != count:
+            raise DefinitionError("Array storage segments do not match count")
+        return addresses
 
     @staticmethod
     def storage_size(field):
@@ -936,11 +950,10 @@ def write_field(image, reader, field, value, scope):
     if "count" in field:
         count = reader.expression(field["count"], scope)
         require(isinstance(value, list) and len(value) == count, "Default array length differs from its count")
-        stride = integer(field["stride_bytes"])
-        require(stride > 0, "Invalid default array stride")
-        scalar = {k: v for k, v in field.items() if k not in ("count", "stride_bytes", "at", "offset")}
-        for i, element in enumerate(value):
-            write_field(image, reader, dict(scalar, at=at + i * stride), element, scope)
+        scalar = {k: v for k, v in field.items()
+                  if k not in ("count", "stride_bytes", "at", "offset", "storage_segments")}
+        for address, element in zip(reader.array_addresses(field, scope), value):
+            write_field(image, reader, dict(scalar, at=address), element, scope)
         return
     size = reader.storage_size(field)
     old = byte_range(image, at, size)
