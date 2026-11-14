@@ -20,7 +20,7 @@ These pages list downloadable codeplugs. Completion marks record support work; t
 | 4 | Radioddity | GD-77 | Portable | [Mid-Atlantic Wireless: GD-77](https://mawcg.org/codeplugs-and-configs/) | ☐ |
 | 5 | BTECH | DMR-6X2 PRO | Portable | No verified sample listing found; [BTECH provides CPS and firmware](https://baofengtech.com/dmr/dmr-6x2-pro/). | ☐ |
 | 6 | AnyTone | AT-D578UVIII Plus | Mobile | [PI4UTR: AT-578 codeplug collection](https://codeplug.pi4utr.nl/) | ☐ |
-| 7 | TYT | MD-9600 | Mobile | [PALS Repeater Group: MD-9600](https://www.palsdmr.com/radio-codeplugs/); [MD-9600 research and deferred work](MD-9600DefinitionResearch.md) | ☐ |
+| 7 | TYT | MD-9600 | Mobile | [PALS Repeater Group: MD-9600](https://www.palsdmr.com/radio-codeplugs/); [MD-9600 research and deferred work](MD-9600DefinitionResearch.md) | ☑ |
 | 8 | Retevis | RT3S | Portable | [VK2IDL: ORARC RT3S codeplug](https://vk2idl.com/index.php/retevis-rt3s/) | ☐ |
 | 9 | Radioddity | GD-88 | Portable | [Funkwelle: GD-88 codeplug package](https://www.funkwelle.com/download/radioddity-gd-88-dmr-codeplug) | ☐ |
 | 10 | Baofeng | DM-32UV | Portable | [Timz DMR: beginning codeplug](https://www.timzdmr.com/radios/Baof-DM-32UV/index.htm) | ☑ |

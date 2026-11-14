@@ -7,6 +7,19 @@ ApplicationWindow {
     property bool clearingProject: false
     property string currentSection: "repeaters"
     property string pendingRadioReadDefinitionPath: ""
+    property string pendingRadioReadTestingStatus: "unknown"
+    function radioTestingMessage(status) {
+        return "This radio’s USB transfer definition has not been tested on hardware."
+             + " Proceed with caution. If the transfer succeeds, please open a GitHub issue to let us know."
+    }
+    function requestRadioRead(source) {
+        window.pendingRadioReadDefinitionPath = source
+        window.pendingRadioReadTestingStatus = store.radioTransferTestingStatus(source, "read")
+        if (store.modified || window.pendingRadioReadTestingStatus !== "tested")
+            radioReadConfirmation.open()
+        else
+            radioReader.start(source)
+    }
     onClosing: function(event) {
         if (radioWriter.busy) {
             event.accepted = false
@@ -255,11 +268,7 @@ ApplicationWindow {
                                          && !radioReader.busy && !radioWriter.busy
                                 onClicked: {
                                     if (store.hasImportedCodeplug) {
-                                        window.pendingRadioReadDefinitionPath = store.radioDefinitionPath()
-                                        if (store.modified)
-                                            radioReadConfirmation.open()
-                                        else
-                                            radioReader.start(window.pendingRadioReadDefinitionPath)
+                                        window.requestRadioRead(store.radioDefinitionPath())
                                     } else {
                                         radioReadDialog.open()
                                     }
@@ -1793,12 +1802,8 @@ ApplicationWindow {
                     height: 76
                     Accessible.name: modelData.model + " radio"
                     onClicked: {
-                        window.pendingRadioReadDefinitionPath = store.radioDefinitionPathFor(modelData.fileName)
                         radioReadDialog.close()
-                        if (store.modified)
-                            radioReadConfirmation.open()
-                        else
-                            radioReader.start(window.pendingRadioReadDefinitionPath)
+                        window.requestRadioRead(store.radioDefinitionPathFor(modelData.fileName))
                     }
                     background: Rectangle {
                         radius: 12
@@ -1849,15 +1854,22 @@ ApplicationWindow {
     PageDialog {
         id: radioReadConfirmation
         objectName: "radioReadConfirmation"
+        width: Math.min(420, window.width - 32)
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
         modal: true
-        title: "Discard unsaved changes?"
+        title: store.modified ? "Discard unsaved changes?" : "Untested radio transfer"
         standardButtons: Dialog.NoButton
-        ColumnLayout {
-            width: 360
+        contentItem: ColumnLayout {
             Label {
+                visible: store.modified
                 text: "A successful radio read will replace this project and discard unsaved changes."
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label {
+                visible: window.pendingRadioReadTestingStatus !== "tested"
+                text: window.radioTestingMessage(window.pendingRadioReadTestingStatus)
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -1866,7 +1878,7 @@ ApplicationWindow {
                 PageAction { text: "Cancel"; onClicked: radioReadConfirmation.close() }
                 PageAction {
                     objectName: "confirmRadioReadButton"
-                    text: "Read from radio"
+                    text: window.pendingRadioReadTestingStatus === "tested" ? "Read from radio" : "Continue"
                     onClicked: {
                         radioReadConfirmation.close()
                         if (window.pendingRadioReadDefinitionPath.length)
@@ -1918,6 +1930,8 @@ ApplicationWindow {
     PageDialog {
         id: radioWriteConfirmation
         objectName: "radioWriteConfirmation"
+        property string testingStatus: "unknown"
+        onOpened: testingStatus = store.radioTransferTestingStatus(store.radioDefinitionPath(), "write")
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
         width: Math.min(420, window.width - 32)
@@ -1931,12 +1945,18 @@ ApplicationWindow {
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
+            Label {
+                visible: radioWriteConfirmation.testingStatus !== "tested"
+                text: window.radioTestingMessage(radioWriteConfirmation.testingStatus)
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
             RowLayout {
                 Layout.alignment: Qt.AlignRight
                 PageAction { text: "Cancel"; onClicked: radioWriteConfirmation.close() }
                 PageAction {
                     objectName: "confirmRadioWriteButton"
-                    text: "Write to radio"
+                    text: radioWriteConfirmation.testingStatus === "tested" ? "Write to radio" : "Continue"
                     onClicked: {
                         radioWriteConfirmation.close()
                         if (store.radioTransferAvailable) radioWriter.start(store.exportCodeplugBytes(), store.radioDefinitionPath())

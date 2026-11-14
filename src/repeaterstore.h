@@ -76,6 +76,7 @@ public:
     bool separateDisplayLists() const { return m_importedCodeplug.separateDisplayLists; }
     Q_INVOKABLE QString radioDefinitionPath() const;
     Q_INVOKABLE QString radioDefinitionPathFor(const QString &definitionFile) const;
+    Q_INVOKABLE QString radioTransferTestingStatus(const QString &source, const QString &operation) const;
     QVariantList newProjectOptions() const;
     QVariantList radioReadOptions() const;
     QString importedCodeplugSummary() const;

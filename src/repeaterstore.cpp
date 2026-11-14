@@ -234,6 +234,20 @@ QString RepeaterStore::radioDefinitionPathFor(const QString &definitionFile) con
 {
     return CodeplugDefinitions::radioDefinitionSource(definitionFile);
 }
+QString RepeaterStore::radioTransferTestingStatus(const QString &source, const QString &operation) const
+{
+    if (operation != QStringLiteral("read") && operation != QStringLiteral("write"))
+        return QStringLiteral("unknown");
+    RadioProfileData profile;
+    QString error;
+    if (!CodeplugDefinitions::loadRadioProfile(source, &profile, &error))
+        return QStringLiteral("unknown");
+    const QString status = QJsonDocument::fromJson(profile.json).object()
+        .value(QStringLiteral("hardware_testing")).toObject().value(operation).toString();
+    return status == QStringLiteral("tested") || status == QStringLiteral("untested")
+        ? status : QStringLiteral("unknown");
+}
+
 QVariantList RepeaterStore::newProjectOptions() const
 {
     return CodeplugDefinitions::newProjectOptions();
