@@ -27,6 +27,7 @@ public:
     static QString modelName(const QString &definitionFile);
     static QString radioDefinitionSource(const QString &definitionFile, const QString &version = {});
     static bool loadRadioProfile(const QString &source, RadioProfileData *result, QString *error);
+    static QJsonObject satelliteDefinition(const QString &definitionFile, const QString &version = {});
     static QString defaultDefinitionFile();
     static QString exportFileFilter(const QByteArray &source,
                                     QString *extension, QString *error,

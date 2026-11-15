@@ -476,6 +476,48 @@ bool CodeplugDefinitions::loadRadioProfile(const QString &source, RadioProfileDa
     return true;
 }
 
+QJsonObject CodeplugDefinitions::satelliteDefinition(const QString &definitionFile, const QString &version)
+{
+    for (const auto &entry : catalog().entries) {
+        if (!entry.loaded || entry.fileName != definitionFile) continue;
+        const Version *selected = &entry.versions[entry.defaultVersion];
+        if (!version.isEmpty()) {
+            selected = nullptr;
+            for (const auto &candidate : entry.versions)
+                if (candidate.id == version) { selected = &candidate; break; }
+            if (!selected) return {};
+        }
+        QMap<QString, QByteArray> members;
+        QString error;
+        const QString path = QDir(catalog().directoryPath).filePath(definitionFile);
+        if (!ZipArchive::read(path, &members, &error)) {
+            logDefinition(QStringLiteral("Satellite definition: %1").arg(error));
+            return {};
+        }
+        const QString folder = QFileInfo(selected->member).path();
+        const QString local = folder == "." ? "satellites.json" : folder + "/satellites.json";
+        const QString member = members.contains(local) ? local : QStringLiteral("satellites.json");
+        if (!members.contains(member)) return {};
+        const QByteArray bytes = members.value(member);
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+        const QJsonObject result = document.object();
+        if (bytes.isEmpty() || bytes.size() > 4 * 1024 * 1024
+            || parseError.error != QJsonParseError::NoError || !document.isObject()
+            || result.value(QStringLiteral("definition_version")) != QJsonValue(1)
+            || result.value(QStringLiteral("capacity")).toInt() <= 0
+            || result.value(QStringLiteral("record_bytes")).toInt() <= 0
+            || !result.value(QStringLiteral("settings")).isObject()
+            || !result.value(QStringLiteral("fields")).isObject()
+            || !result.value(QStringLiteral("transfer")).isObject()) {
+            logDefinition(QStringLiteral("Invalid satellite definition: %1 [%2]").arg(path, member));
+            return {};
+        }
+        return result;
+    }
+    return {};
+}
+
 QString CodeplugDefinitions::defaultDefinitionFile()
 {
     const auto &loaded = catalog();

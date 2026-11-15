@@ -1,4 +1,6 @@
 #include "serialexecutor.h"
+#include "satellitedata.h"
+#include <QDateTime>
 
 #include <QElapsedTimer>
 #include <QJsonArray>
@@ -722,4 +724,95 @@ void SerialExecutor::write(const RadioDefinition &definition, const Bytes &image
         throw;
     }
     commands(port, method.value(QStringLiteral("finish")).toArray());
+}
+
+void SerialExecutor::writeSatellites(const RadioDefinition &definition, const Object &satellites,
+                                    const QByteArray &payload, const RadioExecutor::Progress &progress)
+{
+    if (!definition.usesSerial()) throw std::runtime_error("Satellite writes require the serial transport declared by this definition");
+    const Object transport = definition.document().value(QStringLiteral("serial_transport")).toObject();
+    if (transport.contains(QStringLiteral("protocol")))
+        throw std::runtime_error("This serial protocol does not support satellite flash updates");
+    const Object settings = satellites.value(QStringLiteral("settings")).toObject();
+    const Object transfer = satellites.value(QStringLiteral("transfer")).toObject();
+    const quint32 address = requiredNumber(settings, "radio_address");
+    const quint32 size = requiredNumber(settings, "bytes");
+    const quint32 block = requiredNumber(transport, "block_bytes");
+    const quint32 sector = requiredNumber(transport, "sector_bytes");
+    const Object clock = transfer.value(QStringLiteral("clock_after_write")).toObject();
+    QByteArray clockRequest = requiredHex(clock, "request_hex");
+    const QByteArray clockResponse = requiredHex(clock, "response_hex");
+    const quint32 clockAt = requiredNumber(clock, "value_offset");
+    const auto setup = transfer.value(QStringLiteral("setup")).toArray();
+    const auto finish = transfer.value(QStringLiteral("finish")).toArray();
+    if (transfer.value(QStringLiteral("transport")) != QStringLiteral("usb.json")
+        || transfer.value(QStringLiteral("preserve_unmapped_sector_bytes")) != true
+        || transfer.value(QStringLiteral("verify_after_write")) != true
+        || clock.value(QStringLiteral("value_type")) != QStringLiteral("u32le")
+        || clock.value(QStringLiteral("value_source")) != QStringLiteral("current_utc_unix_seconds")
+        || quint64(clockAt) + 4 > quint64(clockRequest.size())
+        || block == 0 || sector == 0 || sector % block || address % sector || size % sector
+        || size == 0 || size > 1024 * 1024 || quint64(address) + size > 0x100000000ULL
+        || setup.isEmpty() || finish.isEmpty())
+        throw std::runtime_error("Unsupported satellite transfer layout");
+    for (const auto &sequence : {setup, finish})
+        for (const auto &step : sequence) {
+            requiredHex(step.toObject(), "request_hex");
+            requiredHex(step.toObject(), "response_hex");
+        }
+    // Validate the block structure and payload size before connecting to the radio.
+    SatelliteData::merge(satellites, QByteArray(size, char(0xff)), payload);
+    const Object rule = transport.value(QStringLiteral("write")).toObject();
+    const QByteArray prefix = requiredHex(rule, "request_prefix_hex");
+    Port port(transport, nullptr);
+    identify(port, transport);
+    bool setupStarted = false;
+    try {
+        setupStarted = true;
+        commands(port, setup);
+        QByteArray original;
+        original.reserve(size);
+        const quint32 blocks = size / block;
+        for (quint32 at = 0; at < size; at += block) {
+            original += readBlock(port, transport, address + at);
+            if (progress) progress("Reading satellite settings", at / block + 1, blocks * 2 + 1);
+        }
+        const QByteArray updated = SatelliteData::merge(satellites, original, payload);
+        for (quint32 start = 0; start < size; start += sector) {
+            const QByteArray content = updated.mid(start, sector);
+            if (content != original.mid(start, sector)) {
+                QByteArray request = prefix;
+                request.append(char(requiredNumber(rule, "set_sector_command")));
+                appendBe(&request, (address + start) / sector, 3);
+                writeCommand(port, request, request.left(2));
+                for (quint32 at = 0; at < sector; at += block) {
+                    QByteArray packet = prefix;
+                    packet.append(char(requiredNumber(rule, "write_buffer_command")));
+                    appendBe(&packet, address + start + at, 4);
+                    appendBe(&packet, block, 2);
+                    packet += content.mid(at, block);
+                    writeCommand(port, packet, packet.left(2));
+                }
+                request = prefix;
+                request.append(char(requiredNumber(rule, "commit_sector_command")));
+                writeCommand(port, request, request);
+                QByteArray verify;
+                for (quint32 at = 0; at < sector; at += block)
+                    verify += readBlock(port, transport, address + start + at);
+                if (verify != content) throw std::runtime_error("Satellite flash verification failed");
+            }
+            if (progress) progress("Writing and verifying satellites", blocks + (start + sector) / block, blocks * 2 + 1);
+        }
+        commands(port, finish);
+        setupStarted = false;
+        const qint64 timestamp = QDateTime::currentDateTimeUtc().toSecsSinceEpoch();
+        if (timestamp < 0 || quint64(timestamp) > 0xffffffffULL)
+            throw std::runtime_error("The current UTC time cannot be represented by this clock command");
+        for (int i = 0; i < 4; ++i) clockRequest[clockAt + i] = char(quint64(timestamp) >> (8 * i));
+        writeCommand(port, clockRequest, clockResponse);
+        if (progress) progress("Satellite update complete", blocks * 2 + 1, blocks * 2 + 1);
+    } catch (...) {
+        if (setupStarted) { try { commands(port, finish); } catch (...) {} }
+        throw;
+    }
 }

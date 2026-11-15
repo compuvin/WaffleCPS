@@ -21,7 +21,7 @@ ApplicationWindow {
             radioReader.start(source)
     }
     onClosing: function(event) {
-        if (radioWriter.busy) {
+        if (radioWriter.busy || store.satelliteUpdateBusy) {
             event.accepted = false
         } else if (radioReader.busy) {
             event.accepted = false
@@ -198,9 +198,27 @@ ApplicationWindow {
                             font.bold: true
                         }
                         Label {
+                            id: versionLink
+                            objectName: "aboutVersionLink"
                             text: Qt.application.version
                             color: "#c1d8cb"
                             font.pixelSize: 11
+                            font.underline: versionMouse.containsMouse || activeFocus
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Link
+                            Accessible.name: "About WaffleCPS, " + Qt.application.version
+                            Accessible.onPressAction: aboutDialog.open()
+                            Keys.onReturnPressed: aboutDialog.open()
+                            Keys.onSpacePressed: aboutDialog.open()
+                            MouseArea {
+                                id: versionMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: aboutDialog.open()
+                            }
+                            ToolTip.visible: versionMouse.containsMouse
+                            ToolTip.text: "About WaffleCPS"
                         }
                     }
                     Rectangle {
@@ -1122,11 +1140,24 @@ ApplicationWindow {
                             primary: true
                             onClicked: store.updateRadioSettings(radioNameField.text, radioIdField.text)
                         }
+                        PageAction {
+                            objectName: "satelliteSettingsButton"
+                            text: "Satellites"
+                            visible: store.satelliteSupportAvailable
+                            onClicked: satelliteDialog.showSettings()
+                        }
                         Item { Layout.fillHeight: true }
                     }
                 }
             }
         }
+    }
+
+    SatelliteDialog { id: satelliteDialog }
+
+    AboutDialog {
+        id: aboutDialog
+        definitions: store.newProjectOptions
     }
 
     PageDialog {

@@ -5,7 +5,7 @@ project(WaffleCPS VERSION 0.1.2 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets SerialPort)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets SerialPort Network)
 find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
@@ -17,6 +17,7 @@ add_library(radioreader STATIC
     src/radiodefinition.cpp src/radiodefinition.h
     src/radioexecutor.cpp src/radioexecutor.h
     src/dfuexecutor.cpp src/dfuexecutor.h
+    src/satellitedata.cpp src/satellitedata.h
     src/serialexecutor.cpp src/serialexecutor.h
     src/radioimage.cpp src/radioimage.h)
 target_link_libraries(radioreader PUBLIC Qt6::Core Qt6::SerialPort PkgConfig::LIBUSB codeplugdefinition)
@@ -74,6 +75,8 @@ qt_add_resources(wafflecps "qml"
     FILES
         assets/waffle-radio.png
         qml/Main.qml
+        qml/AboutDialog.qml
+        qml/SatelliteDialog.qml
         qml/PageAction.qml
         qml/PageField.qml
         qml/PageComboBox.qml
@@ -94,6 +97,7 @@ target_link_libraries(wafflecps PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Widgets
+    Qt6::Network
     ZLIB::ZLIB
     radioreader
     codeplugdefinition
@@ -192,7 +196,7 @@ if(BUILD_TESTING)
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
         src/repeaterstore.cpp src/repeaterstore.h)
-    target_link_libraries(cs750_roundtrip_test PRIVATE codeplugdefinition Qt6::Gui Qt6::Widgets)
+    target_link_libraries(cs750_roundtrip_test PRIVATE radioreader Qt6::Network codeplugdefinition Qt6::Gui Qt6::Widgets)
     target_compile_definitions(cs750_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME cs750_roundtrip COMMAND cs750_roundtrip_test)
 
@@ -221,21 +225,21 @@ if(BUILD_TESTING)
         tests/zone_editor.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
         src/ziparchive.cpp src/ziparchive.h)
-    target_link_libraries(zone_editor_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    target_link_libraries(zone_editor_test PRIVATE radioreader Qt6::Network Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME zone_editor COMMAND zone_editor_test)
 
     qt_add_executable(channel_order_test
         tests/channel_order.cpp tests/channel_order_fixture.h
         src/repeaterstore.cpp src/repeaterstore.h
         src/ziparchive.cpp src/ziparchive.h)
-    target_link_libraries(channel_order_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    target_link_libraries(channel_order_test PRIVATE radioreader Qt6::Network Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME channel_order COMMAND channel_order_test)
 
     qt_add_executable(radio_import_test
         tests/radio_import.cpp
         src/repeaterstore.cpp src/repeaterstore.h
         src/ziparchive.cpp src/ziparchive.h)
-    target_link_libraries(radio_import_test PRIVATE radioreader Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    target_link_libraries(radio_import_test PRIVATE Qt6::Network radioreader Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME radio_import COMMAND radio_import_test)
 
     qt_add_executable(project_roundtrip_test
@@ -245,7 +249,7 @@ if(BUILD_TESTING)
         src/ziparchive.cpp
         src/ziparchive.h
     )
-    target_link_libraries(project_roundtrip_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    target_link_libraries(project_roundtrip_test PRIVATE radioreader Qt6::Network Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME project_roundtrip COMMAND project_roundtrip_test)
 
     qt_add_executable(codeplug_import_test
@@ -255,7 +259,7 @@ if(BUILD_TESTING)
         src/ziparchive.cpp
         src/ziparchive.h
     )
-    target_link_libraries(codeplug_import_test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
+    target_link_libraries(codeplug_import_test PRIVATE radioreader Qt6::Network Qt6::Core Qt6::Gui Qt6::Widgets ZLIB::ZLIB)
     add_test(NAME RequiresCodeplug-codeplug_import COMMAND codeplug_import_test)
 
     qt_add_executable(ui_smoke_test
@@ -267,13 +271,13 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/PageAction.qml qml/PageField.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/PageAction.qml qml/PageField.qml
               qml/PageComboBox.qml qml/PageSpinBox.qml qml/PageTabButton.qml qml/PageCheckBox.qml
               qml/PageChoice.qml qml/PageDialog.qml
               qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
     )
     target_link_libraries(ui_smoke_test PRIVATE
-        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets ZLIB::ZLIB radioreader)
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Widgets Qt6::Network ZLIB::ZLIB radioreader)
     foreach(mode IN ITEMS manual saved saved-live)
         add_test(NAME ui_repeater_switch_${mode} COMMAND ui_smoke_test --demo --switch-${mode})
         set_tests_properties(ui_repeater_switch_${mode} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)

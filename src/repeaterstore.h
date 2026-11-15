@@ -8,6 +8,8 @@
 #include <QVariantList>
 #include <vector>
 
+class QThread;
+
 class RepeaterStore : public QObject
 {
     Q_OBJECT
@@ -35,6 +37,10 @@ class RepeaterStore : public QObject
     Q_PROPERTY(bool hasImportedCodeplug READ hasImportedCodeplug NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool separateDisplayLists READ separateDisplayLists NOTIFY importedCodeplugChanged)
     Q_PROPERTY(bool radioTransferAvailable READ radioTransferAvailable NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(bool satelliteSupportAvailable READ satelliteSupportAvailable NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(bool satelliteUpdateBusy READ satelliteUpdateBusy NOTIFY satelliteUpdateBusyChanged)
+    Q_PROPERTY(QString satelliteStatus READ satelliteStatus NOTIFY satelliteProgressChanged)
+    Q_PROPERTY(double satelliteProgress READ satelliteProgress NOTIFY satelliteProgressChanged)
     Q_PROPERTY(QVariantList newProjectOptions READ newProjectOptions CONSTANT)
     Q_PROPERTY(QVariantList radioReadOptions READ radioReadOptions CONSTANT)
     Q_PROPERTY(QString importedCodeplugSummary READ importedCodeplugSummary NOTIFY importedCodeplugChanged)
@@ -47,6 +53,7 @@ class RepeaterStore : public QObject
 
 public:
     explicit RepeaterStore(QObject *parent = nullptr);
+    ~RepeaterStore() override;
 
     QStringList repeaterNames() const;
     int selectedIndex() const;
@@ -68,11 +75,19 @@ public:
     QVariantList slot2Talkgroups() const;
     QVariantList selectedSimplexFrequencies() const;
     QVariantList contacts() const;
+    Q_INVOKABLE void copyApplicationVersion() const;
     QString projectDisplayName() const;
     QString sourceCodeplugName() const;
     bool modified() const;
     bool hasImportedCodeplug() const;
     bool radioTransferAvailable() const;
+    bool satelliteSupportAvailable() const;
+    bool satelliteUpdateBusy() const { return m_satelliteUpdateBusy; }
+    QString satelliteStatus() const { return m_satelliteStatus; }
+    double satelliteProgress() const { return m_satelliteProgress; }
+    Q_INVOKABLE bool updateSatelliteRadio(const QVariantList &rows, const QString &url);
+    Q_INVOKABLE QVariantMap loadSatelliteSettings();
+    Q_INVOKABLE bool saveSatelliteSettings(const QVariantList &rows, const QString &url);
     bool separateDisplayLists() const { return m_importedCodeplug.separateDisplayLists; }
     Q_INVOKABLE QString radioDefinitionPath() const;
     Q_INVOKABLE QString radioDefinitionPathFor(const QString &definitionFile) const;
@@ -157,6 +172,10 @@ public:
     bool exportCodeplugToFile(const QString &path);
 
 signals:
+    void satelliteUpdateBusyChanged();
+    void satelliteUpdateCompleted(const QVariantList &catalogIds);
+    void satelliteUpdateFailed();
+    void satelliteProgressChanged();
     void aboutToResetProject();
     void repeatersChanged();
     void selectedRepeaterChanged();
@@ -170,6 +189,7 @@ signals:
     void radioSettingsChanged();
 
 private:
+    void startSatelliteTransfer(const QString &source, const QVariantList &rows);
     QVector<int> zoneMembers(const ImportedZone &zone) const;
     void applyZoneMembers(ImportedZone &zone, const QVector<int> &members);
     bool zoneHasRoom(const ImportedZone &zone, int displays = 3) const;
@@ -229,6 +249,11 @@ private:
         int colorCode = 0;
     };
 
+    QThread *m_satelliteThread = nullptr;
+    QString m_satelliteStatus;
+    double m_satelliteProgress = 0;
+    bool m_satelliteUpdateBusy = false;
+    QVariantList m_satelliteOrbitData;
     std::vector<Repeater> m_repeaters;
     int m_selectedIndex = 0;
     QString m_projectPath;

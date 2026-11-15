@@ -1,7 +1,21 @@
 #include "repeaterstore.h"
 #include "codeplugdefinitions.h"
 #include "ziparchive.h"
+#include "satelliteorbits.h"
+#include "satellitedata.h"
+#include "serialexecutor.h"
+#include "radiodefinition.h"
+#include <QThread>
+#include <memory>
+#include <cstdio>
 
+#include <QCoreApplication>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QCryptographicHash>
 #include <QFile>
 #include <QFileDialog>
@@ -15,6 +29,10 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QSaveFile>
+#include <QStandardPaths>
+#include <QSettings>
+#include <QDir>
+#include <QUrl>
 #include <QTimer>
 #include <QVariantMap>
 #include <algorithm>
@@ -78,6 +96,14 @@ RepeaterStore::RepeaterStore(QObject *parent)
             {QStringLiteral("Regional"), 3100, QStringLiteral("Riverbend Regio")}}}}
 {
     connect(this, &RepeaterStore::importedSelectionChanged, this, [this] { m_zoneChoicesCached = false; });
+}
+
+RepeaterStore::~RepeaterStore()
+{
+    if (m_satelliteThread) {
+        m_satelliteThread->wait();
+        delete m_satelliteThread;
+    }
 }
 
 void RepeaterStore::notifyContactsChanged()
@@ -211,6 +237,11 @@ bool RepeaterStore::saveNewRadioSettings(const QString &name, const QString &idT
     }
     return true;
 }
+void RepeaterStore::copyApplicationVersion() const
+{
+    QGuiApplication::clipboard()->setText(QCoreApplication::applicationVersion());
+}
+
 QString RepeaterStore::projectDisplayName() const
 {
     return m_projectPath.isEmpty() ? QStringLiteral("Untitled project") : QFileInfo(m_projectPath).fileName();
@@ -224,6 +255,274 @@ bool RepeaterStore::radioTransferAvailable() const
         && !CodeplugDefinitions::radioDefinitionSource(m_importedCodeplug.definitionFile,
                                                        m_importedCodeplug.definitionVersion).isEmpty();
 }
+bool RepeaterStore::satelliteSupportAvailable() const
+{
+    return hasImportedCodeplug() && radioTransferAvailable()
+        && !CodeplugDefinitions::satelliteDefinition(m_importedCodeplug.definitionFile,
+                                                     m_importedCodeplug.definitionVersion).isEmpty();
+}
+namespace {
+const QString satelliteUrl = QStringLiteral("https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle");
+QString satelliteFilePath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/satellites.txt";
+}
+QStringList satelliteColumns(const QVariant &value)
+{
+    QStringList result;
+    for (const auto &item : value.toList()) result.append(item.toString().trimmed());
+    return result;
+}
+}
+
+QVariantMap RepeaterStore::loadSatelliteSettings()
+{
+    if (!satelliteSupportAvailable()) {
+        fail(tr("This radio definition does not support satellites."));
+        return {};
+    }
+    const QString path = satelliteFilePath();
+    if (!QFileInfo::exists(path)) {
+        if (!QDir().mkpath(QFileInfo(path).absolutePath())) {
+            fail(tr("Could not create the satellite settings folder."));
+            return {};
+        }
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+            fail(tr("Could not create %1: %2").arg(path, file.errorString()));
+            return {};
+        }
+        const QByteArray defaults = R"SATELLITES(Cat  #,Name    ,    Rx1,    Tx1, CTCSS, ArmCTCSS,    Rx2,    Tx2,    Rx3,    Tx3,APRS Config
+43017U,AO-91   ,145.960,435.250,     67,       0,      0,      0,145.960,      0,
+61781U,AO-123  ,435.400,145.850,     67,       0,      0,      0,436.210,      0,
+40931U,IO-86   ,435.880,145.880,   88.5,       0,      0,      0,437.425,      0,
+25544U,ISS     ,437.800,145.990,     67,       0,145.825,145.825,145.800,      0,RS0ISS
+40908U,LilacSat,437.200,144.350,      0,       0,      0,      0,437.200,      0,
+43678U,PO-101  ,145.900,437.500,  141.3,       0,      0,      0,145.900,      0,
+27607U,SO-50   ,436.795,145.850,     67,    74.4,      0,      0,436.795,      0,
+59112U,SONATE-2,145.880,      0,      0,       0,145.825,145.825,145.840,      0,DP0SNX
+57172U,UmKA-1  ,437.625,      0,      0,       0,      0,      0,437.625,      0,
+67291U,RS95S   ,436.950,145.920,     67,       0,      0,      0,436.950,      0,
+)SATELLITES";
+        if (file.write(defaults) != defaults.size() || !file.flush()) {
+            fail(tr("Could not write satellite defaults: %1").arg(file.errorString()));
+            return {};
+        }
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 1024 * 1024) {
+        fail(tr("Could not read satellite list: %1").arg(path));
+        return {};
+    }
+    const QStringList lines = QString::fromUtf8(file.readAll()).split('\n');
+    QVariantList rows;
+    for (int i = 1; i < lines.size(); ++i) {
+        if (lines[i].trimmed().isEmpty()) continue;
+        const QStringList columns = lines[i].split(',');
+        if (columns.size() != 11) {
+            fail(tr("Satellite list line %1 must contain 11 columns. The file was not changed.").arg(i + 1));
+            return {};
+        }
+        QVariantList row;
+        for (const auto &column : columns) row.append(column.trimmed());
+        rows.append(QVariant(row));
+    }
+    const auto definition = CodeplugDefinitions::satelliteDefinition(m_importedCodeplug.definitionFile,
+                                                                    m_importedCodeplug.definitionVersion);
+    QSettings settings(QStringLiteral("WaffleCPS"), QStringLiteral("WaffleCPS"));
+    return {{"rows", rows}, {"path", path}, {"capacity", definition.value("capacity").toInt()},
+            {"url", settings.value("satellites/orbitalUrl", satelliteUrl).toString()}};
+}
+
+bool RepeaterStore::saveSatelliteSettings(const QVariantList &rows, const QString &url)
+{
+    if (!satelliteSupportAvailable()) return fail(tr("This radio definition does not support satellites."));
+    const auto definition = CodeplugDefinitions::satelliteDefinition(m_importedCodeplug.definitionFile,
+                                                                    m_importedCodeplug.definitionVersion);
+    if (rows.size() > definition.value("capacity").toInt())
+        return fail(tr("This radio supports at most %1 satellites.").arg(definition.value("capacity").toInt()));
+    const QUrl parsedUrl(url.trimmed());
+    if (!parsedUrl.isValid() || parsedUrl.host().isEmpty()
+        || (parsedUrl.scheme() != "https" && parsedUrl.scheme() != "http"))
+        return fail(tr("Enter an HTTP or HTTPS URL for Keplerian data."));
+    QString text = "Cat  #,Name,Rx1,Tx1,CTCSS,ArmCTCSS,Rx2,Tx2,Rx3,Tx3,APRS Config\n";
+    QSet<QString> catalogIds;
+    for (int i = 0; i < rows.size(); ++i) {
+        auto columns = satelliteColumns(rows[i]);
+        if (columns.size() != 11) return fail(tr("Satellite %1 has invalid fields.").arg(i + 1));
+        if (!QRegularExpression("^[0-9]{1,5}U?$").match(columns[0]).hasMatch()
+            || columns[0].remove('U').toInt() <= 0)
+            return fail(tr("Satellite %1 needs a catalog ID from 1 to 99999.").arg(i + 1));
+        if (catalogIds.contains(columns[0])) return fail(tr("Duplicate satellite catalog ID: %1").arg(columns[0]));
+        catalogIds.insert(columns[0]);
+        columns[0] += 'U';
+        if (columns[1].isEmpty() || columns[1].size() > 8)
+            return fail(tr("Satellite %1 needs a name of 1 to 8 characters.").arg(i + 1));
+        for (const auto &column : columns)
+            for (const QChar ch : column)
+                if (ch.unicode() < 32 || ch.unicode() > 126 || ch == ',' || ch == '"')
+                    return fail(tr("Satellite fields must use plain text without commas or quotation marks."));
+        for (int field = 2; field <= 9; ++field) {
+            bool ok = false;
+            const double value = columns[field].toDouble(&ok);
+            const bool tone = field == 4 || field == 5;
+            if (!ok || !std::isfinite(value) || value < 0 || value > (tone ? 300.0 : 4294.967295))
+                return fail(tr("Satellite %1 has an invalid frequency or tone. Use 0 for unused fields.").arg(i + 1));
+        }
+        text += columns.join(',') + '\n';
+    }
+    QSaveFile file(satelliteFilePath());
+    if (!file.open(QIODevice::WriteOnly)) return fail(tr("Could not open satellite list: %1").arg(file.errorString()));
+    const QByteArray bytes = text.toUtf8();
+    if (file.write(bytes) != bytes.size() || !file.commit())
+        return fail(tr("Could not save satellite list: %1").arg(file.errorString()));
+    QSettings settings(QStringLiteral("WaffleCPS"), QStringLiteral("WaffleCPS"));
+    settings.setValue("satellites/orbitalUrl", url.trimmed());
+    settings.sync();
+    if (settings.status() != QSettings::NoError)
+        return fail(tr("The satellite list was saved, but the Keplerian URL could not be saved."));
+    return true;
+}
+
+bool RepeaterStore::updateSatelliteRadio(const QVariantList &rows, const QString &url)
+{
+    if (m_satelliteUpdateBusy) return false;
+    if (!satelliteSupportAvailable()) return fail(tr("This radio definition does not support satellites."));
+    const QUrl address(url.trimmed());
+    if (!address.isValid() || address.host().isEmpty()
+        || (address.scheme() != "https" && address.scheme() != "http"))
+        return fail(tr("Enter an HTTP or HTTPS URL for Keplerian data."));
+    QSet<int> wanted;
+    for (const auto &row : rows) {
+        const QStringList columns = satelliteColumns(row);
+        QString id = columns.value(0);
+        if (id.endsWith('U')) id.chop(1);
+        if (columns.size() != 11 || !QRegularExpression("^[0-9]{1,5}$").match(id).hasMatch()
+            || id.toInt() <= 0 || wanted.contains(id.toInt()))
+            return fail(tr("Each satellite must have a unique catalog ID from 1 to 99999."));
+        wanted.insert(id.toInt());
+    }
+    if (wanted.isEmpty()) return fail(tr("Add a satellite before downloading orbital data."));
+    const QString source = radioDefinitionPath();
+    auto *network = new QNetworkAccessManager(this);
+    QNetworkRequest request(address);
+    request.setRawHeader("User-Agent", "WaffleCPS/" + QCoreApplication::applicationVersion().toUtf8());
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+    request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, false);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto *reply = network->get(request);
+    auto *deadline = new QTimer(reply);
+    deadline->setSingleShot(true);
+    deadline->setInterval(30000);
+    connect(deadline, &QTimer::timeout, reply, [reply] {
+        reply->setProperty("satelliteDownloadError", QStringLiteral("The orbital-data download timed out."));
+        reply->abort();
+    });
+    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64 total) {
+        if (received > 4 * 1024 * 1024 || total > 4 * 1024 * 1024) {
+            reply->setProperty("satelliteDownloadError", QStringLiteral("The orbital-data download exceeds 4 MiB."));
+            reply->abort();
+        }
+    });
+    m_satelliteUpdateBusy = true;
+    m_satelliteStatus = tr("Downloading orbital data…");
+    m_satelliteProgress = 0;
+    emit satelliteProgressChanged();
+    m_satelliteOrbitData.clear();
+    emit satelliteUpdateBusyChanged();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, network, deadline, wanted, source, rows] {
+        deadline->stop();
+        QString error = reply->property("satelliteDownloadError").toString();
+        if (error.isEmpty() && reply->error() != QNetworkReply::NoError)
+            error = tr("Orbital-data download failed: %1").arg(reply->errorString());
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (error.isEmpty() && (status < 200 || status >= 300))
+            error = tr("Orbital-data server returned HTTP %1.").arg(status);
+        const QByteArray bytes = reply->readAll();
+        if (error.isEmpty() && bytes.size() > 4 * 1024 * 1024)
+            error = tr("The orbital-data download exceeds 4 MiB.");
+        if (error.isEmpty() && source != radioDefinitionPath())
+            error = tr("The selected radio changed during the orbital-data download. Please try again.");
+        SatelliteOrbits::Records records;
+        if (error.isEmpty()) SatelliteOrbits::parse(bytes, &records, &error);
+        if (error.isEmpty()) {
+            for (int id : wanted) {
+                if (!records.contains(id)) continue;
+                const auto pair = records.value(id);
+                m_satelliteOrbitData.append(QVariantMap{{"catalogId", id}, {"line1", pair.first}, {"line2", pair.second}});
+            }
+            try {
+                startSatelliteTransfer(source, rows);
+            } catch (const std::exception &exception) {
+                error = QString::fromUtf8(exception.what());
+            }
+        }
+        if (!error.isEmpty()) {
+            m_satelliteUpdateBusy = false;
+            m_satelliteOrbitData.clear();
+            m_satelliteStatus = tr("Satellite update failed.");
+            emit satelliteUpdateBusyChanged();
+            emit satelliteProgressChanged();
+            emit satelliteUpdateFailed();
+            fail(error);
+        }
+        network->deleteLater();
+    });
+    deadline->start();
+    return true;
+}
+
+void RepeaterStore::startSatelliteTransfer(const QString &source, const QVariantList &rows)
+{
+    const QJsonObject satelliteDefinition = CodeplugDefinitions::satelliteDefinition(
+        m_importedCodeplug.definitionFile, m_importedCodeplug.definitionVersion);
+    QVariantList writtenIds;
+    const QByteArray payload = SatelliteData::encode(satelliteDefinition, rows, m_satelliteOrbitData, &writtenIds);
+    m_satelliteOrbitData.clear();
+    RadioDefinition radio;
+    CodeplugDefinition codeplug;
+    QString error;
+    if (!RadioDefinition::loadProfile(source, &radio, &codeplug, nullptr, &error))
+        throw std::runtime_error(error.toStdString());
+    m_satelliteStatus = tr("Connecting to radio…");
+    emit satelliteProgressChanged();
+    auto result = std::make_shared<QString>();
+    m_satelliteThread = QThread::create([this, radio, satelliteDefinition, payload, result] {
+        try {
+            const auto progress = [this](const std::string &stage, uint32_t done, uint32_t total) {
+                QMetaObject::invokeMethod(this, [this, stage, done, total] {
+                    m_satelliteStatus = QString::fromStdString(stage);
+                    m_satelliteProgress = total ? double(done) / total : 0;
+                    emit satelliteProgressChanged();
+                }, Qt::QueuedConnection);
+            };
+            SerialExecutor::writeSatellites(radio, satelliteDefinition, payload, progress);
+        } catch (const std::exception &exception) {
+            *result = QString::fromUtf8(exception.what());
+        }
+    });
+    connect(m_satelliteThread, &QThread::finished, this, [this, result, writtenIds, source] {
+        auto *finished = m_satelliteThread;
+        m_satelliteThread = nullptr;
+        finished->deleteLater();
+        m_satelliteUpdateBusy = false;
+        emit satelliteUpdateBusyChanged();
+        if (result->isEmpty()) {
+            m_satelliteStatus = tr("Satellite update complete. The radio clock was set to UTC.");
+            m_satelliteProgress = 1;
+            emit satelliteUpdateCompleted(writtenIds);
+        } else {
+            m_satelliteStatus = tr("Satellite update failed.");
+            std::fprintf(stderr, "[satellites] Update failed using %s: %s\n", qUtf8Printable(source), qUtf8Printable(*result));
+            std::fflush(stderr);
+            emit satelliteUpdateFailed();
+            fail(tr("Satellite update failed: %1").arg(*result));
+        }
+        emit satelliteProgressChanged();
+    });
+    m_satelliteThread->start();
+}
+
 QString RepeaterStore::radioDefinitionPath() const
 {
     return hasImportedCodeplug()

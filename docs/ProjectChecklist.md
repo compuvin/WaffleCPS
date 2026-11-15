@@ -125,7 +125,8 @@ Treat each model and firmware variant as a separate compatibility target. File i
 
 - [ ] Consider applying a talkgroup change across multiple repeaters after duplication and a shared talkgroup library work. The workflow needs careful design because it could confuse users and is difficult to implement with the current setup.
 - [x] Reorder zones/repeaters
-- [ ] Satellite support for those radios that support it (OpenGD77, Anytone, etc.)
+- [ ] Satellite support for those radios that support it 
+- [ ] Support APRS settings
 
 ## Agreed implementation order
 
