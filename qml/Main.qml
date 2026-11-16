@@ -261,6 +261,12 @@ ApplicationWindow {
                             y: parent.height
                             HeaderMenuItem { text: "Import"; onClicked: store.importCodeplugDialog() }
                             HeaderMenuItem { text: "Export"; onClicked: store.exportCodeplugDialog() }
+                            HeaderMenuItem {
+                                objectName: "convertCodeplugButton"
+                                text: "Convert"
+                                enabled: !radioReader.busy && !radioWriter.busy && !store.satelliteUpdateBusy
+                                onClicked: conversionDialog.showPicker()
+                            }
                         }
                     }
                     HeaderAction {
@@ -1154,6 +1160,93 @@ ApplicationWindow {
     }
 
     SatelliteDialog { id: satelliteDialog }
+
+    ConversionDialog {
+        id: conversionDialog
+        onWarningRequested: conversionWarning.open()
+        onConverted: conversionSuccess.open()
+    }
+    PageDialog {
+        id: conversionWarning
+        objectName: "conversionWarningDialog"
+        modal: true
+        title: "Conversion warning"
+        width: Math.min(460, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label {
+                text: "Some settings will be lost when converting to this radio. Review the changes before continuing."
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: "#173d30"
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction {
+                    text: "Cancel"
+                    onClicked: {
+                        conversionWarning.close()
+                        conversionDialog.close()
+                    }
+                }
+                PageAction {
+                    text: "Continue"
+                    primary: true
+                    onClicked: {
+                        conversionDialog.stage = 1
+                        conversionWarning.close()
+                    }
+                }
+            }
+        }
+    }
+    PageDialog {
+        id: conversionSuccess
+        objectName: "conversionSuccessDialog"
+        modal: true
+        title: "Conversion complete"
+        width: Math.min(420, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        padding: 20
+        standardButtons: Dialog.NoButton
+        background: Rectangle {
+            color: "#ffffff"
+            radius: 12
+            border.color: "#246448"
+            border.width: 2
+        }
+        header: Rectangle {
+            implicitHeight: 52
+            color: "#246448"
+            Label {
+                anchors.fill: parent
+                anchors.margins: 16
+                text: conversionSuccess.title
+                color: "#ffffff"
+                font.bold: true
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+        contentItem: ColumnLayout {
+            spacing: 20
+            Label {
+                text: "Codeplug converted successfully."
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: "#173d30"
+            }
+            PageAction {
+                text: "OK"
+                primary: true
+                Layout.alignment: Qt.AlignRight
+                onClicked: conversionSuccess.accept()
+            }
+        }
+    }
 
     AboutDialog {
         id: aboutDialog

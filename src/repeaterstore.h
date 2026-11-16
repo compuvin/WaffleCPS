@@ -10,6 +10,8 @@
 
 class QThread;
 
+namespace CodeplugConversion { struct Session; }
+
 class RepeaterStore : public QObject
 {
     Q_OBJECT
@@ -158,6 +160,10 @@ public:
     Q_INVOKABLE void newProject();
     Q_INVOKABLE void newProjectDialog();
     Q_INVOKABLE bool newProjectForDefinition(const QString &definitionFile);
+    Q_INVOKABLE QVariantMap beginConversion(const QString &definitionFile, bool twoMeters, bool seventyCm);
+    Q_INVOKABLE QVariantMap setConversionChoice(const QString &kind, int index, bool included);
+    Q_INVOKABLE bool applyConversion();
+    Q_INVOKABLE void cancelConversion();
     Q_INVOKABLE bool saveNewRadioSettings(const QString &name, const QString &idText);
     Q_INVOKABLE bool updateRadioSettings(const QString &name, const QString &idText);
     Q_INVOKABLE void exportCodeplugDialog();
@@ -189,6 +195,8 @@ signals:
     void radioSettingsChanged();
 
 private:
+    ImportedCodeplug conversionSource() const;
+    QVariantMap refreshConversion(bool initialize = false);
     void startSatelliteTransfer(const QString &source, const QVariantList &rows);
     QVector<int> zoneMembers(const ImportedZone &zone) const;
     void applyZoneMembers(ImportedZone &zone, const QVector<int> &members);
@@ -249,6 +257,8 @@ private:
         int colorCode = 0;
     };
 
+    std::unique_ptr<CodeplugConversion::Session> m_conversion;
+    quint64 m_conversionRevision = 0;
     QThread *m_satelliteThread = nullptr;
     QString m_satelliteStatus;
     double m_satelliteProgress = 0;

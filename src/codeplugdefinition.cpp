@@ -2478,6 +2478,69 @@ bool CodeplugDefinition::inspect(const QByteArray &input, QJsonObject *result, Q
     });
 }
 
+bool CodeplugDefinition::conversionMetadata(const QByteArray &input, QJsonObject *result, QString *error) const
+{
+    return checked(error, [&] {
+        require(result, "Missing conversion metadata output.");
+        const EditorBindings editor(m_definition);
+        const auto tables = m_definition.value("tables").toObject();
+        const auto binding = editor.get("contacts", "call_type");
+        const auto field = tables.value(binding.table).toObject().value("fields").toObject().value(binding.field).toObject();
+        QJsonArray callTypes;
+        for (const auto &value : field.value("enum").toObject())
+            if (value.isString() && !callTypes.contains(value)) callTypes.append(value);
+        QJsonObject inspected;
+        QString detail;
+        const bool inspectedOk = inspect(input, &inspected, &detail);
+        require(inspectedOk, "Cannot inspect source contact references: " + detail);
+        QJsonArray references;
+        for (auto table = tables.begin(); table != tables.end(); ++table) {
+            const auto fields = table.value().toObject().value("fields").toObject();
+            for (auto f = fields.begin(); f != fields.end(); ++f) {
+                const auto schema = f.value().toObject();
+                const auto ref = schema.value("reference").toObject();
+                if (!schema.contains("count") || ref.value("table").toString() != editor.contacts) continue;
+                const qint64 base = integer(ref.value("index_base"));
+                const bool hasNull = ref.contains("null_value");
+                const qint64 null = hasNull ? integer(ref.value("null_value")) : 0;
+                const auto rows = inspected.value("tables").toObject().value(table.key()).toObject().value("records").toArray();
+                for (const auto &row : rows)
+                    for (const auto &value : row.toObject().value("raw_values").toObject().value(f.key()).toArray()) {
+                        const qint64 number = numeric(value.toVariant());
+                        if (!hasNull || number != null) references.append(double(number - base));
+                    }
+            }
+        }
+        QJsonObject limits = editor.limits;
+        QJsonObject names = limits.value("names").toObject();
+        const QMap<QString, QPair<QString, QString>> nameBindings{
+            {"radio_name", {"radio", "radio_name"}}, {"channel_name", {"channels", "name"}},
+            {"contact_name", {"contacts", "name"}}, {"zone_name", {"zones", "name"}}};
+        for (auto it = nameBindings.begin(); it != nameBindings.end(); ++it) {
+            const auto nameBinding = editor.get(it.value().first, it.value().second);
+            const auto fields = nameBinding.table.isEmpty() ? m_definition.value("fields").toObject()
+                : tables.value(nameBinding.table).toObject().value("fields").toObject();
+            const auto schema = fields.value(nameBinding.field).toObject();
+            if (schema.value("type") != "packed6") continue;
+            QString key = it.key();
+            QJsonObject rule;
+            for (int depth = 0; depth < 16; ++depth) {
+                rule = names.value(key).toObject();
+                if (!rule.contains("same_as")) break;
+                key = rule.value("same_as").toString();
+            }
+            require(!rule.isEmpty() && !rule.contains("same_as"), "Invalid conversion name rule.");
+            rule.insert("storage_alphabet", schema.value("alphabet"));
+            rule.insert("storage_characters", schema.value("characters"));
+            names.insert(it.key(), rule);
+        }
+        limits.insert("names", names);
+        *result = {{"limits", limits}, {"call_types", callTypes},
+            {"modes", m_definition.value("creation").toObject().value("channel_defaults").toObject().value("modes")},
+            {"contact_references", references}};
+    });
+}
+
 bool CodeplugDefinition::read(const QByteArray &input, ImportedCodeplug *result, QString *error) const
 {
     return checked(error, [&] {

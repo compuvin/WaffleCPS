@@ -31,7 +31,9 @@ The packages include the radio definitions. Building from source is optional; in
 
 You can also begin with **Codeplug → Import** to open an existing codeplug, **Project → Open** to resume a saved project, or **Radio → Read** to download a supported radio's current programming. At startup, Read asks you to choose a radio; an existing radio project supplies that selection.
 
-**Save** keeps an editable WaffleCPS project, including the original codeplug when one was imported or read. **Export** creates the radio's native codeplug file. The **Blank project** option lets you work without selecting a radio and save a project; converting it to a radio-specific codeplug is a future feature.
+**Save** keeps an editable WaffleCPS project, including the original codeplug when one was imported or read. **Export** creates the radio's native codeplug file. The **Blank project** option lets you work without selecting a radio; use **Codeplug → Convert** to select a radio before exporting.
+
+To move your programming to another radio, choose **Codeplug → Convert**, select the destination radio and its supported VHF/UHF ranges, then review what will transfer, change, or be omitted. Oversized zones are split to fit the destination. Only settings represented in WaffleCPS transfer; other radio-specific settings do not. Conversion opens an unsaved project for the destination radio and does not write to the radio.
 
 ## Radio support
 
@@ -46,10 +48,11 @@ Included codeplug definitions cover these radios and file formats. Compatibility
 | CS800D | `.rdb` (D4.3.01 layout) | Yes |
 | MD-380 / MD-390 | `.rdt` | Yes |
 | MD-UV390 | `.rdt` | Yes |
+| MD9600 | `.rdt` | Yes |
 | OpenGD77 | `.g77` | Yes |
 | DM-32UV | `.data` | Yes |
 
-Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380 and MD-UV390 transfer definitions and other OpenGD77 radio types still need hardware verification.
+Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380/MD-390, MD-UV390, and MD9600 transfer definitions and other OpenGD77 radio types still need hardware verification.
 
 Keep your original codeplug and a backup of your radio's programming. Backups are manual; see [Radio operations](docs/RadioOperations.md).
 
@@ -79,12 +82,14 @@ These views use an imported CS7000 GPS codeplug.
 - Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
 - Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
 - Create a new codeplug for a selected radio, or export an edited import using its radio definition and preserved source bytes.
+- Convert between supported radio formats, including from a blank project, with a review of capacity limits, frequency exclusions, name changes, and settings that will not transfer.
 - Reorder zones and repeaters, including alphabetically, and arrange channels in radio order.
 - Assign channels to Top, Bottom, or Both displays on radios with separate channel lists, and order each display independently.
 - View and edit transmit and receive CTCSS tones for analog channels when supported by the selected definition.
 - Read and write radios using the included transfer definitions, as described in Radio support above.
+- Edit satellite presets and download fresh orbital data to update satellite information and the clock on supported OpenGD77 radios.
 
-The application version and build commit ID appear beneath the WaffleCPS name. Include these when reporting a problem.
+The application version and build commit ID appear beneath the WaffleCPS name. Click them to open About, view credits, or copy the version for a problem report.
 
 The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
 

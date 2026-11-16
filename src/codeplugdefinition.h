@@ -27,6 +27,7 @@ public:
     bool matchesRawFields(const QByteArray &input, const QJsonObject &expected) const;
     // Decode and validate declared binary fields/tables independently of editor bindings.
     bool inspect(const QByteArray &input, QJsonObject *result, QString *error) const;
+    bool conversionMetadata(const QByteArray &input, QJsonObject *result, QString *error) const;
     bool read(const QByteArray &input, ImportedCodeplug *result, QString *error) const;
     bool decodedImage(const QByteArray &input, QByteArray *result, QString *error) const;
     bool encodeRadioImage(const QByteArray &decoded, QByteArray *result,

@@ -1,5 +1,6 @@
 #include "repeaterstore.h"
 #include "codeplugdefinitions.h"
+#include "codeplugconversion.h"
 #include "ziparchive.h"
 #include "satelliteorbits.h"
 #include "satellitedata.h"
@@ -96,6 +97,12 @@ RepeaterStore::RepeaterStore(QObject *parent)
             {QStringLiteral("Regional"), 3100, QStringLiteral("Riverbend Regio")}}}}
 {
     connect(this, &RepeaterStore::importedSelectionChanged, this, [this] { m_zoneChoicesCached = false; });
+    for (auto signal : {&RepeaterStore::projectChanged, &RepeaterStore::repeatersChanged,
+                        &RepeaterStore::contactsChanged, &RepeaterStore::talkgroupsChanged,
+                        &RepeaterStore::simplexFrequenciesChanged, &RepeaterStore::radioSettingsChanged,
+                        &RepeaterStore::importedCodeplugChanged, &RepeaterStore::selectedRepeaterChanged,
+                        &RepeaterStore::importedSelectionChanged})
+        connect(this, signal, this, [this] { ++m_conversionRevision; });
 }
 
 RepeaterStore::~RepeaterStore()
@@ -1887,6 +1894,182 @@ void RepeaterStore::newProjectDialog()
     QTimer::singleShot(100, this, [this] { newProject(); });
 }
 
+ImportedCodeplug RepeaterStore::conversionSource() const
+{
+    if (hasImportedCodeplug()) {
+        auto source = m_importedCodeplug;
+        source.radioName = m_radioName;
+        source.radioId = m_radioId;
+        return source;
+    }
+    ImportedCodeplug source;
+    source.radioName = m_radioName;
+    source.radioId = m_radioId;
+    source.contacts = m_manualContacts;
+    auto contactFor = [&](const Talkgroup &group) {
+        for (int i = 0; i < source.contacts.size(); ++i)
+            if (source.contacts[i].id == group.id && source.contacts[i].callTypeValue() == "group") return i + 1;
+        source.contacts.append({group.name, group.id, true});
+        return int(source.contacts.size());
+    };
+    for (const auto &repeater : m_repeaters) {
+        ImportedZone zone;
+        zone.name = repeater.name;
+        for (const auto &entry : orderedChannels(repeater)) {
+            ImportedChannel channel;
+            if (entry.first == 0) {
+                const auto &simplex = repeater.simplexFrequencies[entry.second];
+                channel.name = simplex.name;
+                channel.frequencyAHz = channel.frequencyBHz = quint32(simplex.hz);
+                channel.digital = simplex.digital;
+                channel.colorCode = simplex.colorCode;
+                channel.timeSlot = simplex.timeSlot;
+                channel.highPower = true;
+            } else {
+                const auto &group = (entry.first == 1 ? repeater.slot1 : repeater.slot2)[entry.second];
+                channel.name = group.channelName.isEmpty() ? group.name : group.channelName;
+                channel.frequencyAHz = quint32(repeater.txHz);
+                channel.frequencyBHz = quint32(repeater.rxHz);
+                channel.digital = true;
+                channel.colorCode = repeater.colorCode;
+                channel.timeSlot = entry.first;
+                channel.contactIndex = contactFor(group);
+                channel.highPower = repeater.highPower;
+            }
+            channel.receiveCtcss = channel.transmitCtcss = 0;
+            zone.channelIndexes.append(source.channels.size());
+            source.channels.append(channel);
+        }
+        if (zone.channelIndexes.isEmpty()) {
+            ImportedChannel draft;
+            draft.name = repeater.name;
+            draft.frequencyAHz = quint32(repeater.txHz);
+            draft.frequencyBHz = quint32(repeater.rxHz);
+            draft.digital = true;
+            draft.colorCode = repeater.colorCode;
+            draft.timeSlot = 1;
+            draft.highPower = repeater.highPower;
+            draft.receiveCtcss = draft.transmitCtcss = 0;
+            zone.repeaterTemplate = draft;
+        }
+        source.zones.append(zone);
+    }
+    return source;
+}
+
+QVariantMap RepeaterStore::beginConversion(const QString &definitionFile, bool twoMeters, bool seventyCm)
+{
+    if (satelliteUpdateBusy()) { fail(tr("Wait for the radio update to finish before converting.")); return {}; }
+    m_conversion.reset();
+    try {
+        auto session = std::make_unique<CodeplugConversion::Session>();
+        QString error;
+        session->targetBase = CodeplugDefinitions::defaultCodeplug(definitionFile, &error);
+        if (session->targetBase.isEmpty()
+            || !CodeplugDefinitions::read(session->targetBase, &session->baseline, &error, definitionFile)
+            || !CodeplugDefinitions::conversionMetadata(session->targetBase, definitionFile, &session->metadata, &error)) {
+            fail(error); return {};
+        }
+        session->source = conversionSource();
+        session->twoMeters = twoMeters;
+        session->seventyCm = seventyCm;
+        session->sourceRevision = m_conversionRevision;
+        session->contactUses.fill(0, session->source.contacts.size());
+        if (hasImportedCodeplug() && !m_sourceCodeplug.isEmpty()) {
+            QJsonObject sourceMetadata;
+            if (!CodeplugDefinitions::conversionMetadata(m_sourceCodeplug, m_importedCodeplug.definitionFile, &sourceMetadata, &error)) {
+                fail(error); return {};
+            }
+            QMap<int, int> counts;
+            for (const auto &ref : sourceMetadata.value("contact_references").toArray()) ++counts[ref.toInt()];
+            for (int i = 0; i < session->source.contacts.size(); ++i) {
+                const int record = session->source.contacts[i].sourceRecord;
+                if (record >= 0) session->contactUses[i] = counts.value(record);
+            }
+        }
+        m_conversion = std::move(session);
+        return refreshConversion(true);
+    } catch (const std::exception &exception) { fail(QString::fromUtf8(exception.what())); return {}; }
+}
+
+QVariantMap RepeaterStore::refreshConversion(bool initialize)
+{
+    try {
+        if (!m_conversion || m_conversion->sourceRevision != m_conversionRevision) {
+            fail(tr("The source project changed. Please reopen Convert to review it again.")); return {};
+        }
+        m_conversion->prepared.clear();
+        CodeplugConversion::rebuild(*m_conversion, initialize);
+        if (m_conversion->review.value("canConvert").toBool()) {
+            QString error;
+            if (!CodeplugDefinitions::write(m_conversion->targetBase, m_conversion->converted,
+                    m_conversion->converted.radioName, m_conversion->converted.radioId, &m_conversion->prepared, &error)) {
+                auto blockers = m_conversion->review.value("blockers").toStringList();
+                blockers.append(tr("Destination validation: %1").arg(error));
+                m_conversion->review.insert("blockers", blockers);
+                m_conversion->review.insert("canConvert", false);
+            }
+        }
+        return m_conversion->review;
+    } catch (const std::exception &exception) { fail(QString::fromUtf8(exception.what())); return {}; }
+}
+
+QVariantMap RepeaterStore::setConversionChoice(const QString &kind, int index, bool included)
+{
+    if (!m_conversion) return {};
+    QSet<int> *selected = nullptr;
+    int count = 0;
+    if (kind == "contacts") { selected = &m_conversion->contacts; count = m_conversion->source.contacts.size(); }
+    else if (kind == "channels") { selected = &m_conversion->channels; count = m_conversion->source.channels.size(); }
+    else if (kind == "zones") { selected = &m_conversion->zones; count = m_conversion->source.zones.size(); }
+    if (!selected || index < 0 || index >= count) return {};
+    if (included) selected->insert(index); else selected->remove(index);
+    return refreshConversion();
+}
+
+void RepeaterStore::cancelConversion() { m_conversion.reset(); }
+
+bool RepeaterStore::applyConversion()
+{
+    if (!m_conversion || m_conversion->sourceRevision != m_conversionRevision)
+        return fail(tr("The source project changed. Please reopen Convert to review it again."));
+    if (!m_conversion->review.value("canConvert").toBool() || m_conversion->prepared.isEmpty())
+        return fail(tr("Resolve the conversion review items before continuing."));
+    ImportedCodeplug checked;
+    QString error;
+    const QByteArray bytes = m_conversion->prepared;
+    const QString definitionFile = m_conversion->baseline.definitionFile;
+    if (!CodeplugDefinitions::read(bytes, &checked, &error, definitionFile)) return fail(error);
+    for (int i = 0; i < checked.zones.size() && i < m_conversion->converted.zones.size(); ++i)
+        checked.zones[i].repeaterTemplate = m_conversion->converted.zones[i].repeaterTemplate;
+    // All target construction and reimport validation finished before touching the workspace.
+    emit aboutToResetProject();
+    m_generatedCodeplug = false;
+    m_zoneClassificationPending = false;
+    m_advancedZoneIndex = -1;
+    m_repeaters.clear();
+    m_manualContacts.clear();
+    m_selectedIndex = 0;
+    m_selectedImportedIndex = 0;
+    m_projectPath.clear();
+    m_sourceCodeplugName.clear();
+    m_sourceCodeplug = bytes;
+    m_importedCodeplug = std::move(checked);
+    m_radioName = m_importedCodeplug.radioName;
+    m_radioId = m_importedCodeplug.radioId;
+    m_conversion.reset();
+    rebuildImportedGroups();
+    emit repeatersChanged();
+    emit selectedRepeaterChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    notifyContactsChanged();
+    emit radioSettingsChanged();
+    setModified(true);
+    emit projectChanged();
+    return true;
+}
+
 bool RepeaterStore::newProjectForDefinition(const QString &definitionFile)
 {
     QString error;
@@ -2957,8 +3140,7 @@ void RepeaterStore::exportCodeplugDialog()
 {
     if (!hasImportedCodeplug()) {
         fail(tr("Blank projects cannot be exported as codeplugs. Save this work as a WaffleCPS project. "
-                "To export a codeplug, first convert it to a radio-specific codeplug. "
-                "Conversion is not available yet."));
+                "To export a codeplug, first use Codeplug > Convert to select a radio."));
         return;
     }
     QString title = tr("Export codeplug");

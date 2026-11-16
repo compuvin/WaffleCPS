@@ -366,6 +366,13 @@ QString CodeplugDefinitions::diskLoadReport()
     return report.join(QStringLiteral("\n\n"));
 }
 
+bool CodeplugDefinitions::conversionMetadata(const QByteArray &source, const QString &definitionFile,
+                                            QJsonObject *result, QString *error)
+{
+    const auto selected = select(source, definitionFile, error);
+    return selected.entry && selected.version->definition.conversionMetadata(source, result, error);
+}
+
 QVariantList CodeplugDefinitions::newProjectOptions()
 {
     QVariantList options;

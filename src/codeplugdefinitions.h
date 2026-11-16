@@ -22,6 +22,8 @@ public:
     static QString definitionForFilter(const QString &filter, QString *error);
     static QString diskLoadReport();
     static QVariantList newProjectOptions();
+    static bool conversionMetadata(const QByteArray &source, const QString &definitionFile,
+                                   QJsonObject *result, QString *error);
     static QVariantList radioReadOptions();
     static QByteArray iconPng(const QString &definitionFile);
     static QString modelName(const QString &definitionFile);

@@ -83,13 +83,13 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 
 - [x] Separate the shared programming model and interface from radio-format adapters.
 - [x] Ask the user to select a target radio model when creating a new codeplug, so its limits guide editing from the start.
-  - [ ] Allow the target radio model to be changed later.
-  - [ ] When the target changes, check the entire configuration against the new model and firmware's capabilities and limits.
-  - [ ] Show anything that does not fit and prompt the user to correct it, including splitting zones or removing extra channels where needed; do not silently discard settings.
-- [ ] Add a cross-radio conversion workflow after source import and target export adapters are reliable.
-  - [ ] Let the user choose a target radio model.
-  - [ ] Show which channels, zones, contacts, and settings can transfer, which need adjustment, and which the target cannot support.
-  - [ ] Require review of the converted configuration before exporting it for the target radio.
+  - [x] Allow the target radio model to be changed later.
+  - [x] When the target changes, check the entire configuration against the new model and firmware's capabilities and limits.
+  - [x] Show anything that does not fit and prompt the user to correct it, including splitting zones or removing extra channels where needed; do not silently discard settings.
+- [x] Add a cross-radio conversion workflow after source import and target export adapters are reliable.
+  - [x] Let the user choose a target radio model.
+  - [x] Show which channels, zones, contacts, and settings can transfer, which need adjustment, and which the target cannot support.
+  - [x] Require review of the converted configuration before exporting it for the target radio.
 - [ ] Verify exact model and firmware compatibility before any radio write.
 - [x] Add radio read/write with backup, validation, and recovery safeguards. [Radio operations and backups](RadioOperations.md)
 - [x] Investigate QDMR, DMRconfig, EditCP, and the other projects in [OtherExamples.md](OtherExamples.md) for reusable code and ideas; check licenses before reuse. [Research and license notes](DMRProjectResearch.md)

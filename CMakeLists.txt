@@ -40,6 +40,7 @@ if(APPLE OR WIN32)
 endif()
 
 add_library(codeplugdefinition STATIC
+    src/codeplugconversion.cpp src/codeplugconversion.h
     src/codeplugdefinition.cpp src/codeplugdefinition.h
     src/codeplugdefinitions.cpp src/codeplugdefinitions.h
     src/ziparchive.cpp src/ziparchive.h)
@@ -77,6 +78,7 @@ qt_add_resources(wafflecps "qml"
         qml/Main.qml
         qml/AboutDialog.qml
         qml/SatelliteDialog.qml
+        qml/ConversionDialog.qml
         qml/PageAction.qml
         qml/PageField.qml
         qml/PageComboBox.qml
@@ -271,7 +273,7 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/PageAction.qml qml/PageField.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/ConversionDialog.qml qml/PageAction.qml qml/PageField.qml
               qml/PageComboBox.qml qml/PageSpinBox.qml qml/PageTabButton.qml qml/PageCheckBox.qml
               qml/PageChoice.qml qml/PageDialog.qml
               qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
