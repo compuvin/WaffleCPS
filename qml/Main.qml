@@ -6,6 +6,8 @@ ApplicationWindow {
     id: window
     property bool clearingProject: false
     property string currentSection: "repeaters"
+    property bool repeatersExpanded: true
+    property bool zonesExpanded: true
     property string pendingRadioReadDefinitionPath: ""
     property string pendingRadioReadTestingStatus: "unknown"
     function radioTestingMessage(status) {
@@ -100,6 +102,36 @@ ApplicationWindow {
             radius: 8
             color: menuAction.hovered ? "#e7f2e9" : "transparent"
             border.color: menuAction.activeFocus ? "#548d66" : "transparent"
+        }
+    }
+
+    component SidebarSection: Button {
+        id: section
+        property bool expanded: true
+        Layout.fillWidth: true
+        implicitHeight: 30
+        leftPadding: 0
+        rightPadding: 4
+        Accessible.name: text + (expanded ? ", expanded" : ", collapsed")
+        contentItem: RowLayout {
+            spacing: 6
+            Label {
+                text: section.expanded ? "▾" : "▸"
+                color: "#52695d"
+                font.pixelSize: 14
+            }
+            Label {
+                text: section.text
+                color: "#52695d"
+                font.bold: true
+                font.pixelSize: 11
+                Layout.fillWidth: true
+            }
+        }
+        background: Rectangle {
+            radius: 5
+            color: section.hovered ? "#e7f2e9" : "transparent"
+            border.color: section.activeFocus ? "#548d66" : "transparent"
         }
     }
 
@@ -351,12 +383,11 @@ ApplicationWindow {
                         onClicked: { store.leaveZoneEditor(); window.currentSection = "settings" }
                     }
 
-                    Label {
+                    SidebarSection {
+                        objectName: "repeatersSectionButton"
                         text: "REPEATERS"
-                        color: "#697c71"
-                        font.pixelSize: 11
-                        font.bold: true
-                        Layout.bottomMargin: 4
+                        expanded: window.repeatersExpanded
+                        onClicked: window.repeatersExpanded = !window.repeatersExpanded
                     }
 
                     Repeater {
@@ -367,6 +398,7 @@ ApplicationWindow {
                             required property string modelData
                             Layout.fillWidth: true
                             text: modelData
+                            visible: window.repeatersExpanded
                             highlighted: index === store.selectedIndex
                             onClicked: {
                                 store.selectRepeater(index)
@@ -377,6 +409,7 @@ ApplicationWindow {
 
                     SidebarAction {
                         text: "+ Add repeater"
+                        visible: window.repeatersExpanded
                         Layout.fillWidth: true
                         onClicked: {
                             window.currentSection = "repeaters"
@@ -391,16 +424,17 @@ ApplicationWindow {
                         color: "#e1e8e1"
                     }
 
-                    Label {
+                    SidebarSection {
+                        objectName: "zonesSectionButton"
                         text: "ZONES"
-                        color: "#697c71"
-                        font.pixelSize: 11
-                        font.bold: true
+                        expanded: window.zonesExpanded
                         Layout.topMargin: 8
+                        onClicked: window.zonesExpanded = !window.zonesExpanded
                     }
 
                     SidebarAction {
                         objectName: "createZoneButton"
+                        visible: window.zonesExpanded
                         text: "+ Add zone"
                         Layout.fillWidth: true
                         onClicked: createZoneDialog.openForNew()
@@ -477,7 +511,6 @@ ApplicationWindow {
                         highlighted: window.currentSection === "settings"
                         onClicked: { store.leaveZoneEditor(); window.currentSection = "settings" }
                     }
-                    Label { text: "REPEATERS"; color: "#697c71"; font.bold: true; font.pixelSize: 11 }
                     ScrollView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -485,6 +518,12 @@ ApplicationWindow {
                         ColumnLayout {
                             width: 220
                             spacing: 3
+                            SidebarSection {
+                                objectName: "repeatersSectionButton"
+                                text: "REPEATERS"
+                                expanded: window.repeatersExpanded
+                                onClicked: window.repeatersExpanded = !window.repeatersExpanded
+                            }
                             Repeater {
                                 model: store.importedRepeaterNames
                                 delegate: SidebarEntry {
@@ -492,6 +531,7 @@ ApplicationWindow {
                                     required property string modelData
                                     text: modelData
                                     Layout.fillWidth: true
+                                    visible: window.repeatersExpanded
                                     highlighted: store.selectedImportedIndex === index
                                     onClicked: {
                                         store.selectImportedGroup(index)
@@ -501,10 +541,17 @@ ApplicationWindow {
                             }
                             SidebarAction {
                                 text: "+ Add repeater"
+                                visible: window.repeatersExpanded
                                 Layout.fillWidth: true
                                 onClicked: { store.leaveZoneEditor(); editDialog.openForNew() }
                             }
-                            Label { text: "ZONES"; color: "#697c71"; font.bold: true; font.pixelSize: 11; Layout.topMargin: 12 }
+                            SidebarSection {
+                                objectName: "zonesSectionButton"
+                                text: "ZONES"
+                                expanded: window.zonesExpanded
+                                Layout.topMargin: 12
+                                onClicked: window.zonesExpanded = !window.zonesExpanded
+                            }
                             Repeater {
                                 model: store.importedZoneNames
                                 delegate: SidebarEntry {
@@ -512,6 +559,7 @@ ApplicationWindow {
                                     required property string modelData
                                     text: modelData
                                     Layout.fillWidth: true
+                                    visible: window.zonesExpanded
                                     highlighted: store.selectedImportedIndex === index + store.importedRepeaterNames.length
                                     onClicked: {
                                         store.selectImportedGroup(index + store.importedRepeaterNames.length)
@@ -521,6 +569,7 @@ ApplicationWindow {
                             }
                             SidebarAction {
                                 objectName: "createZoneButton"
+                                visible: window.zonesExpanded
                                 text: "+ Add zone"
                                 Layout.fillWidth: true
                                 onClicked: createZoneDialog.openForNew()

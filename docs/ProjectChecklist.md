@@ -5,7 +5,7 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
 ## Repeater-centered editor
 
 - [x] Show one repeater at a time with details, Time Slot 1, Time Slot 2, and talkgroups.
-- [ ] Let users expand and collapse repeater, time-slot, and talkgroup branches in the main hierarchy.
+- [x] Let users expand and collapse repeater, time-slot, and talkgroup branches in the main hierarchy.
 - [x] Add a talkgroup using its name and ID while inheriting the repeater frequencies, color code, and time slot in the imported view.
 - [x] Keep multiple imported zones for the same physical repeater as separate entries with their own 16-channel limits.
 - [x] Show additional simplex frequencies on a repeater and allow adding them.
