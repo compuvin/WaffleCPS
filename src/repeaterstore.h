@@ -15,6 +15,8 @@ namespace CodeplugConversion { struct Session; }
 class RepeaterStore : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool scanListsAvailable READ scanListsAvailable NOTIFY importedCodeplugChanged)
+    Q_PROPERTY(QStringList scanListNames READ scanListNames NOTIFY importedCodeplugChanged)
     Q_PROPERTY(QStringList repeaterNames READ repeaterNames NOTIFY repeatersChanged)
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY selectedRepeaterChanged)
     Q_PROPERTY(QString selectedName READ selectedName NOTIFY selectedRepeaterChanged)
@@ -57,6 +59,15 @@ public:
     explicit RepeaterStore(QObject *parent = nullptr);
     ~RepeaterStore() override;
 
+    bool scanListsAvailable() const;
+    QStringList scanListNames() const;
+    Q_INVOKABLE QVariantMap scanListEditorData(int index) const;
+    Q_INVOKABLE bool saveScanListName(int index, const QString &name);
+    Q_INVOKABLE bool deleteScanList(int index);
+    Q_INVOKABLE bool addScanListChannels(int index, const QVariantList &channelNumbers);
+    Q_INVOKABLE bool removeScanListMember(int index, int position);
+    Q_INVOKABLE bool moveScanListMember(int index, int from, int to);
+    Q_INVOKABLE bool assignChannelScanList(int channelNumber, int index, bool replace = false);
     QStringList repeaterNames() const;
     int selectedIndex() const;
     QString selectedName() const;

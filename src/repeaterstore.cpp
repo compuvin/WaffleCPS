@@ -643,6 +643,10 @@ void RepeaterStore::applyZoneMembers(ImportedZone &zone, const QVector<int> &mem
 
 void RepeaterStore::shiftZoneChannelIndexes(int removedIndex)
 {
+    for (auto &scan : m_importedCodeplug.scanLists) {
+        scan.channelIndexes.removeAll(removedIndex);
+        for (int &index : scan.channelIndexes) if (index > removedIndex) --index;
+    }
     for (auto &zone : m_importedCodeplug.zones)
         for (auto *list : {&zone.channelIndexes, &zone.bottomChannelIndexes})
             for (int &index : *list)
@@ -860,6 +864,158 @@ void RepeaterStore::zoneEdited()
     m_zoneClassificationPending = true;
     setModified(true);
     emit importedSelectionChanged();
+}
+
+bool RepeaterStore::scanListsAvailable() const
+{
+    return hasImportedCodeplug() && m_importedCodeplug.scanListsSupported;
+}
+
+QStringList RepeaterStore::scanListNames() const
+{
+    QStringList names;
+    for (const auto &list : m_importedCodeplug.scanLists) names.append(list.name);
+    return names;
+}
+
+QVariantMap RepeaterStore::scanListEditorData(int index) const
+{
+    QVariantMap result{{"capacity", m_importedCodeplug.scanListCapacity},
+        {"memberCapacity", m_importedCodeplug.scanMemberCapacity}, {"valid", false}};
+    if (!scanListsAvailable()) return result;
+    QVariantList channels, repeaters;
+    for (int i = 0; i < m_importedCodeplug.channels.size(); ++i) {
+        const auto &channel = m_importedCodeplug.channels[i];
+        channels.append(QVariantMap{{"number", i + 1}, {"name", channel.name},
+            {"receiveFrequency", formatFrequency(channel.frequencyBHz)},
+            {"scanListIndex", channel.scanListIndex - 1},
+            {"scanListName", channel.scanListIndex > 0 && channel.scanListIndex <= m_importedCodeplug.scanLists.size()
+                ? m_importedCodeplug.scanLists[channel.scanListIndex - 1].name : QString()}});
+    }
+    for (const auto &group : m_importedGroups) {
+        if (!group.repeater) continue;
+        QVariantList numbers;
+        QSet<int> seen;
+        for (int zone : group.zoneIndexes)
+            for (int channel : zoneMembers(m_importedCodeplug.zones[zone]))
+                if (!seen.contains(channel)) { seen.insert(channel); numbers.append(channel + 1); }
+        repeaters.append(QVariantMap{{"name", group.name}, {"numbers", numbers}});
+    }
+    result.insert("channels", channels);
+    result.insert("repeaters", repeaters);
+    if (index < 0 || index >= m_importedCodeplug.scanLists.size()) return result;
+    const auto &list = m_importedCodeplug.scanLists[index];
+    QVariantList members;
+    int position = 0;
+    for (int channel : list.channelIndexes) {
+        members.append(QVariantMap{{"position", position++}, {"number", channel + 1},
+            {"name", channel < 0 ? tr("Current channel") : m_importedCodeplug.channels[channel].name}});
+    }
+    result.insert("valid", true);
+    result.insert("name", list.name);
+    result.insert("members", members);
+    return result;
+}
+
+bool RepeaterStore::saveScanListName(int index, const QString &name)
+{
+    if (!scanListsAvailable() || index < -1 || index >= m_importedCodeplug.scanLists.size()) return false;
+    const QString clean = name.trimmed();
+    QJsonObject metadata;
+    QString error;
+    if (!CodeplugDefinitions::conversionMetadata(m_sourceCodeplug, m_importedCodeplug.definitionFile, &metadata, &error))
+        return fail(error);
+    const auto rules = metadata.value("limits").toObject().value("names").toObject();
+    auto rule = rules.value("scan_name").toObject();
+    for (int depth = 0; rule.contains("same_as") && depth < 16; ++depth)
+        rule = rules.value(rule.value("same_as").toString()).toObject();
+    if (rule.isEmpty() || clean.size() < rule.value("minimum_characters").toInt()
+        || clean.size() > rule.value("maximum_characters").toInt())
+        return fail(tr("The scan-list name does not fit the selected radio's limits."));
+    for (QChar ch : clean)
+        if (!rule.value("allowed_characters").toString().contains(ch))
+            return fail(tr("The scan-list name contains an unsupported character."));
+    for (int i = 0; i < m_importedCodeplug.scanLists.size(); ++i)
+        if (i != index && m_importedCodeplug.scanLists[i].name.compare(clean, Qt::CaseInsensitive) == 0)
+            return fail(tr("A scan list already has this name."));
+    if (index == -1) {
+        if (m_importedCodeplug.scanLists.size() >= m_importedCodeplug.scanListCapacity)
+            return fail(tr("The selected radio's scan-list limit has been reached."));
+        m_importedCodeplug.scanLists.append({clean, {}, -1});
+    } else m_importedCodeplug.scanLists[index].name = clean;
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
+}
+
+bool RepeaterStore::deleteScanList(int index)
+{
+    if (!scanListsAvailable() || index < 0 || index >= m_importedCodeplug.scanLists.size()) return false;
+    m_importedCodeplug.scanLists.removeAt(index);
+    for (auto &channel : m_importedCodeplug.channels) {
+        if (channel.scanListIndex == index + 1) channel.scanListIndex = 0;
+        else if (channel.scanListIndex > index + 1) --channel.scanListIndex;
+    }
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
+}
+
+bool RepeaterStore::addScanListChannels(int index, const QVariantList &channelNumbers)
+{
+    if (!scanListsAvailable() || index < 0 || index >= m_importedCodeplug.scanLists.size()) return false;
+    auto members = m_importedCodeplug.scanLists[index].channelIndexes;
+    for (const auto &value : channelNumbers) {
+        bool ok;
+        const double number = value.toDouble(&ok);
+        if (!ok || !std::isfinite(number) || number != std::floor(number)
+            || number < 0 || number > m_importedCodeplug.channels.size())
+            return fail(tr("Unknown channel in scan list."));
+        const int channel = int(number) - 1;
+        if (!members.contains(channel)) members.append(channel);
+    }
+    if (members.size() > m_importedCodeplug.scanMemberCapacity)
+        return fail(tr("These channels will not fit. This radio allows %1 entries per scan list.")
+                    .arg(m_importedCodeplug.scanMemberCapacity));
+    m_importedCodeplug.scanLists[index].channelIndexes = members;
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
+}
+
+bool RepeaterStore::removeScanListMember(int index, int position)
+{
+    if (!scanListsAvailable() || index < 0 || index >= m_importedCodeplug.scanLists.size()) return false;
+    auto &members = m_importedCodeplug.scanLists[index].channelIndexes;
+    if (position < 0 || position >= members.size()) return false;
+    members.removeAt(position);
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
+}
+
+bool RepeaterStore::moveScanListMember(int index, int from, int to)
+{
+    if (!scanListsAvailable() || index < 0 || index >= m_importedCodeplug.scanLists.size()) return false;
+    auto &members = m_importedCodeplug.scanLists[index].channelIndexes;
+    if (from < 0 || from >= members.size() || to < 0 || to >= members.size()) return false;
+    members.move(from, to);
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
+}
+
+bool RepeaterStore::assignChannelScanList(int channelNumber, int index, bool replace)
+{
+    if (!scanListsAvailable() || channelNumber < 1 || channelNumber > m_importedCodeplug.channels.size()
+        || index < -1 || index >= m_importedCodeplug.scanLists.size()) return false;
+    auto &channel = m_importedCodeplug.channels[channelNumber - 1];
+    if (!replace && channel.scanListIndex && index >= 0 && channel.scanListIndex != index + 1)
+        return fail(tr("This channel already uses another scan list. Confirm replacement first."));
+    channel.scanListIndex = index + 1;
+    setModified(true);
+    emit importedCodeplugChanged();
+    return true;
 }
 
 QVariantList RepeaterStore::availableZoneChannels() const
@@ -2299,7 +2455,7 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
     }
 
     QJsonObject root{{QStringLiteral("format"), projectFormat},
-                     {QStringLiteral("schemaVersion"), 10},
+                     {QStringLiteral("schemaVersion"), 11},
                      {QStringLiteral("repeaters"), repeaters}};
     root.insert(QStringLiteral("generatedCodeplug"), m_generatedCodeplug);
     root.insert(QStringLiteral("radioSettings"),
@@ -2328,8 +2484,15 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                         {QStringLiteral("colorCode"), channel.colorCode},
                                         {QStringLiteral("timeSlot"), channel.timeSlot},
                                         {QStringLiteral("contactIndex"), channel.contactIndex},
+                                        {QStringLiteral("scanListIndex"), channel.scanListIndex},
                                         {QStringLiteral("highPower"), channel.highPower.has_value()
                                              ? QJsonValue(*channel.highPower) : QJsonValue(QJsonValue::Null)}});
+        QJsonArray scans;
+        for (const auto &list : m_importedCodeplug.scanLists) {
+            QJsonArray members;
+            for (int index : list.channelIndexes) members.append(index);
+            scans.append(QJsonObject{{"name", list.name}, {"sourceRecord", list.sourceRecord}, {"channelIndexes", members}});
+        }
         QJsonArray contacts;
         for (const auto &contact : m_importedCodeplug.contacts)
             contacts.append(QJsonObject{{QStringLiteral("name"), contact.name},
@@ -2366,7 +2529,8 @@ bool RepeaterStore::saveProjectToFile(const QString &path)
                                 {QStringLiteral("cpsVersion"), m_importedCodeplug.cpsVersion},
                                 {QStringLiteral("channels"), channels},
                                 {QStringLiteral("contacts"), contacts},
-                                {QStringLiteral("zones"), zones}});
+                                {QStringLiteral("zones"), zones},
+                                {QStringLiteral("scanLists"), scans}});
     }
     QMap<QString, QByteArray> entries;
     if (!m_sourceCodeplug.isEmpty()) {
@@ -2405,7 +2569,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
     const QJsonObject root = document.object();
     qint64 version = 0;
     if (root.value(QStringLiteral("format")).toString() != projectFormat
-        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 10, &version))
+        || !integerValue(root.value(QStringLiteral("schemaVersion")), 1, 11, &version))
         return fail(QStringLiteral("This WaffleCPS project version is not supported."));
 
     const QJsonValue repeatersValue = root.value(QStringLiteral("repeaters"));
@@ -2682,6 +2846,37 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         }
     }
 
+    if (!imported.model.isEmpty() && version >= 11) {
+        const auto saved = root.value("importedCodeplug").toObject();
+        const auto scans = saved.value("scanLists");
+        if (!scans.isArray() || scans.toArray().size() > 1024) return fail(tr("Invalid saved scan lists."));
+        for (const auto &entry : scans.toArray()) {
+            const auto item = entry.toObject();
+            ImportedScanList list;
+            list.name = item.value("name").toString();
+            qint64 sourceRecord;
+            if (list.name.isEmpty() || list.name.size() > 256
+                || !integerValue(item.value("sourceRecord"), -1, 100000, &sourceRecord)
+                || !item.value("channelIndexes").isArray() || item.value("channelIndexes").toArray().size() > 100000)
+                return fail(tr("Invalid saved scan list."));
+            list.sourceRecord = int(sourceRecord);
+            for (const auto &value : item.value("channelIndexes").toArray()) {
+                qint64 index;
+                if (!integerValue(value, -1, imported.channels.size() - 1, &index))
+                    return fail(tr("Saved scan list references an unknown channel."));
+                list.channelIndexes.append(int(index));
+            }
+            imported.scanLists.append(list);
+        }
+        const auto channels = saved.value("channels").toArray();
+        for (int i = 0; i < imported.channels.size(); ++i) {
+            qint64 index;
+            if (!integerValue(channels[i].toObject().value("scanListIndex"), 0, imported.scanLists.size(), &index))
+                return fail(tr("Saved channel references an unknown scan list."));
+            imported.channels[i].scanListIndex = int(index);
+        }
+    }
+
     const bool generatedCodeplug = version >= 8 && root.value(QStringLiteral("generatedCodeplug")).toBool();
     QString sourceName;
     QByteArray sourceBytes;
@@ -2746,6 +2941,32 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
         if (!CodeplugDefinitions::read(sourceBytes, &metadata, &error, imported.definitionFile))
             return fail(tr("Cannot restore tone settings from the project definition: %1").arg(error));
         imported.ctcssTones = metadata.ctcssTones;
+        imported.scanListsSupported = metadata.scanListsSupported;
+        imported.scanListCapacity = metadata.scanListCapacity;
+        imported.scanMemberCapacity = metadata.scanMemberCapacity;
+        imported.scanListsNeedCleanup = metadata.scanListsNeedCleanup;
+        if (version < 11 && metadata.scanListsSupported) {
+            QMap<int, int> channels;
+            for (int i = 0; i < imported.channels.size(); ++i) channels.insert(imported.channels[i].sourceRecord, i);
+            imported.scanLists = metadata.scanLists;
+            for (auto &list : imported.scanLists) {
+                QVector<int> members;
+                for (int index : list.channelIndexes) {
+                    if (index == -1) members.append(-1);
+                    else if (channels.contains(metadata.channels[index].sourceRecord)) members.append(channels.value(metadata.channels[index].sourceRecord));
+                }
+                list.channelIndexes = members;
+            }
+            for (auto &channel : imported.channels)
+                for (const auto &original : metadata.channels)
+                    if (channel.sourceRecord == original.sourceRecord) { channel.scanListIndex = original.scanListIndex; break; }
+        }
+        if ((!imported.scanListsSupported && !imported.scanLists.isEmpty())
+            || imported.scanLists.size() > imported.scanListCapacity)
+            return fail(tr("Saved scan lists exceed the definition limits."));
+        for (const auto &list : imported.scanLists)
+            if (list.channelIndexes.size() > imported.scanMemberCapacity)
+                return fail(tr("Saved scan list exceeds the definition's channel limit."));
         QMap<int, ImportedChannel> originals;
         for (const auto &channel : metadata.channels) originals.insert(channel.sourceRecord, channel);
         for (auto &channel : imported.channels) {

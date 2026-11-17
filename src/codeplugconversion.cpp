@@ -177,7 +177,7 @@ void CodeplugConversion::rebuild(Session &s, bool initialize)
             }
         }
         c.contactIndex = contactMap.value(c.contactIndex, 0);
-        c.sourceRecord = -1; c.useDefaultTemplate = true;
+        c.sourceRecord = -1; c.useDefaultTemplate = true; c.scanListIndex = 0;
         return c;
     };
     QMap<int, int> channelMap;

@@ -5,22 +5,22 @@ Planning only; implementation has not been approved.
 
 ## User experience
 
-- [ ] Put SCAN LISTS below ZONES in the left sidebar.
-- [ ] Display named scan lists like the existing repeater and zone entries.
-- [ ] Provide an “+ Add scan list” button.
-- [ ] Open the selected scan list in the main workspace.
-- [ ] Use this plain-language introduction:
+- [x] Put SCAN LISTS below ZONES in the left sidebar.
+- [x] Display named scan lists like the existing repeater and zone entries.
+- [x] Provide an “+ Add scan list” button.
+- [x] Open the selected scan list in the main workspace.
+- [x] Use this plain-language introduction:
       “A scan list tells your radio which channels to check while scanning.”
-- [ ] Do not explain scanning by referencing zones or require beginners
+- [x] Do not explain scanning by referencing zones or require beginners
       to understand zones.
 
 ## Proposed basic editor
 
-- [ ] Name the list.
-- [ ] Add channels from a repeater.
-- [ ] Search for and add individual channels.
-- [ ] Display, remove, and reorder included channels.
-- [ ] Create, rename, and delete scan lists.
+- [x] Name the list.
+- [x] Add channels from a repeater.
+- [x] Search for and add individual channels.
+- [x] Display, remove, and reorder included channels.
+- [x] Create, rename, and delete scan lists.
 
 “Add repeater” and “Add individual channels” were suggested labels;
 exact controls and wording still need review.
@@ -29,9 +29,9 @@ exact controls and wording still need review.
 
 - [ ] Confirm whether advanced scan controls belong in an expandable
       Advanced section rather than hiding the whole feature.
-- [ ] Decide how to present channel-to-scan-list assignment simply.
-- [ ] Decide how to handle replacing an existing assignment.
-- [ ] Decide whether the sidebar sections need to collapse as they grow.
+- [x] Decide how to present channel-to-scan-list assignment simply.
+- [x] Decide how to handle replacing an existing assignment.
+- [x] Decide whether the sidebar sections need to collapse as they grow.
 
 Scan-list membership and channel-to-scan-list assignment can be separate:
 a channel may specify which list starts when scanning is activated there.
@@ -45,17 +45,17 @@ behavior, and timing. Offer only settings supported by the definition.
 
 ## Definition and application work
 
-- [ ] Start with DM-32UV, whose tester requested scanning.
+- [x] Start with DM-32UV, whose tester requested scanning.
 - [ ] Research its complete scan-list storage and channel assignment
       using QDMR and available samples.
-- [ ] Keep radio-specific addresses, limits, settings, and writer rules
+- [x] Keep radio-specific addresses, limits, settings, and writer rules
       in the WCP definition.
-- [ ] Add generic scan-list data and editing support to Waffle.
-- [ ] Preserve unsupported settings.
+- [x] Add generic scan-list data and editing support to Waffle.
+- [x] Preserve unsupported settings.
 - [ ] Repair references when channels or scan lists are deleted,
       reordered, or otherwise moved.
-- [ ] Preserve lists and assignments through project save/reopen.
-- [ ] Support import and export of edited lists and assignments.
+- [x] Preserve lists and assignments through project save/reopen.
+- [x] Support import and export of edited lists and assignments.
 - [ ] Extend other radio definitions individually after review.
 
 ## Current mapping checkpoint
@@ -75,5 +75,5 @@ These are partial mappings, not claims of working scan-list editing.
 - [ ] Compare decoded data and edited exports with reference software.
 - [ ] Verify list and channel references after additions, deletions,
       and reordering.
-- [ ] Verify project persistence and export/reimport.
+- [x] Verify project persistence and export/reimport.
 - [ ] Have the DM-32UV tester confirm actual scanning on hardware.

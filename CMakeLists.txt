@@ -79,6 +79,7 @@ qt_add_resources(wafflecps "qml"
         qml/AboutDialog.qml
         qml/SatelliteDialog.qml
         qml/ConversionDialog.qml
+        qml/ScanListEditor.qml
         qml/PageAction.qml
         qml/PageField.qml
         qml/PageComboBox.qml
@@ -202,6 +203,11 @@ if(BUILD_TESTING)
     target_compile_definitions(cs750_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME cs750_roundtrip COMMAND cs750_roundtrip_test)
 
+    add_executable(dm32uv_scan_roundtrip_test tests/dm32uv_scan_roundtrip.cpp)
+    target_link_libraries(dm32uv_scan_roundtrip_test PRIVATE codeplugdefinition)
+    target_compile_definitions(dm32uv_scan_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME RequiresCodeplug-dm32uv_scan_roundtrip COMMAND dm32uv_scan_roundtrip_test)
+
     qt_add_executable(md380_roundtrip_test tests/md380_roundtrip.cpp)
     target_link_libraries(md380_roundtrip_test PRIVATE codeplugdefinition)
     target_compile_definitions(md380_roundtrip_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -273,7 +279,7 @@ if(BUILD_TESTING)
     )
     qt_add_resources(ui_smoke_test "test_qml"
         PREFIX "/"
-        FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/ConversionDialog.qml qml/PageAction.qml qml/PageField.qml
+        FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/ConversionDialog.qml qml/ScanListEditor.qml qml/PageAction.qml qml/PageField.qml
               qml/PageComboBox.qml qml/PageSpinBox.qml qml/PageTabButton.qml qml/PageCheckBox.qml
               qml/PageChoice.qml qml/PageDialog.qml
               qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml

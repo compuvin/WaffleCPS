@@ -16,6 +16,7 @@ struct ImportedChannel {
     std::optional<bool> highPower; // CS7000 channel power; absent in older saved projects.
     int sourceRecord = -1; // Original channel record in the retained export base.
     bool useDefaultTemplate = false; // Mode changes start from the matching mode defaults.
+    int scanListIndex = 0; // One-based scan list index; zero means no assigned list.
     QString powerSetting; // Definition enum value for settings beyond legacy High/Low.
     std::optional<int> receiveCtcss; // Tenths of Hz; zero means None, unset preserves an unrecognised tone.
     std::optional<int> transmitCtcss;
@@ -44,6 +45,12 @@ struct ImportedZone {
     QVector<int> bottomChannelIndexes;
 };
 
+struct ImportedScanList {
+    QString name;
+    QVector<int> channelIndexes; // Zero-based channels; -1 means Current channel.
+    int sourceRecord = -1;
+};
+
 struct ImportedCodeplug {
     QString definitionFile; // Selected disk definition basename, retained with imported projects.
     QString definitionVersion; // Selected version inside a multi-version definition package.
@@ -54,6 +61,11 @@ struct ImportedCodeplug {
     QVector<ImportedChannel> channels;
     QVector<ImportedContact> contacts;
     QVector<ImportedZone> zones;
+    QVector<ImportedScanList> scanLists;
+    bool scanListsSupported = false;
+    bool scanListsNeedCleanup = false;
+    int scanListCapacity = 0;
+    int scanMemberCapacity = 0;
     QStringList powerSettings;
     int channelCapacity = 3000;
     int contactCapacity = 10000;

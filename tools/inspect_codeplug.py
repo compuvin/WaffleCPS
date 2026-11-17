@@ -486,6 +486,24 @@ class DefinitionReader:
                 self.error(path, str(error))
         return {"fields": fields, "raw_fields": raw_fields, "tables": self.tables}
 
+    def erased_reference(self, reference, index):
+        probe = reference.get("ignore_erased_target")
+        if probe is None or index < 0:
+            return False
+        table = self.definition["tables"][reference["table"]]
+        for segment in table.get("segments", [table]):
+            capacity = integer(segment["capacity"]) if "capacity" in segment else integer(self.expression(segment["count"]))
+            if index >= capacity:
+                index -= capacity
+                continue
+            pattern = bytes.fromhex(probe["hex"])
+            offset, stride = integer(probe["offset"]), integer(segment["stride_bytes"])
+            if not pattern or offset < 0 or offset + len(pattern) > stride:
+                raise DefinitionError("Invalid erased target probe")
+            address = integer(self.expression(segment["at"])) + index * stride + offset
+            return byte_range(self.image, address, len(pattern)) == pattern
+        return False
+
     def reference_checks(self):
         checks = []
         for table_name, table in self.definition.get("tables", {}).items():
@@ -506,6 +524,9 @@ class DefinitionReader:
                                 continue
                             checked += 1
                             index = value - integer(reference["index_base"])
+                            if (not 0 <= index < target["count"] or
+                                    (selected is not None and target["complete"] and index not in selected)) and self.erased_reference(reference, index):
+                                continue
                             if not 0 <= index < target["count"]:
                                 invalid.append({"record": record["index"], "value": value})
                             elif selected is not None and target["complete"] and index not in selected:

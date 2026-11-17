@@ -8,6 +8,8 @@ ApplicationWindow {
     property string currentSection: "repeaters"
     property bool repeatersExpanded: true
     property bool zonesExpanded: true
+    property bool scanListsExpanded: true
+    property int selectedScanList: -1
     property string pendingRadioReadDefinitionPath: ""
     property string pendingRadioReadTestingStatus: "unknown"
     function radioTestingMessage(status) {
@@ -33,6 +35,8 @@ ApplicationWindow {
     Connections {
         target: store
         function onAboutToResetProject() {
+            scanNameDialog.close()
+            window.selectedScanList = -1
             createZoneDialog.close()
             channelOrderDialog.close()
             displayChannelsDialog.close()
@@ -532,7 +536,7 @@ ApplicationWindow {
                                     text: modelData
                                     Layout.fillWidth: true
                                     visible: window.repeatersExpanded
-                                    highlighted: store.selectedImportedIndex === index
+                                    highlighted: window.currentSection === "repeaters" && store.selectedImportedIndex === index
                                     onClicked: {
                                         store.selectImportedGroup(index)
                                         window.currentSection = "repeaters"
@@ -560,7 +564,7 @@ ApplicationWindow {
                                     text: modelData
                                     Layout.fillWidth: true
                                     visible: window.zonesExpanded
-                                    highlighted: store.selectedImportedIndex === index + store.importedRepeaterNames.length
+                                    highlighted: window.currentSection === "repeaters" && store.selectedImportedIndex === index + store.importedRepeaterNames.length
                                     onClicked: {
                                         store.selectImportedGroup(index + store.importedRepeaterNames.length)
                                         window.currentSection = "repeaters"
@@ -573,6 +577,37 @@ ApplicationWindow {
                                 text: "+ Add zone"
                                 Layout.fillWidth: true
                                 onClicked: createZoneDialog.openForNew()
+                            }
+                            SidebarSection {
+                                objectName: "scanListsSectionButton"
+                                visible: store.scanListsAvailable
+                                text: "SCAN LISTS"
+                                expanded: window.scanListsExpanded
+                                Layout.topMargin: 12
+                                onClicked: window.scanListsExpanded = !window.scanListsExpanded
+                            }
+                            Repeater {
+                                model: store.scanListNames
+                                delegate: SidebarEntry {
+                                    required property int index
+                                    required property string modelData
+                                    Layout.fillWidth: true
+                                    visible: store.scanListsAvailable && window.scanListsExpanded
+                                    text: modelData
+                                    highlighted: window.currentSection === "scanLists" && window.selectedScanList === index
+                                    onClicked: {
+                                        store.leaveZoneEditor()
+                                        window.selectedScanList = index
+                                        window.currentSection = "scanLists"
+                                    }
+                                }
+                            }
+                            SidebarAction {
+                                objectName: "addScanListButton"
+                                text: "+ Add scan list"
+                                visible: store.scanListsAvailable && window.scanListsExpanded
+                                Layout.fillWidth: true
+                                onClicked: scanNameDialog.openFor(-1)
                             }
                         }
                     }
@@ -1122,6 +1157,19 @@ ApplicationWindow {
             } } }
 
             Loader {
+                active: !window.clearingProject && window.currentSection === "scanLists" && store.scanListsAvailable
+                visible: active
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.margins: 24
+                sourceComponent: ScanListEditor {
+                    scanIndex: window.selectedScanList
+                    onRenameRequested: function(index) { scanNameDialog.openFor(index) }
+                    onDeleted: window.selectedScanList = Math.min(window.selectedScanList, store.scanListNames.length - 1)
+                }
+            }
+
+            Loader {
                 visible: !window.clearingProject && window.currentSection === "contacts"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -1202,6 +1250,45 @@ ApplicationWindow {
                             onClicked: satelliteDialog.showSettings()
                         }
                         Item { Layout.fillHeight: true }
+                    }
+                }
+            }
+        }
+    }
+
+    PageDialog {
+        id: scanNameDialog
+        property int listIndex: -1
+        function openFor(index) {
+            listIndex = index
+            scanName.text = index >= 0 ? store.scanListNames[index] : ""
+            open()
+            scanName.forceActiveFocus()
+        }
+        title: listIndex < 0 ? "Add scan list" : "Rename scan list"
+        modal: true
+        width: Math.min(460, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            Label { text: "Name" }
+            PageField { id: scanName; Layout.fillWidth: true; placeholderText: "Scan-list name" }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction { text: "Cancel"; onClicked: scanNameDialog.close() }
+                PageAction {
+                    text: "Save"
+                    primary: true
+                    enabled: scanName.text.trim().length > 0
+                    onClicked: {
+                        if (store.saveScanListName(scanNameDialog.listIndex, scanName.text)) {
+                            window.selectedScanList = scanNameDialog.listIndex < 0
+                                ? store.scanListNames.length - 1 : scanNameDialog.listIndex
+                            window.currentSection = "scanLists"
+                            window.scanListsExpanded = true
+                            scanNameDialog.close()
+                        }
                     }
                 }
             }
