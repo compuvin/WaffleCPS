@@ -28,6 +28,7 @@ public:
     bool matchesRawFields(const QByteArray &input, const QJsonObject &expected) const;
     // Decode and validate declared binary fields/tables independently of editor bindings.
     bool inspect(const QByteArray &input, QJsonObject *result, QString *error) const;
+    bool channelReferences(const QByteArray &input, QJsonArray *result, QString *error) const;
     bool contactReferences(const QByteArray &input, QJsonArray *result, QString *error) const;
     bool conversionMetadata(const QByteArray &input, QJsonObject *result, QString *error) const;
     bool read(const QByteArray &input, ImportedCodeplug *result, QString *error) const;

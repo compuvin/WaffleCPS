@@ -1856,6 +1856,11 @@ private:
                 QVariantList mapped;
                 const bool implicitCount = !r.contains("count_field");
                 for (const auto &value : values) {
+                    if (r.value("preserve_null_members").toBool() && ref.contains("null_value")
+                        && numeric(value) == integer(ref.value("null_value"))) {
+                        mapped.append(value);
+                        continue;
+                    }
                     const qint64 physical = add(numeric(value), -base);
                     if (maps[role].contains(physical)) mapped.append(add(maps[role][physical], base));
                 }
@@ -2191,7 +2196,8 @@ private:
             } else if (operation == "remap_references") {
                 keys(r, {"operation", "lists", "globals", "image_size_fields"});
                 for (const auto &v : r.value("lists").toArray()) {
-                    const auto x = object(v, "reference list"); keys(x, {"table", "field", "count_field", "on_removed", "count_bias"});
+                    const auto x = object(v, "reference list"); keys(x, {"table", "field", "count_field", "on_removed", "count_bias", "preserve_null_members"});
+                    if (x.contains("preserve_null_members")) require(x.value("preserve_null_members").isBool(), "Invalid preserve_null_members flag.");
                     if (x.contains("count_bias")) integer(x.value("count_bias"));
                     policy(x, "on_removed", "remove_member");
                     const auto f = fieldSchema(x.value("table").toString(), x.value("field").toString());
@@ -2564,6 +2570,61 @@ bool CodeplugDefinition::inspect(const QByteArray &input, QJsonObject *result, Q
         }
         require(images.size() == 1, "Binary interpretation is invalid or ambiguous: " + reasons.join("; "));
         *result = std::move(decoded);
+    });
+}
+
+bool CodeplugDefinition::channelReferences(const QByteArray &input, QJsonArray *result, QString *error) const
+{
+    return checked(error, [&] {
+        require(result, "Missing channel reference output.");
+        const EditorBindings editor(m_definition);
+        QJsonObject inspected;
+        QString detail;
+        require(inspect(input, &inspected, &detail), "Cannot inspect channel usage: " + detail);
+        QJsonArray references;
+        const auto channelOrder = editor.indexForTable(editor.channels);
+        const auto collect = [&](const QString &table, const QString &field, const QJsonObject &schema,
+                                 const QJsonValue &raw, const QString &recordName) {
+            if (raw.isUndefined() || raw.isNull()) return;
+            // Working zones and supported scan lists are checked against the candidate model.
+            if (table == channelOrder.table && field == channelOrder.field) return;
+            for (const QString &semantic : {QStringLiteral("members"), QStringLiteral("members_bottom")}) {
+                if (!editor.contains("zones", semantic)) continue;
+                const auto binding = editor.get("zones", semantic);
+                if (table == binding.table && field == binding.field) return;
+            }
+            if (!editor.scans.isEmpty()) {
+                const auto binding = editor.get("scan_lists", "scan_members");
+                if (table == binding.table && field == binding.field) return;
+            }
+            const auto reference = schema.value("reference").toObject();
+            if (reference.value("table").toString() != editor.channels) return;
+            const auto values = raw.isArray() ? raw.toArray() : QJsonArray{raw};
+            for (const auto &value : values) {
+                const qint64 number = numeric(value.toVariant());
+                QJsonObject usage{{"record_name", recordName}};
+                if (reference.contains("null_value") && number == integer(reference.value("null_value"))) continue;
+                usage.insert("source_record", double(add(number, -integer(reference.value("index_base")))));
+                references.append(usage);
+            }
+        };
+        const auto tables = m_definition.value("tables").toObject();
+        for (auto table = tables.begin(); table != tables.end(); ++table) {
+            const auto fields = table.value().toObject().value("fields").toObject();
+            const auto rows = inspected.value("tables").toObject().value(table.key()).toObject().value("records").toArray();
+            for (const auto &entry : rows) {
+                const auto row = entry.toObject();
+                const auto raw = row.value("raw_values").toObject();
+                const QString name = row.value("fields").toObject().value("name").toString();
+                for (auto field = fields.begin(); field != fields.end(); ++field)
+                    collect(table.key(), field.key(), field.value().toObject(), raw.value(field.key()), name);
+            }
+        }
+        const auto globals = m_definition.value("fields").toObject();
+        const auto rawGlobals = inspected.value("raw_fields").toObject();
+        for (auto field = globals.begin(); field != globals.end(); ++field)
+            collect({}, field.key(), field.value().toObject(), rawGlobals.value(field.key()), {});
+        *result = references;
     });
 }
 

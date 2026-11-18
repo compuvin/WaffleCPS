@@ -9,6 +9,7 @@ ColumnLayout {
         return tone < 0 ? "Other tone" : tone === 0 ? "None" : (tone / 10).toFixed(1) + " Hz"
     }
     signal orderRequested()
+    signal deleteRequested()
     readonly property var channels: (group.zones || []).length ? group.zones[0].channels : []
     Connections {
         target: store
@@ -21,6 +22,7 @@ ColumnLayout {
             ? "Top · " + editor.group.zones[0].topNumbers.length + " / " + editor.group.zoneMemberCapacity
               + "    Bottom · " + editor.group.zones[0].bottomNumbers.length + " / " + editor.group.zoneMemberCapacity
             : "ZONE · " + editor.channels.length + " / " + editor.group.zoneMemberCapacity + " channels"; color: "#64776c"; Layout.fillWidth: true }
+        PageAction { text: "Delete"; onClicked: editor.deleteRequested() }
         PageAction { text: "Rename"; onClicked: { renameField.text = editor.group.name; renameDialog.open() } }
     }
     Label {

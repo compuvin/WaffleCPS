@@ -1948,6 +1948,131 @@ bool RepeaterStore::addContact(const QString &name, int id, bool groupCall)
     return true;
 }
 
+QVariantMap RepeaterStore::selectedEntryDeletionInfo() const
+{
+    QVariantMap info{{"canDelete", false}, {"canDeleteUnused", false},
+                     {"revision", QString::number(m_conversionRevision)}};
+    if (!hasImportedCodeplug()) {
+        if (m_selectedIndex < 0 || m_selectedIndex >= int(m_repeaters.size())) {
+            info.insert("reason", tr("Select a repeater to delete."));
+            return info;
+        }
+        info.insert("name", m_repeaters[m_selectedIndex].name);
+        info.insert("isRepeater", true);
+        info.insert("canDelete", true);
+        info.insert("canDeleteUnused", true);
+        return info;
+    }
+    const int selectedIndex = selectedZoneIndex();
+    if (selectedIndex < 0) {
+        info.insert("reason", tr("Select a repeater or zone to delete."));
+        return info;
+    }
+    const bool repeater = m_importedGroups[m_selectedImportedIndex].repeater && !editingAsZone();
+    info.insert("name", m_importedCodeplug.zones[selectedIndex].name);
+    info.insert("isRepeater", repeater);
+    QJsonObject metadata;
+    QJsonArray references;
+    QString error;
+    if (!CodeplugDefinitions::conversionMetadata(m_sourceCodeplug, m_importedCodeplug.definitionFile, &metadata, &error)
+        || !CodeplugDefinitions::channelReferences(m_sourceCodeplug, m_importedCodeplug.definitionFile, &references, &error)) {
+        info.insert("reason", tr("Cannot check channel usage: %1").arg(error));
+        return info;
+    }
+    const auto limits = metadata.value("limits").toObject();
+    if (m_importedCodeplug.zones.size() <= limits.value("zones").toObject().value("minimum").toInt()) {
+        info.insert("reason", tr("This radio requires at least one zone. Add another repeater or zone before deleting this one."));
+        return info;
+    }
+    QSet<int> used;
+    for (int i = 0; i < m_importedCodeplug.zones.size(); ++i)
+        if (i != selectedIndex)
+            for (int channel : zoneMembers(m_importedCodeplug.zones[i])) used.insert(channel);
+    for (const auto &list : m_importedCodeplug.scanLists)
+        for (int channel : list.channelIndexes) if (channel >= 0) used.insert(channel);
+    QSet<int> sourceUses;
+    for (const auto &reference : references)
+        sourceUses.insert(reference.toObject().value("source_record").toInt(-1));
+    for (int i = 0; i < m_importedCodeplug.channels.size(); ++i) {
+        const int source = m_importedCodeplug.channels[i].sourceRecord;
+        if (source >= 0 && sourceUses.contains(source)) used.insert(i);
+    }
+    QVariantList unused;
+    int shared = 0;
+    for (int channel : zoneMembers(m_importedCodeplug.zones[selectedIndex])) {
+        if (used.contains(channel)) ++shared;
+        else unused.append(channel);
+    }
+    info.insert("unusedChannels", unused);
+    info.insert("unusedCount", unused.size());
+    info.insert("sharedCount", shared);
+    const int minimum = limits.value("channels").toObject().value("minimum").toInt();
+    const bool cleanupAllowed = m_importedCodeplug.channels.size() - unused.size() >= minimum;
+    info.insert("canDeleteUnused", cleanupAllowed);
+    info.insert("canDelete", !repeater || cleanupAllowed);
+    if (!cleanupAllowed)
+        info.insert("reason", tr("This radio requires at least one channel. Add another channel before deleting these unused channels."));
+    return info;
+}
+
+bool RepeaterStore::deleteSelectedEntry(bool deleteUnusedChannels, const QString &expectedRevision)
+{
+    if (expectedRevision != QString::number(m_conversionRevision))
+        return fail(tr("The project or selection has changed. Select the repeater or zone again before deleting."));
+    const auto info = selectedEntryDeletionInfo();
+    if (!info.value("canDelete").toBool()) return fail(info.value("reason").toString());
+    const bool cleanup = info.value("isRepeater").toBool() || deleteUnusedChannels;
+    if (cleanup && !info.value("canDeleteUnused").toBool()) return fail(info.value("reason").toString());
+    if (hasImportedCodeplug()) {
+        const int zoneIndex = selectedZoneIndex();
+        auto candidate = m_importedCodeplug;
+        candidate.zones.removeAt(zoneIndex);
+        if (cleanup) {
+            QSet<int> removed;
+            for (const auto &index : info.value("unusedChannels").toList()) removed.insert(index.toInt());
+            QVector<int> mapping(candidate.channels.size(), -1);
+            QVector<ImportedChannel> channels;
+            for (int i = 0; i < candidate.channels.size(); ++i)
+                if (!removed.contains(i)) { mapping[i] = channels.size(); channels.append(candidate.channels[i]); }
+            const auto remap = [&](QVector<int> &members) {
+                QVector<int> mapped;
+                for (int index : members) {
+                    if (index == -1) mapped.append(-1); // Scan-list current channel.
+                    else if (index >= 0 && index < mapping.size() && mapping[index] >= 0) mapped.append(mapping[index]);
+                }
+                members = std::move(mapped);
+            };
+            for (auto &zone : candidate.zones) { remap(zone.channelIndexes); remap(zone.bottomChannelIndexes); }
+            for (auto &list : candidate.scanLists) remap(list.channelIndexes);
+            candidate.channels = std::move(channels);
+        }
+        QByteArray checked;
+        QString error;
+        if (!CodeplugDefinitions::write(m_sourceCodeplug, candidate, m_radioName, m_radioId, &checked, &error))
+            return fail(tr("Nothing was deleted because the remaining codeplug could not be validated: %1").arg(error));
+        m_importedCodeplug = std::move(candidate);
+        rebuildImportedGroups();
+        if (!m_importedCodeplug.zones.isEmpty()) selectZoneIndex(std::min(zoneIndex, int(m_importedCodeplug.zones.size()) - 1));
+    } else {
+        // Manual repeater contacts are partly derived from their talkgroups. Keep the library intact.
+        QVector<ImportedContact> library;
+        for (const auto &entry : contacts()) {
+            const auto contact = entry.toMap();
+            library.append({contact.value("name").toString(), contact.value("id").toInt(), contact.value("groupCall").toBool()});
+        }
+        m_manualContacts = std::move(library);
+        m_repeaters.erase(m_repeaters.begin() + m_selectedIndex);
+        m_selectedIndex = std::max(0, std::min(m_selectedIndex, int(m_repeaters.size()) - 1));
+        emit repeatersChanged();
+        emit selectedRepeaterChanged();
+    }
+    notifyContactsChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    setModified(true);
+    return true;
+}
+
 QVariantMap RepeaterStore::contactDeletionInfo(int index) const
 {
     const auto list = contacts();

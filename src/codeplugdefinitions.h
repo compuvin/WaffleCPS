@@ -23,6 +23,8 @@ public:
     static QString definitionForFilter(const QString &filter, QString *error);
     static QString diskLoadReport();
     static QVariantList newProjectOptions();
+    static bool channelReferences(const QByteArray &source, const QString &definitionFile,
+                                  QJsonArray *result, QString *error);
     static bool contactReferences(const QByteArray &source, const QString &definitionFile,
                                   QJsonArray *result, QString *error);
     static bool conversionMetadata(const QByteArray &source, const QString &definitionFile,

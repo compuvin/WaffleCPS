@@ -35,6 +35,7 @@ ApplicationWindow {
     Connections {
         target: store
         function onAboutToResetProject() {
+            entryDeleteDialog.close()
             scanNameDialog.close()
             window.selectedScanList = -1
             createZoneDialog.close()
@@ -692,6 +693,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
+                                PageAction { text: "Delete"; onClicked: entryDeleteDialog.openForSelection() }
                                 PageAction { text: "Edit"; onClicked: editDialog.openForCurrent() }
                             }
 
@@ -983,6 +985,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
+                                PageAction { text: "Delete"; onClicked: entryDeleteDialog.openForSelection() }
                                 PageAction { text: "Edit"; onClicked: editDialog.openForImported() }
                             }
                             RowLayout {
@@ -1082,6 +1085,7 @@ ApplicationWindow {
                         visible: importedContent.showZoneEditor
                         group: importedContent.group
                         onOrderRequested: channelOrderDialog.openForSelectedZone()
+                        onDeleteRequested: entryDeleteDialog.openForSelection()
                     }
                     Frame {
                         visible: !importedContent.showZoneEditor
@@ -1250,6 +1254,70 @@ ApplicationWindow {
                             onClicked: satelliteDialog.showSettings()
                         }
                         Item { Layout.fillHeight: true }
+                    }
+                }
+            }
+        }
+    }
+
+    PageDialog {
+        id: entryDeleteDialog
+        objectName: "entryDeleteDialog"
+        property var info: ({
+            canDelete: false,
+            canDeleteUnused: false,
+            isRepeater: false,
+            unusedCount: 0,
+            name: "",
+            reason: "",
+            revision: ""
+        })
+        function openForSelection() {
+            info = store.selectedEntryDeletionInfo()
+            removeUnused.checked = false
+            open()
+        }
+        title: info.isRepeater ? "Delete repeater" : "Delete zone"
+        modal: true
+        width: Math.min(560, window.width - 32)
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            spacing: 12
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: entryDeleteDialog.info.canDelete
+                    ? "Delete ‘" + entryDeleteDialog.info.name + "’?"
+                    : (entryDeleteDialog.info.reason || "Select a repeater or zone to delete.")
+            }
+            PageCheckBox {
+                id: removeUnused
+                objectName: "deleteUnusedChannelsCheckBox"
+                visible: entryDeleteDialog.info.canDelete && !entryDeleteDialog.info.isRepeater
+                    && (entryDeleteDialog.info.unusedCount || 0) > 0
+                enabled: entryDeleteDialog.info.canDeleteUnused || false
+                text: "Also delete channels that are no longer used."
+            }
+            Label {
+                Layout.fillWidth: true
+                visible: entryDeleteDialog.info.canDelete && !entryDeleteDialog.info.canDeleteUnused
+                wrapMode: Text.WordWrap
+                text: entryDeleteDialog.info.reason || ""
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction { text: "Cancel"; onClicked: entryDeleteDialog.close() }
+                PageAction {
+                    text: "Delete"
+                    objectName: "confirmEntryDeleteButton"
+                    enabled: entryDeleteDialog.info.canDelete || false
+                    onClicked: {
+                        const cleanup = removeUnused.checked
+                        const revision = entryDeleteDialog.info.revision
+                        entryDeleteDialog.close()
+                        Qt.callLater(function() { store.deleteSelectedEntry(cleanup, revision) })
                     }
                 }
             }

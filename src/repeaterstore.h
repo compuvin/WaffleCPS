@@ -127,6 +127,8 @@ public:
         const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
         int contactIndex, int powerChoice, int displays = -1,
         int receiveCtcss = -1, int transmitCtcss = -1);
+    Q_INVOKABLE QVariantMap selectedEntryDeletionInfo() const;
+    Q_INVOKABLE bool deleteSelectedEntry(bool deleteUnusedChannels, const QString &expectedRevision);
     Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);
     Q_INVOKABLE bool updateSelectedZoneChannelFrequencies(int zonePosition, const QString &rx, const QString &tx);
     Q_INVOKABLE bool reorderSelectedZone(const QVariantList &channelNumbers, int display = 1);
