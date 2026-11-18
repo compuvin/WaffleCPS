@@ -23,5 +23,8 @@ https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle
 - [ ] Research if we can support other radios using this same method (even if they need a different format or different radio write)
   - [ ] AnyTone AT-D168UV
   - [ ] AnyTone AT-D890UV
+    - [ ] BTECH DA-7X2 (rebranded variant)
   - [ ] AnyTone AT-D878UVII Plus
     - Satellite features were available in firmware 3.x but removed in firmware 4.00. Support must account for the installed firmware.
+  - [ ] BTECH DMR-6X2
+  - [ ] BTECH DMR-6X2 PRO
