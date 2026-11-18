@@ -61,7 +61,7 @@ int main(int argc, char **argv)
             if (model.separateDisplayLists) { b.channelIndexes = {2}; b.bottomChannelIndexes = {0}; }
             model.zones = {a, b, c};
             if (model.scanListsSupported) {
-                ImportedScanList list; list.name = "Keep scanning"; list.channelIndexes = {-1, 3};
+                ImportedScanList list; list.name = "Scan test"; list.channelIndexes = {-1, 3};
                 model.scanLists.append(list);
             }
             QByteArray bytes;
