@@ -1948,6 +1948,94 @@ bool RepeaterStore::addContact(const QString &name, int id, bool groupCall)
     return true;
 }
 
+QVariantMap RepeaterStore::contactDeletionInfo(int index) const
+{
+    const auto list = contacts();
+    QVariantMap info{{"canDelete", false}, {"reason", tr("Select a contact to delete.")}};
+    if (index < 0 || index >= list.size()) return info;
+    const auto selected = list[index].toMap();
+    const int id = selected.value("id").toInt();
+    info.insert("index", index);
+    info.insert("name", selected.value("name"));
+    info.insert("id", id);
+    QStringList channels, settings;
+    if (hasImportedCodeplug()) {
+        const auto &contact = m_importedCodeplug.contacts[index];
+        for (const auto &channel : m_importedCodeplug.channels)
+            if (channel.contactIndex == index + 1) channels.append(channel.name);
+        QJsonArray references;
+        QString error;
+        if (!CodeplugDefinitions::contactReferences(m_sourceCodeplug, m_importedCodeplug.definitionFile, &references, &error)) {
+            info.insert("reason", tr("Cannot check whether this contact is in use: %1").arg(error));
+            return info;
+        }
+        for (const auto &value : references) {
+            const auto usage = value.toObject();
+            const bool matches = usage.contains("source_record")
+                ? contact.sourceRecord >= 0 && usage.value("source_record").toInt(-1) == contact.sourceRecord
+                : usage.value("id").toInt() == contact.id && usage.value("call_type").toString() == contact.callTypeValue();
+            if (matches) {
+                const QString name = usage.value("record_name").toString();
+                settings.append(name.isEmpty() ? tr("another radio setting") : name);
+            }
+        }
+    } else {
+        if (selected.value("groupCall").toBool())
+            for (const auto &repeater : m_repeaters)
+                for (const auto *slot : {&repeater.slot1, &repeater.slot2})
+                    for (const auto &group : *slot)
+                        if (group.id == id) channels.append(group.channelName.isEmpty() ? group.name : group.channelName);
+        if (index >= m_manualContacts.size() && channels.isEmpty()) {
+            info.insert("reason", tr("This contact comes from a repeater. Remove its talkgroup there first."));
+            return info;
+        }
+    }
+    channels.removeDuplicates();
+    settings.removeDuplicates();
+    const auto describe = [&](const QStringList &uses) {
+        QString text = uses.mid(0, 4).join(", ");
+        if (uses.size() > 4) text += tr(" and %1 more").arg(uses.size() - 4);
+        return text;
+    };
+    QStringList reasons;
+    if (!channels.isEmpty()) reasons.append(tr("Used by channels: %1.").arg(describe(channels)));
+    if (!settings.isEmpty()) reasons.append(tr("Used by other radio settings: %1.").arg(describe(settings)));
+    if (!reasons.isEmpty()) {
+        info.insert("reason", reasons.join('\n') + tr("\nRemove these uses before deleting the contact. Some radio settings may need to be changed in the manufacturer’s programming software."));
+        return info;
+    }
+    info.insert("canDelete", true);
+    info.insert("reason", QString());
+    return info;
+}
+
+bool RepeaterStore::deleteContact(int index, int expectedId, const QString &expectedName)
+{
+    const auto list = contacts();
+    if (index < 0 || index >= list.size() || list[index].toMap().value("id").toInt() != expectedId
+        || list[index].toMap().value("name").toString() != expectedName)
+        return fail(tr("The selected contact has changed. Select it again before deleting."));
+    const auto info = contactDeletionInfo(index);
+    if (!info.value("canDelete").toBool()) return fail(info.value("reason").toString());
+    if (hasImportedCodeplug()) {
+        auto candidate = m_importedCodeplug;
+        candidate.contacts.removeAt(index);
+        for (auto &channel : candidate.channels)
+            if (channel.contactIndex > index + 1) --channel.contactIndex;
+        QByteArray checked;
+        QString error;
+        if (!CodeplugDefinitions::write(m_sourceCodeplug, candidate, m_radioName, m_radioId, &checked, &error))
+            return fail(tr("The contact was not deleted because the remaining codeplug could not be validated: %1").arg(error));
+        m_importedCodeplug = std::move(candidate);
+        emit importedCodeplugChanged();
+        emit importedSelectionChanged();
+        emit talkgroupsChanged();
+    } else m_manualContacts.removeAt(index);
+    notifyContactsChanged();
+    setModified(true);
+    return true;
+}
+
 bool RepeaterStore::updateContact(int index, const QString &name, int id)
 {
     const QVariantList existing = contacts();

@@ -198,6 +198,13 @@ if(BUILD_TESTING)
     target_link_libraries(opengd77_serial_test PRIVATE radioreader codeplugdefinition)
     target_compile_definitions(opengd77_serial_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME opengd77_serial COMMAND opengd77_serial_test)
+    qt_add_executable(contact_deletion_test
+        tests/contact_deletion.cpp
+        src/repeaterstore.cpp src/repeaterstore.h)
+    target_link_libraries(contact_deletion_test PRIVATE radioreader Qt6::Network codeplugdefinition Qt6::Gui Qt6::Widgets)
+    target_compile_definitions(contact_deletion_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME contact_deletion COMMAND contact_deletion_test)
+
     qt_add_executable(cs750_roundtrip_test
         tests/cs750_roundtrip.cpp
         src/repeaterstore.cpp src/repeaterstore.h)

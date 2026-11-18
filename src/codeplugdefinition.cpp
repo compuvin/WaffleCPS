@@ -2567,6 +2567,68 @@ bool CodeplugDefinition::inspect(const QByteArray &input, QJsonObject *result, Q
     });
 }
 
+bool CodeplugDefinition::contactReferences(const QByteArray &input, QJsonArray *result, QString *error) const
+{
+    return checked(error, [&] {
+        require(result, "Missing contact reference output.");
+        const EditorBindings editor(m_definition);
+        QJsonObject inspected;
+        QString detail;
+        require(inspect(input, &inspected, &detail), "Cannot inspect contact usage: " + detail);
+        QJsonArray references;
+        const auto contactOrder = editor.indexForTable(editor.contacts);
+        const auto collect = [&](const QString &table, const QString &field, const QJsonObject &schema,
+                                 const QJsonValue &raw, const QString &recordName) {
+            if (raw.isUndefined() || raw.isNull()) return;
+            // The contact-order index describes the table itself, not a use of a contact.
+            if (table == editor.channels || (table == contactOrder.table && field == contactOrder.field)) return;
+            const auto reference = schema.value("reference").toObject();
+            const auto byId = schema.value("contact_id_usage").toObject();
+            const bool byIndex = reference.value("table").toString() == editor.contacts;
+            if (!byIndex && byId.isEmpty()) return;
+            if (!byId.isEmpty()) {
+                keys(byId, {"call_type", "null_values"});
+                require(QStringList{"group", "private", "all"}.contains(byId.value("call_type").toString()),
+                        "Invalid contact-ID usage type.");
+            }
+            const auto values = raw.isArray() ? raw.toArray() : QJsonArray{raw};
+            for (const auto &value : values) {
+                const qint64 number = numeric(value.toVariant());
+                QJsonObject usage{{"record_name", recordName}};
+                if (byIndex) {
+                    if (reference.contains("null_value") && number == integer(reference.value("null_value"))) continue;
+                    usage.insert("source_record", double(add(number, -integer(reference.value("index_base")))));
+                } else {
+                    bool null = false;
+                    for (const auto &sentinel : byId.value("null_values").toArray())
+                        null |= number == integer(sentinel);
+                    if (null) continue;
+                    usage.insert("id", double(number));
+                    usage.insert("call_type", byId.value("call_type"));
+                }
+                references.append(usage);
+            }
+        };
+        const auto tables = m_definition.value("tables").toObject();
+        for (auto table = tables.begin(); table != tables.end(); ++table) {
+            const auto fields = table.value().toObject().value("fields").toObject();
+            const auto rows = inspected.value("tables").toObject().value(table.key()).toObject().value("records").toArray();
+            for (const auto &entry : rows) {
+                const auto row = entry.toObject();
+                const auto raw = row.value("raw_values").toObject();
+                const QString name = row.value("fields").toObject().value("name").toString();
+                for (auto field = fields.begin(); field != fields.end(); ++field)
+                    collect(table.key(), field.key(), field.value().toObject(), raw.value(field.key()), name);
+            }
+        }
+        const auto globals = m_definition.value("fields").toObject();
+        const auto rawGlobals = inspected.value("raw_fields").toObject();
+        for (auto field = globals.begin(); field != globals.end(); ++field)
+            collect({}, field.key(), field.value().toObject(), rawGlobals.value(field.key()), {});
+        *result = references;
+    });
+}
+
 bool CodeplugDefinition::conversionMetadata(const QByteArray &input, QJsonObject *result, QString *error) const
 {
     return checked(error, [&] {

@@ -424,7 +424,20 @@ int main(int argc, char **argv)
         edited = base; edited.zones[0].channelIndexes = QVector<int>(17, 0);
         refused(edited, "Zone members", "member");
         edited = base; edited.contacts.clear(); edited.channels[1].contactIndex = 0;
-        refused(edited, "Preserved RX group now dangles", "reference");
+        QByteArray cleaned;
+        ok = definition.write(source, edited, base.radioName, base.radioId, &cleaned, &error); check(ok, error);
+        ImportedCodeplug cleanedPlug;
+        ok = definition.read(cleaned, &cleanedPlug, &error); check(ok, error);
+        check(cleanedPlug.contacts.isEmpty(), "Removed contacts remain after export");
+        QJsonObject cleanedInspection;
+        ok = definition.inspect(cleaned, &cleanedInspection, &error); check(ok, error);
+        const auto groups = cleanedInspection["tables"].toObject()["receive_group_members"].toObject()["records"].toArray();
+        check(!groups.isEmpty(), "RX-group cleanup fixture has no receive groups");
+        for (const auto &group : groups) {
+            const auto fields = group.toObject()["fields"].toObject();
+            check(fields["member_count"].toInt() == 0 && fields["members"].toArray().isEmpty(),
+                  "Removed contacts leave RX-group members or an incorrect count");
+        }
 
         QTemporaryDir temporary; check(temporary.isValid(), "No temporary test directory");
         QMap<QString, QByteArray> entries;
@@ -457,8 +470,13 @@ int main(int argc, char **argv)
         }, "version");
         malformed([](QJsonObject &j) {
             auto c = j["creation"].toObject(), p = c["construction"].toObject();
-            auto order = p["order"].toArray(); const QJsonValue before = order.at(9);
-            order[9] = order.at(10); order[10] = before;
+            auto order = p["order"].toArray();
+            const auto steps = order.toVariantList();
+            const int prepare = steps.indexOf(QVariant(QStringLiteral("contacts_prepare")));
+            const int pack = steps.indexOf(QVariant(QStringLiteral("contacts_pack")));
+            check(prepare >= 0 && pack >= 0, "Missing contact steps in invalid-order fixture");
+            const QJsonValue before = order.at(prepare);
+            order[prepare] = order.at(pack); order[pack] = before;
             p["order"] = order; c["construction"] = p; j["creation"] = c;
         }, "operation order");
         malformed([](QJsonObject &j) {

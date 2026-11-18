@@ -4,6 +4,7 @@
 #include "codeplugdefinition.h"
 #include <QByteArray>
 #include <QVariantList>
+#include <QJsonArray>
 
 struct RadioProfileData {
     CodeplugDefinition codeplug;
@@ -22,6 +23,8 @@ public:
     static QString definitionForFilter(const QString &filter, QString *error);
     static QString diskLoadReport();
     static QVariantList newProjectOptions();
+    static bool contactReferences(const QByteArray &source, const QString &definitionFile,
+                                  QJsonArray *result, QString *error);
     static bool conversionMetadata(const QByteArray &source, const QString &definitionFile,
                                    QJsonObject *result, QString *error);
     static QVariantList radioReadOptions();

@@ -8,10 +8,13 @@ Item {
     required property var contacts
     property var selectedContact: null
     property bool editingContact: false
+    property var deleteInfo: ({})
     Connections {
         target: store
         function onAboutToResetProject() {
             contactDialog.close()
+            deleteContactDialog.close()
+            root.deleteInfo = ({})
             root.selectedContact = null
             root.editingContact = false
         }
@@ -168,10 +171,20 @@ Item {
                         font.pixelSize: 20
                         color: "#20372e"
                     }
-                    PageAction {
+                    RowLayout {
                         visible: root.selectedContact !== null
-                        text: "Edit contact"
-                        onClicked: root.openContactEditor(true)
+                        PageAction {
+                            text: "Edit contact"
+                            onClicked: root.openContactEditor(true)
+                        }
+                        PageAction {
+                            objectName: "deleteContactButton"
+                            text: "Delete contact"
+                            onClicked: {
+                                root.deleteInfo = store.contactDeletionInfo(root.selectedContact.index)
+                                deleteContactDialog.open()
+                            }
+                        }
                     }
                     Item { Layout.fillHeight: true }
                 }
@@ -182,6 +195,48 @@ Item {
             visible: root.visibleContacts.length === 0
             text: searchField.text.length > 0 ? "No matching contacts." : (typeTabs.currentIndex === 0 ? "No people contacts yet." : "No talkgroups yet.")
             color: "#64776c"
+        }
+    }
+
+    PageDialog {
+        id: deleteContactDialog
+        objectName: "deleteContactDialog"
+        title: root.deleteInfo.canDelete ? "Delete contact" : "Cannot delete contact"
+        modal: true
+        anchors.centerIn: parent
+        width: Math.min(480, root.width - 32)
+        standardButtons: Dialog.NoButton
+        onClosed: root.deleteInfo = ({})
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: root.deleteInfo.canDelete
+                    ? "Delete “" + root.deleteInfo.name + "” (DMR ID " + root.deleteInfo.id + ") from this project?"
+                    : (root.deleteInfo.reason || "Select a contact to delete.")
+                color: "#173d30"
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction {
+                    text: root.deleteInfo.canDelete ? "Cancel" : "Close"
+                    onClicked: deleteContactDialog.close()
+                }
+                PageAction {
+                    objectName: "confirmDeleteContactButton"
+                    text: "Delete"
+                    primary: true
+                    visible: root.deleteInfo.canDelete === true
+                    onClicked: {
+                        const info = root.deleteInfo
+                        if (store.deleteContact(info.index, info.id, info.name)) {
+                            root.selectedContact = null
+                            deleteContactDialog.close()
+                        }
+                    }
+                }
+            }
         }
     }
 

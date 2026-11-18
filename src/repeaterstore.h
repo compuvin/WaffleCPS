@@ -146,6 +146,8 @@ public:
     Q_INVOKABLE QString suggestedChannelName(const QString &talkgroupName) const;
     Q_INVOKABLE QString availableChannelName(const QString &channelName) const;
     Q_INVOKABLE bool addContact(const QString &name, int id, bool groupCall);
+    Q_INVOKABLE QVariantMap contactDeletionInfo(int index) const;
+    Q_INVOKABLE bool deleteContact(int index, int expectedId, const QString &expectedName);
     Q_INVOKABLE bool updateContact(int index, const QString &name, int id);
     Q_INVOKABLE void removeTalkgroup(int timeSlot, int id);
     Q_INVOKABLE bool addSimplexToSelectedRepeater(const QString &name, const QString &frequency,
