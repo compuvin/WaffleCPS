@@ -50,6 +50,9 @@ User-reported tests after moving USB transfer definitions into `.wcp` packages:
 | CS800 | Successful | Successful |
 | CS800D | Successful | Successful |
 
+DM-32UV scan-list testing: the tester confirmed viewing, editing, and adding
+scan lists, writing the changes to the radio, and successful on-radio operation.
+
 ## Device access
 
 Windows and macOS may request administrator authorization when the storage-style USB transport requires it. WaffleCPS tries normal access first and uses its helper when that access is denied. Serial and DFU connections use their normal device-access paths.

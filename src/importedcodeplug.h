@@ -63,6 +63,7 @@ struct ImportedCodeplug {
     QVector<ImportedZone> zones;
     QVector<ImportedScanList> scanLists;
     bool scanListsSupported = false;
+    bool scanCurrentChannelSupported = false;
     bool scanListsNeedCleanup = false;
     int scanListCapacity = 0;
     int scanMemberCapacity = 0;

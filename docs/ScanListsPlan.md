@@ -76,4 +76,12 @@ These are partial mappings, not claims of working scan-list editing.
 - [ ] Verify list and channel references after additions, deletions,
       and reordering.
 - [x] Verify project persistence and export/reimport.
-- [ ] Have the DM-32UV tester confirm actual scanning on hardware.
+- [x] Have the DM-32UV tester confirm actual scanning on hardware.
+
+## OpenGD77 — deferred advanced settings
+
+OpenGD77 scans the current zone or all channels rather than separate
+named scan lists. QDMR exposes per-channel exclusions for both modes.
+
+Defer editing these exclusions until advanced settings are implemented.
+The user interface and wording require a separate review before implementation.
