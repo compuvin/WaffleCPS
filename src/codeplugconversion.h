@@ -14,6 +14,7 @@ struct Session {
     QByteArray targetBase;
     QByteArray prepared;
     QSet<int> contacts, channels, zones;
+    QSet<int> scanLists;
     bool twoMeters = false;
     bool seventyCm = false;
     quint64 sourceRevision = 0;

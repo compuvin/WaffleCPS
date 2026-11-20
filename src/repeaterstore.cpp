@@ -881,7 +881,8 @@ QStringList RepeaterStore::scanListNames() const
 QVariantMap RepeaterStore::scanListEditorData(int index) const
 {
     QVariantMap result{{"capacity", m_importedCodeplug.scanListCapacity},
-        {"memberCapacity", m_importedCodeplug.scanMemberCapacity}, {"valid", false}};
+        {"memberCapacity", m_importedCodeplug.scanMemberCapacity},
+        {"currentChannelSupported", m_importedCodeplug.scanCurrentChannelSupported}, {"valid", false}};
     if (!scanListsAvailable()) return result;
     QVariantList channels, repeaters;
     for (int i = 0; i < m_importedCodeplug.channels.size(); ++i) {
@@ -2391,6 +2392,7 @@ QVariantMap RepeaterStore::setConversionChoice(const QString &kind, int index, b
     if (kind == "contacts") { selected = &m_conversion->contacts; count = m_conversion->source.contacts.size(); }
     else if (kind == "channels") { selected = &m_conversion->channels; count = m_conversion->source.channels.size(); }
     else if (kind == "zones") { selected = &m_conversion->zones; count = m_conversion->source.zones.size(); }
+    else if (kind == "scan_lists") { selected = &m_conversion->scanLists; count = m_conversion->source.scanLists.size(); }
     if (!selected || index < 0 || index >= count) return {};
     if (included) selected->insert(index); else selected->remove(index);
     return refreshConversion();
@@ -3155,6 +3157,7 @@ bool RepeaterStore::openProjectFromFile(const QString &path)
             return fail(tr("Cannot restore tone settings from the project definition: %1").arg(error));
         imported.ctcssTones = metadata.ctcssTones;
         imported.scanListsSupported = metadata.scanListsSupported;
+        imported.scanCurrentChannelSupported = metadata.scanCurrentChannelSupported;
         imported.scanListCapacity = metadata.scanListCapacity;
         imported.scanMemberCapacity = metadata.scanMemberCapacity;
         imported.scanListsNeedCleanup = metadata.scanListsNeedCleanup;

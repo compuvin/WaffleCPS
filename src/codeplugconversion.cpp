@@ -97,9 +97,9 @@ void CodeplugConversion::rebuild(Session &s, bool initialize)
     const auto callTypes = s.metadata.value("call_types").toArray();
     const auto modes = s.metadata.value("modes").toObject();
     ImportedCodeplug target = s.baseline;
-    target.channels.clear(); target.contacts.clear(); target.zones.clear();
+    target.channels.clear(); target.contacts.clear(); target.zones.clear(); target.scanLists.clear();
     QStringList changes, losses, blockers;
-    QVariantList contactRows, channelRows, zoneRows;
+    QVariantList contactRows, channelRows, zoneRows, scanRows;
     if (!s.twoMeters && !s.seventyCm) blockers.append("Select at least one destination band.");
     QVector<int> uses(s.source.contacts.size(), 0);
     for (int i = 0; i < uses.size() && i < s.contactUses.size(); ++i) uses[i] = s.contactUses[i];
@@ -113,7 +113,7 @@ void CodeplugConversion::rebuild(Session &s, bool initialize)
         return QString();
     };
     if (initialize) {
-        s.contacts.clear(); s.channels.clear(); s.zones.clear();
+        s.contacts.clear(); s.channels.clear(); s.zones.clear(); s.scanLists.clear();
         QVector<int> order(s.source.contacts.size()); std::iota(order.begin(), order.end(), 0);
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
             auto rank = [&](int i) { return (uses[i] > 0 ? 0 : 2) + (s.source.contacts[i].callTypeValue() == "group" ? 0 : 1); };
@@ -193,6 +193,100 @@ void CodeplugConversion::rebuild(Session &s, bool initialize)
             .arg(c.frequencyAHz / 1e6, 0, 'f', 5).arg(reason.isEmpty() ? "" : " · " + reason);
         channelRows.append(choice(i, c.name, keep, reason.isEmpty(), detail));
     }
+    // Select assigned lists first when the destination has fewer list slots.
+    if (initialize && target.scanListsSupported) {
+        QVector<int> order(s.source.scanLists.size());
+        std::iota(order.begin(), order.end(), 0);
+        QSet<int> assigned;
+        for (auto channel = channelMap.cbegin(); channel != channelMap.cend(); ++channel) {
+            const int list = s.source.channels[channel.key()].scanListIndex - 1;
+            if (list >= 0 && list < s.source.scanLists.size()) assigned.insert(list);
+        }
+        std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            return assigned.contains(a) && !assigned.contains(b);
+        });
+        for (int i : order) {
+            const auto &list = s.source.scanLists[i];
+            const bool hasMember = list.channelIndexes.isEmpty()
+                || std::any_of(list.channelIndexes.cbegin(), list.channelIndexes.cend(), [&](int member) {
+                    return member == -1 ? target.scanCurrentChannelSupported : channelMap.contains(member);
+                });
+            if (hasMember && s.scanLists.size() < target.scanListCapacity) s.scanLists.insert(i);
+        }
+    }
+    QMap<int, int> scanMap;
+    QSet<QString> scanNames;
+    for (int i = 0; i < s.source.scanLists.size(); ++i) {
+        const auto &source = s.source.scanLists[i];
+        ImportedScanList list;
+        QStringList omitted, keptNames, assignments;
+        for (auto channel = channelMap.cbegin(); channel != channelMap.cend(); ++channel)
+            if (s.source.channels[channel.key()].scanListIndex == i + 1)
+                assignments.append(target.channels[channel.value()].name);
+        for (int member : source.channelIndexes) {
+            QString name;
+            int mapped = -1;
+            QString reason;
+            if (member == -1) {
+                name = "Current channel";
+                if (!target.scanCurrentChannelSupported) reason = "not supported by the destination";
+            } else {
+                require(member >= 0 && member < s.source.channels.size(), "Unknown source scan-list channel.");
+                name = s.source.channels[member].name;
+                if (!channelMap.contains(member)) reason = "channel will not transfer";
+                else mapped = channelMap.value(member);
+            }
+            if (reason.isEmpty() && target.scanListsSupported
+                && list.channelIndexes.size() >= target.scanMemberCapacity)
+                reason = QString("exceeds the %1-channel list limit").arg(target.scanMemberCapacity);
+            if (reason.isEmpty()) {
+                list.channelIndexes.append(mapped);
+                keptNames.append(member == -1 ? name : target.channels[mapped].name);
+            } else omitted.append(QString("%1 (%2)").arg(name, reason));
+        }
+        const bool emptied = !source.channelIndexes.isEmpty() && list.channelIndexes.isEmpty();
+        const bool enabled = target.scanListsSupported && !emptied;
+        const bool keep = enabled && s.scanLists.contains(i);
+        QString reason;
+        if (!target.scanListsSupported) reason = "Scan-list conversion is not supported for the destination.";
+        else if (emptied) reason = "No channels remain in this list after conversion.";
+        else if (!keep) reason = initialize ? "Not selected within the destination's scan-list capacity." : "Not selected.";
+        QString detail;
+        if (keep) {
+            list.name = fitName(source.name, limits, "scan_name", &scanNames);
+            if (list.name != source.name)
+                changes.append(QString("Scan list ‘%1’ renamed to ‘%2’.").arg(source.name, list.name));
+            scanMap.insert(i + 1, target.scanLists.size() + 1);
+            target.scanLists.append(list);
+            detail = QString("Destination: %1 · %2 / %3 channels\nChannels to scan: %4\nUsed from: %5")
+                .arg(list.name).arg(list.channelIndexes.size()).arg(target.scanMemberCapacity)
+                .arg(keptNames.isEmpty() ? "None" : keptNames.join(", "),
+                     assignments.isEmpty() ? "No retained channels" : assignments.join(", "));
+            if (!omitted.isEmpty()) {
+                detail += "\nWill not transfer: " + omitted.join("; ");
+                losses.append(QString("Scan list ‘%1’: %2.").arg(source.name, omitted.join("; ")));
+            }
+        } else {
+            detail = reason;
+            if (emptied && target.scanListsSupported && !omitted.isEmpty()) {
+                detail += "\nWill not transfer: " + omitted.join("; ");
+                reason += " " + omitted.join("; ") + ".";
+            }
+            if (!assignments.isEmpty()) detail += "\nThese channels will have no scan list: " + assignments.join(", ");
+            losses.append(QString("Scan list ‘%1’: %2").arg(source.name, reason));
+        }
+        scanRows.append(choice(i, source.name, keep, enabled, detail));
+    }
+    for (auto channel = channelMap.cbegin(); channel != channelMap.cend(); ++channel) {
+        const auto &source = s.source.channels[channel.key()];
+        const int assignment = scanMap.value(source.scanListIndex, 0);
+        target.channels[channel.value()].scanListIndex = assignment;
+        if (source.scanListIndex > 0 && assignment == 0)
+            losses.append(QString("Channel ‘%1’: its scan-list assignment will not transfer.").arg(source.name));
+    }
+    if (target.scanListsSupported && target.scanLists.size() > target.scanListCapacity)
+        blockers.append(QString("Scan lists: %1 selected; destination allows %2. Deselect lists to continue.")
+            .arg(target.scanLists.size()).arg(target.scanListCapacity));
     QSet<QString> zoneNames;
     const int perZone = target.zoneMemberCapacity;
     require(perZone > 0, "Invalid destination zone member limit.");
@@ -251,12 +345,13 @@ void CodeplugConversion::rebuild(Session &s, bool initialize)
         if (count < limitNumber(bound.value("minimum")) || count > limitNumber(bound.value("maximum")))
             blockers.append(QString("%1: %2 selected; destination requires %3–%4. Adjust the selections.").arg(table == "zones" ? "Repeaters/Zones" : table).arg(count).arg(limitNumber(bound.value("minimum"))).arg(limitNumber(bound.value("maximum"))));
     }
-    const QString notice = "Only settings represented in Waffle transfer. Other radio-specific settings, including scan-list and receive-group configuration, do not transfer. Contact usage includes channel references and other references declared by the source definition.";
+    const QString notice = "Only settings represented in Waffle transfer. Other radio-specific settings, including receive-group configuration and advanced scan settings, do not transfer. Only scan lists exposed by Waffle can transfer. Contact usage includes channel references and other references declared by the source definition.";
     s.converted = std::move(target);
-    s.review = {{"target", s.baseline.model}, {"contacts", contactRows}, {"channels", channelRows}, {"zones", zoneRows},
+    s.review = {{"target", s.baseline.model}, {"contacts", contactRows}, {"channels", channelRows}, {"zones", zoneRows}, {"scan_lists", scanRows},
         {"changes", changes}, {"losses", losses}, {"blockers", blockers}, {"canConvert", blockers.isEmpty()}, {"notice", notice},
         {"contactCount", s.converted.contacts.size()}, {"contactCapacity", s.baseline.contactCapacity},
         {"channelCount", s.converted.channels.size()}, {"channelCapacity", s.baseline.channelCapacity},
+        {"scanListCount", s.converted.scanLists.size()}, {"scanListCapacity", s.baseline.scanListCapacity},
         {"zoneCount", s.converted.zones.size()}, {"zoneCapacity", s.baseline.zoneCapacity},
         {"bandSummary", s.twoMeters && s.seventyCm ? "VHF and UHF" : s.twoMeters ? "VHF" : "UHF"}};
 }

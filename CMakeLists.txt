@@ -198,6 +198,11 @@ if(BUILD_TESTING)
     target_link_libraries(opengd77_serial_test PRIVATE radioreader codeplugdefinition)
     target_compile_definitions(opengd77_serial_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME opengd77_serial COMMAND opengd77_serial_test)
+    add_executable(scan_conversion_test tests/scan_conversion.cpp)
+    target_link_libraries(scan_conversion_test PRIVATE codeplugdefinition Qt6::Core)
+    target_compile_definitions(scan_conversion_test PRIVATE WAFFLE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME scan_conversion COMMAND scan_conversion_test)
+
     qt_add_executable(entry_deletion_test
         tests/entry_deletion.cpp
         src/repeaterstore.cpp src/repeaterstore.h)

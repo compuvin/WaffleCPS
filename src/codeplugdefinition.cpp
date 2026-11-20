@@ -831,6 +831,11 @@ public:
             result.scanMemberCapacity = editorInteger(integer(editor.limits.value("scan_members_maximum")), "scan members");
             const auto memberSchema = schemaFor(editor.get("scan_lists", "scan_members"));
             const auto reference = memberSchema.value("reference").toObject();
+            result.scanCurrentChannelSupported = reference.contains("current_channel_value");
+            if (result.scanCurrentChannelSupported)
+                require(reference.contains("null_value")
+                    && integer(reference.value("current_channel_value")) == integer(reference.value("null_value")),
+                    "Current-channel value must match the scan member sentinel.");
             require(reference.value("table").toString() == editor.channels, "Scan members must reference channels.");
             for (qint64 physical : recordOrder(editor.scans, editor.indexForTable(editor.scans))) {
                 ImportedScanList list;
@@ -839,7 +844,9 @@ public:
                 for (const auto &value : read("scan_lists", "scan_members", editor.scans, physical).raw.toList()) {
                     const qint64 number = numeric(value);
                     if (reference.contains("null_value") && number == integer(reference.value("null_value"))) {
-                        list.channelIndexes.append(-1); continue;
+                        if (result.scanCurrentChannelSupported)
+                            list.channelIndexes.append(-1);
+                        continue;
                     }
                     const qint64 index = add(number, -integer(reference.value("index_base")));
                     if (!channelIndexes.contains(index) && erasedReference(reference, index)) {
@@ -1608,7 +1615,9 @@ private:
                 nameValid(list.name, "scan_name", r.value("names").toObject());
                 require(list.channelIndexes.size() <= integer(r.value("scan_members_maximum")), "Scan list is too large.");
                 for (int index : list.channelIndexes)
-                    require(index >= -1 && index < target.channels.size(), "Scan list references an unknown channel.");
+                    require(index >= (basePlug.scanCurrentChannelSupported ? -1 : 0)
+                            && index < target.channels.size(),
+                            "Scan list references an unknown or unsupported channel.");
             }
             for (const auto &channel : target.channels)
                 require(channel.scanListIndex >= 0 && channel.scanListIndex <= target.scanLists.size(), "Unknown assigned scan list.");

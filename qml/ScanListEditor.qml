@@ -147,7 +147,11 @@ ColumnLayout {
         visible: editor.scanData.valid && tabs.currentIndex === 0
         PageAction { text: "+ Add channels"; primary: true; onClicked: addDialog.showChannels(false) }
         PageAction { text: "+ Add repeater"; onClicked: addDialog.showChannels(true) }
-        PageAction { text: "+ Current channel"; onClicked: store.addScanListChannels(editor.scanIndex, [0]) }
+        PageAction {
+            text: "+ Current channel"
+            visible: editor.scanData.currentChannelSupported === true
+            onClicked: store.addScanListChannels(editor.scanIndex, [0])
+        }
     }
     Item { visible: !editor.scanData.valid; Layout.fillHeight: true }
 

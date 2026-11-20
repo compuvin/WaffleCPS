@@ -32,7 +32,7 @@ PageDialog {
             result.push({ heading: true, text: group.title })
             for (const text of entries) result.push({ heading: false, text: text })
         }
-        if (!result.length) result.push({ heading: false, text: "All selected channels, contacts, and repeater/zone memberships fit the destination." })
+        if (!result.length) result.push({ heading: false, text: "All selected channels, contacts, repeater/zone memberships, and scan lists fit the destination." })
         return result
     }
     title: stage === 0 ? "Convert codeplug — choose a radio" : "Convert to " + targetName
@@ -47,10 +47,17 @@ PageDialog {
     component Choices: ColumnLayout {
         id: choices
         property string kind
+        Label {
+            visible: choices.kind === "scan_lists" && !(conversion.review.scan_lists || []).length
+            text: "No scan lists are available to convert."
+            color: "#64776c"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
         PageField {
             id: search
             Layout.fillWidth: true
-            placeholderText: "Search " + (choices.kind === "zones" ? "repeaters/zones" : choices.kind)
+            placeholderText: "Search " + (choices.kind === "zones" ? "repeaters/zones" : choices.kind === "scan_lists" ? "scan lists" : choices.kind)
             Accessible.name: placeholderText
         }
         ListView {
@@ -184,7 +191,7 @@ PageDialog {
                 PageCheckBox { id: twoMeters; objectName: "conversionTwoMeters"; text: "VHF (136–174 MHz)" }
                 PageCheckBox { id: seventyCm; objectName: "conversionSeventyCm"; text: "UHF (400–470 MHz)" }
                 Label {
-                    text: "Channels outside these ranges will be listed in the review. Used contacts are preferred, with group calls ahead of private contacts. Oversized repeaters/zones are split automatically."
+                    text: "Channels outside these ranges will be listed in the review. Used contacts are preferred, with group calls ahead of private contacts. Oversized repeaters/zones are split automatically. Scan lists exceeding the destination limit are shortened in their existing order."
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     color: "#64776c"
@@ -210,7 +217,8 @@ PageDialog {
                 Label {
                     text: (conversion.review.contactCount || 0) + " / " + (conversion.review.contactCapacity || 0) + " contacts · "
                         + (conversion.review.channelCount || 0) + " / " + (conversion.review.channelCapacity || 0) + " channels · "
-                        + (conversion.review.zoneCount || 0) + " / " + (conversion.review.zoneCapacity || 0) + " repeaters/zones"
+                        + (conversion.review.zoneCount || 0) + " / " + (conversion.review.zoneCapacity || 0) + " repeaters/zones · "
+                        + (conversion.review.scanListCount || 0) + " / " + (conversion.review.scanListCapacity || 0) + " scan lists"
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     color: "#173d30"
@@ -222,6 +230,7 @@ PageDialog {
                     PageTabButton { text: "Contacts" }
                     PageTabButton { text: "Channels" }
                     PageTabButton { text: "Repeaters/Zones" }
+                    PageTabButton { text: "Scan Lists" }
                 }
                 StackLayout {
                     Layout.fillWidth: true
@@ -246,6 +255,7 @@ PageDialog {
                     Choices { kind: "contacts" }
                     Choices { kind: "channels" }
                     Choices { kind: "zones" }
+                    Choices { kind: "scan_lists" }
                 }
             }
         }
