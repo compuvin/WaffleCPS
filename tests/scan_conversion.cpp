@@ -1,5 +1,6 @@
 #include "../src/codeplugconversion.h"
 #include "../src/codeplugdefinition.h"
+#include "../src/codeplugdefinitions.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QDebug>
@@ -97,11 +98,38 @@ int main(int argc, char **argv) {
         limited.scanLists.insert(0);
         CodeplugConversion::rebuild(limited);
         check(!limited.review.value("canConvert").toBool(), "Excess selected lists accepted");
-        auto unsupported = fixture("md380.wcp");
-        unsupported.source.scanLists = limited.source.scanLists; unsupported.source.channels[0].scanListIndex = 1;
-        CodeplugConversion::rebuild(unsupported, true);
-        check(unsupported.converted.scanLists.isEmpty() && unsupported.converted.channels[0].scanListIndex == 0, "Unsupported lists transferred");
-        check(contains(unsupported.review.value("losses").toStringList(), "not supported"), "Unsupported destination not reported");
+        for (const auto &entry : CodeplugDefinitions::newProjectOptions()) {
+            const auto option = entry.toMap();
+            if (!option.value("available").toBool()) continue;
+            const QString file = option.value("fileName").toString();
+            QString error;
+            auto candidate = limited;
+            candidate.source.channels[0].scanListIndex = 1;
+            candidate.targetBase = CodeplugDefinitions::defaultCodeplug(file, &error);
+            check(!candidate.targetBase.isEmpty(), error);
+            check(CodeplugDefinitions::read(candidate.targetBase,
+                &candidate.baseline, &error, file), error);
+            check(CodeplugDefinitions::conversionMetadata(candidate.targetBase,
+                file, &candidate.metadata, &error), error);
+            CodeplugConversion::rebuild(candidate, true);
+
+            if (candidate.baseline.scanListsSupported) {
+                const int expected = qMin(int(candidate.source.scanLists.size()),
+                                         candidate.baseline.scanListCapacity);
+                check(candidate.converted.scanLists.size() == expected,
+                      file + ": supported scan lists did not transfer");
+                check(candidate.converted.channels[0].scanListIndex
+                          == (expected > 0 ? 1 : 0),
+                      file + ": scan-list assignment was not remapped");
+            } else {
+                check(candidate.converted.scanLists.isEmpty()
+                          && candidate.converted.channels[0].scanListIndex == 0,
+                      file + ": unsupported scan lists transferred");
+                check(contains(candidate.review.value("losses").toStringList(),
+                               "not supported"),
+                      file + ": unsupported capability was not reported");
+            }
+        }
         auto empty = fixture("cs700.wcp");
         ImportedScanList l; l.name = "VHF"; l.channelIndexes = {1}; empty.source.scanLists.append(l);
         empty.source.channels[0].scanListIndex = 1; empty.twoMeters = false;

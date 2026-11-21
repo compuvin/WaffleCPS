@@ -859,7 +859,7 @@ public:
             }
             for (int i = 0; i < result.channels.size(); ++i) {
                 const qint64 physical = result.channels[i].sourceRecord;
-                result.channels[i].scanListIndex = editorInteger(numeric(read("channels", "scan_list_index", editor.channels, physical).raw), "scan assignment");
+                result.channels[i].scanListIndex = editorInteger(numeric(read("channels", "scan_list_index", editor.channels, physical).mapped), "scan assignment");
             }
         }
         bounded(result.channels.size(), "channels");
