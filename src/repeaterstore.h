@@ -123,10 +123,12 @@ public:
     Q_INVOKABLE bool createChannelInSelectedZone(const QString &name, const QString &rx, const QString &tx,
         bool digital, int colorCode, int timeSlot, int contactIndex, int powerChoice, int displays = 3,
         int receiveCtcss = 0, int transmitCtcss = 0);
+    Q_INVOKABLE QVariantMap selectedZoneChannelUsage(int zonePosition) const;
     Q_INVOKABLE bool updateSelectedZoneChannel(int zonePosition, const QString &name,
         const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
         int contactIndex, int powerChoice, int displays = -1,
-        int receiveCtcss = -1, int transmitCtcss = -1);
+        int receiveCtcss = -1, int transmitCtcss = -1,
+        bool updateEverywhere = false);
     Q_INVOKABLE QVariantMap selectedEntryDeletionInfo() const;
     Q_INVOKABLE bool deleteSelectedEntry(bool deleteUnusedChannels, const QString &expectedRevision);
     Q_INVOKABLE bool removeSelectedZoneChannel(int zonePosition);

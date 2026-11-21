@@ -13,7 +13,7 @@ ColumnLayout {
     readonly property var channels: (group.zones || []).length ? group.zones[0].channels : []
     Connections {
         target: store
-        function onAboutToResetProject() { renameDialog.close(); channelDialog.close() }
+        function onAboutToResetProject() { sharedChannelDialog.close(); renameDialog.close(); channelDialog.close() }
     }
     spacing: 12
     RowLayout {
@@ -125,8 +125,50 @@ ColumnLayout {
         property bool editing: false
         property int position: 0
         property int originalMode: 0
+        property string originalSettings: ""
+        function settingsKey() {
+            const digital = channelMode.currentIndex === 0
+            return JSON.stringify([
+                channelName.text.trim(), Math.round(Number(channelRx.text) * 1000000),
+                Math.round(Number(channelTx.text) * 1000000), digital,
+                digital ? channelCc.value : 0, digital ? channelSlot.currentIndex + 1 : 0,
+                digital ? selectedContactIndex : 0,
+                channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText),
+                !digital && store.ctcssChoices.length ? receiveCtcss : -1,
+                !digital && store.ctcssChoices.length ? transmitCtcss : -1
+            ])
+        }
+        function requestSave() {
+            if (editing && settingsKey() !== originalSettings) {
+                const usage = store.selectedZoneChannelUsage(position)
+                if (usage.shared === true) {
+                    sharedChannelDialog.usage = usage
+                    sharedChannelDialog.open()
+                    return
+                }
+            }
+            save(false)
+        }
         property var receiveToneOptions: []
         property var transmitToneOptions: []
+        function save(updateEverywhere) {
+            const saved = channelDialog.editing
+                ? store.updateSelectedZoneChannel(channelDialog.position, channelName.text, channelRx.text, channelTx.text,
+                    channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
+                    channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText),
+                    store.separateDisplayLists ? channelDisplays.currentIndex + 1 : -1,
+                    channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : -1,
+                    channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : -1, updateEverywhere)
+                : channelDialog.choosingExisting
+                  ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber, channelDisplays.currentIndex + 1)
+                  : store.createChannelInSelectedZone(channelName.text, channelRx.text, channelTx.text,
+                      channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
+                      channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText), channelDisplays.currentIndex + 1,
+                      channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : 0,
+                      channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : 0)
+            if (saved) channelDialog.close()
+            else channelError.text = "Could not save this channel. Check its name, frequencies, and available capacity."
+        }
         function setToneChoices(receive, transmit) {
             const options = store.ctcssChoices
             const other = {label: "Other tone (unchanged)", value: -1}
@@ -206,8 +248,10 @@ ColumnLayout {
             contactChoices = store.zoneContactChoices()
             selectedContactIndex = channel.contactIndex
             contactSearch.text = ""
+            originalSettings = settingsKey()
             open()
         }
+        onClosed: sharedChannelDialog.close()
         parent: Overlay.overlay
         anchors.centerIn: parent
         width: Math.min(560, editor.Window.window.width - 32)
@@ -442,26 +486,54 @@ ColumnLayout {
                              : channelMode.currentIndex !== 0
                                || (channelDialog.selectedContactIndex > 0
                                    && channelDialog.selectedContactIndex <= channelDialog.contactChoices.length)
-                    onClicked: {
-                        const saved = channelDialog.editing
-                            ? store.updateSelectedZoneChannel(channelDialog.position, channelName.text, channelRx.text, channelTx.text,
-                                channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                channelDialog.selectedContactIndex, channelPower.currentIndex < 0 ? -1 : store.powerChoice(channelPower.currentText),
-                                store.separateDisplayLists ? channelDisplays.currentIndex + 1 : -1,
-                                channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : -1,
-                                channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : -1)
-                            : channelDialog.choosingExisting
-                              ? store.addExistingChannelToSelectedZone(channelDialog.selectedChannelNumber, channelDisplays.currentIndex + 1)
-                              : store.createChannelInSelectedZone(channelName.text, channelRx.text, channelTx.text,
-                                  channelMode.currentIndex === 0, channelCc.value, channelSlot.currentIndex + 1,
-                                  channelDialog.selectedContactIndex, store.powerChoice(channelPower.currentText), channelDisplays.currentIndex + 1,
-                                  channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.receiveCtcss : 0,
-                                  channelMode.currentIndex === 1 && store.ctcssChoices.length ? channelDialog.transmitCtcss : 0)
-                        if (saved) channelDialog.close()
-                        else channelError.text = "Could not save this channel. Check its name, frequencies, and available capacity."
-                    }
+                    onClicked: channelDialog.requestSave()
                 }
             }
         }
     }
+    PageDialog {
+        id: sharedChannelDialog
+        objectName: "sharedChannelDialog"
+        property var usage: ({})
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: Math.min(560, editor.Window.window.width - 32)
+        modal: true
+        title: "Where should this change apply?"
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            spacing: 14
+            Label {
+                text: "“" + (sharedChannelDialog.usage.name || "") + "” is also used in:"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(200, usageLabel.implicitHeight)
+                contentWidth: availableWidth
+                clip: true
+                Label {
+                    id: usageLabel
+                    width: parent.width
+                    text: (sharedChannelDialog.usage.places || []).map(place => "• " + place).join("\n")
+                    wrapMode: Text.WordWrap
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Item { Layout.fillWidth: true }
+                PageAction { text: "Cancel"; onClicked: sharedChannelDialog.close() }
+                PageAction {
+                    text: "Only here"
+                    onClicked: { sharedChannelDialog.close(); channelDialog.save(false) }
+                }
+                PageAction {
+                    text: "Everywhere"
+                    onClicked: { sharedChannelDialog.close(); channelDialog.save(true) }
+                }
+            }
+        }
+    }
+
 }

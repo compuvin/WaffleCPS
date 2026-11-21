@@ -1229,9 +1229,38 @@ bool RepeaterStore::updateSelectedZoneChannelFrequencies(int zonePosition, const
         channel.colorCode, channel.timeSlot, channel.contactIndex, -1);
 }
 
+QVariantMap RepeaterStore::selectedZoneChannelUsage(int zonePosition) const
+{
+    const int zoneIndex = selectedZoneIndex();
+    if (zoneIndex < 0) return {};
+    const auto members = zoneMembers(m_importedCodeplug.zones[zoneIndex]);
+    if (zonePosition < 1 || zonePosition > members.size()) return {};
+    const int channelIndex = members[zonePosition - 1];
+    QStringList places;
+    if (members.count(channelIndex) > 1)
+        places.append(tr("Another entry in %1")
+            .arg(m_importedCodeplug.zones[zoneIndex].name));
+    for (int i = 0; i < m_importedCodeplug.zones.size(); ++i) {
+        if (i != zoneIndex
+            && zoneMembers(m_importedCodeplug.zones[i]).contains(channelIndex))
+            places.append(tr("Repeater/zone: %1")
+                .arg(m_importedCodeplug.zones[i].name));
+    }
+    for (const auto &list : m_importedCodeplug.scanLists) {
+        if (list.channelIndexes.contains(channelIndex))
+            places.append(tr("Scan list: %1").arg(list.name));
+    }
+    return QVariantMap{
+        {"name", m_importedCodeplug.channels[channelIndex].name},
+        {"shared", !places.isEmpty()},
+        {"places", places}
+    };
+}
+
 bool RepeaterStore::updateSelectedZoneChannel(int zonePosition, const QString &name,
     const QString &rx, const QString &tx, bool digital, int colorCode, int timeSlot,
-    int contactIndex, int powerChoice, int displays, int receiveCtcss, int transmitCtcss)
+    int contactIndex, int powerChoice, int displays, int receiveCtcss, int transmitCtcss,
+    bool updateEverywhere)
 {
     const int zoneIndex = selectedZoneIndex();
     if (digital && (contactIndex < 1 || contactIndex > m_importedCodeplug.contacts.size()))
@@ -1294,10 +1323,9 @@ bool RepeaterStore::updateSelectedZoneChannel(int zonePosition, const QString &n
         corrected.sourceRecord = -1;
         corrected.useDefaultTemplate = true;
     }
-    bool shared = members.count(channelIndex) > 1;
-    for (int i = 0; i < m_importedCodeplug.zones.size(); ++i)
-        if (i != zoneIndex && zoneMembers(m_importedCodeplug.zones[i]).contains(channelIndex)) shared = true;
-    if (shared) {
+    const bool shared = selectedZoneChannelUsage(zonePosition)
+                            .value("shared").toBool();
+    if (shared && !updateEverywhere) {
         if (m_importedCodeplug.channels.size() >= m_importedCodeplug.channelCapacity) return fail(tr("No channel slot is available for this zone's copy."));
         if (cleanName.compare(original.name, Qt::CaseInsensitive) == 0)
             corrected.name = availableChannelName(cleanName);
