@@ -38,7 +38,7 @@ Preserve existing wording and checkbox states.
 ## Programming a first repeater
 
 - [ ] Add brief help for receive and transmit frequencies from the radio’s point of view, including where to find a repeater’s published settings.
-- [ ] Explain color code and time slot at the point where users first encounter them. Keep the explanation short and optional.
+- [x] Explain color code and time slot at the point where users first encounter them. Keep the explanation short and optional.
 - [ ] Review what happens after Add repeater. Check whether the next action, Add talkgroup, is clear without prior DMR experience.
 - [ ] Review the talkgroup and channel-name fields together. Show a concrete example of one talkgroup used with a distinct channel name, if testing shows users confuse them.
 

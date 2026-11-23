@@ -1822,7 +1822,13 @@ ApplicationWindow {
                         inputMethodHints: Qt.ImhFormattedNumbersOnly
                         readOnly: offsetChoice.currentIndex !== 4
                     }
-                    Label { text: "Color code" }
+                    RowLayout {
+                        Label { text: "Color code" }
+                        PageHelpButton {
+                            helpTitle: "Color code"
+                            helpText: "Use the color code published for the repeater. It must match for your radio to communicate through it."
+                        }
+                    }
                     PageSpinBox { id: colorCodeField; from: 0; to: 15 }
                     Label { text: "Transmit power" }
                     PageComboBox {

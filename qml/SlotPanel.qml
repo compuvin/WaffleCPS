@@ -65,8 +65,14 @@ Frame {
                 font.pixelSize: 17
                 font.bold: true
                 color: "#20372e"
-                Layout.fillWidth: true
             }
+
+            PageHelpButton {
+                helpTitle: "Time slot"
+                helpText: "A DMR repeater can carry two conversations at once. Choose the time slot assigned to your talkgroup."
+            }
+
+            Item { Layout.fillWidth: true }
 
             Label {
                 text: panel.channelCards.length + " talkgroup"

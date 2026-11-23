@@ -421,6 +421,20 @@ int main(int argc, char *argv[])
         auto firstChannel = [&store] {
             return store.selectedImportedGroup().value("zones").toList().first().toMap().value("channels").toList().first().toMap();
         };
+        auto saveChannel = [&] {
+            click(control("zoneChannelSave"));
+            auto *dialog = control("sharedChannelDialog");
+            if (!dialog || !dialog->property("visible").toBool()) return;
+            for (auto *object : root->findChildren<QObject *>()) {
+                if (object->inherits("QQuickAbstractButton")
+                    && object->property("text").toString() == "Only here") {
+                    click(object);
+                    return;
+                }
+            }
+            qCritical() << "Shared-channel Only here button missing";
+            app.exit(50);
+        };
         int originalContact = 0;
         const QString expectedName = advancedNew ? QStringLiteral("Second") : QStringLiteral("Ordering test");
         QTimer::singleShot(100, &app, [&] { click(control(advancedNew ? "manualEditAsZoneButton" : "importedEditAsZoneButton")); });
@@ -444,14 +458,14 @@ int main(int argc, char *argv[])
             click(visual("zoneEditChannelButton", "zonePosition", 1));
             control("zoneContactSearch")->setProperty("text", "1234567");
         });
-        QTimer::singleShot(760, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 3)); click(control("zoneChannelSave")); });
+        QTimer::singleShot(760, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 3)); saveChannel(); });
         QTimer::singleShot(900, &app, [&] {
             if (!store.editingAsZone() || firstChannel().value("contactIndex").toInt() != 3
                 || firstChannel().value("contactGroupCall").toBool()) { app.exit(55); return; }
             click(visual("zoneEditChannelButton", "zonePosition", 1));
         });
         QTimer::singleShot(1040, &app, [&] { control("zoneContactSearch")->setProperty("text", "3100"); });
-        QTimer::singleShot(1180, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 2)); click(control("zoneChannelSave")); });
+        QTimer::singleShot(1180, &app, [&] { click(visual("zoneContactChoice", "contactNumber", 2)); saveChannel(); });
         QTimer::singleShot(1320, &app, [&] {
             if (!store.editingAsZone() || firstChannel().value("contactIndex").toInt() != 2) { app.exit(56); return; }
             click(control("radioSettingsNav"));

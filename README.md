@@ -4,98 +4,109 @@
 
 **What WaffleCPS isn't:** A tool for configuring every advanced or manufacturer-specific radio setting.
 
-WaffleCPS organizes DMR radio programming around repeaters, time slots, and talkgroups. A **codeplug** is the file containing your radio's programming. When importing an existing codeplug, WaffleCPS aims to preserve settings it doesn't manage.
+Build your programming around repeaters and the talkgroups you want to use. You can start fresh, edit an existing codeplug, or read programming from a supported radio. A **codeplug** is the file containing your radio's programming.
 
-The application is under active development and works offline, without accounts or subscriptions.
+WaffleCPS is under active development. It works offline without accounts or subscriptions. Updating satellite orbital data requires an internet connection.
 
 ## Download
 
-Get the latest version from [GitHub Releases](https://github.com/compuvin/WaffleCPS/releases/latest). Choose the package for your computer:
+Download the latest version from [GitHub Releases](https://github.com/compuvin/WaffleCPS/releases/latest). Radio definitions are included; you do not need to build the application yourself.
 
-| Platform | Download |
+| Your computer | Choose |
 | --- | --- |
 | Windows x64 | `.exe` installer |
 | Ubuntu 24.04 amd64 | `amd64.deb` package |
 | Ubuntu 24.04 arm64 | `arm64.deb` package |
-| macOS on Apple silicon | `macos-arm64.dmg` |
+| macOS with Apple silicon | `macos-arm64.dmg` |
 
-The packages include the radio definitions. Building from source is optional; instructions are below.
+## Start programming
 
-## Getting started
+Choose the starting point that fits your situation:
 
-1. Click **New**, search for your radio, and select it.
-2. Enter your call sign and DMR ID now, or add them later in **Radio Settings**. The **Get a DMR ID** link takes you to Radio ID registration.
-3. Click **Add repeater**, enter its frequencies and color code, then add talkgroups to its time slots.
-4. Use **Project → Save** to keep your work as a `.waffle` project.
-5. Use **Codeplug → Export** to create a programming file for your selected radio, or **Radio → Write** when radio transfer is supported.
+- **Starting fresh:** click **New** and choose your radio.
+- **Using an existing codeplug:** choose **Codeplug → Import**.
+- **Using programming already on your radio:** connect and power on the radio, then choose **Radio → Read**.
+- **Continuing saved work:** choose **Project → Open** and select your `.waffle` project.
 
-You can also begin with **Codeplug → Import** to open an existing codeplug, **Project → Open** to resume a saved project, or **Radio → Read** to download a supported radio's current programming. At startup, Read asks you to choose a radio; an existing radio project supplies that selection.
+For a new project, enter your call sign and DMR ID now or add them later in **Radio Settings**. The **Get a DMR ID** link opens registration.
 
-**Save** keeps an editable WaffleCPS project, including the original codeplug when one was imported or read. **Export** creates the radio's native codeplug file. The **Blank project** option lets you work without selecting a radio; use **Codeplug → Convert** to select a radio before exporting.
+Click **Add repeater**, enter its receive frequency, select its offset or enter its transmit frequency, and set its color code. Use the repeater's published settings. Then add talkgroups to the appropriate time slots. The **?** buttons explain unfamiliar settings.
 
-To move your programming to another radio, choose **Codeplug → Convert**, select the destination radio and its supported VHF/UHF ranges, then review what will transfer, change, or be omitted. Oversized zones are split to fit the destination. Only settings represented in WaffleCPS transfer; other radio-specific settings do not. Conversion opens an unsaved project for the destination radio and does not write to the radio.
+The left sidebar lets you switch between repeaters and zones. A **zone** is a group of channels selected together on the radio; use one to combine channels for a trip, an event, or local use. People and talkgroups are managed under **Contacts**.
 
-## Radio support
+## Save your work or program the radio
 
-Included codeplug definitions cover these radios and file formats. Compatibility depends on the particular model, version, and file layout.
+| What you want to do | Use |
+| --- | --- |
+| Keep working on the project later | **Project → Save** — creates a `.waffle` project |
+| Open your programming in the manufacturer's software | **Codeplug → Export** — creates the selected radio's codeplug file |
+| Send your programming directly to a supported radio | **Radio → Write** |
 
-| Radio or firmware | Codeplug file | Radio transfer definition included |
-| --- | --- | --- |
-| CS7000-M17 Plus | `.rdbx` | Yes |
-| CS700 / CS701 | `.rdt` | Yes |
-| CS750 | `.rdb` (D4.0.03 and D4.3.01 layouts) | Yes |
-| CS800 | `.rdb` | Yes |
-| CS800D | `.rdb` (D4.3.01 layout) | Yes |
-| MD-380 / MD-390 | `.rdt` | Yes |
-| MD-UV390 | `.rdt` | Yes |
-| MD9600 | `.rdt` | Yes |
-| OpenGD77 | `.g77` | Yes |
-| DM-32UV | `.data` | Yes |
+When a project began with an imported file or a radio read, its saved `.waffle` project retains the original codeplug bytes. Waffle aims to preserve settings it does not manage when editing that codeplug.
 
-Radio read and write have been tested on hardware with the CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and a DM-1701 running OpenGD77. A DM-32UV tester using v0.1.1 read the radio, created a zone using existing channels, wrote it back, and confirmed operation with on-air calls. The MD-380/MD-390, MD-UV390, and MD9600 transfer definitions and other OpenGD77 radio types still need hardware verification.
+A **Blank project** lets you work without choosing a radio. Use **Codeplug → Convert** to select a destination radio before exporting or writing.
 
-Keep your original codeplug and a backup of your radio's programming. Backups are manual; see [Radio operations](docs/RadioOperations.md).
+Keep a backup before writing to your radio. Waffle does not automatically read or back up the radio before a write. See [Radio operations and backups](docs/RadioOperations.md) for the steps and platform-specific access information.
 
-## Screenshots
+## Common tasks
 
-These views use an imported CS7000 GPS codeplug.
+**Reuse a repeater setup.** Choose **Duplicate** in Repeater Details. Copy just its details or its full channel lineup, then edit the new repeater. The full copy initially uses the same channels and talkgroups.
 
-**Repeater overview** — CT-Brooklyn Ares, with separate time-slot cards and talkgroup details.
+**Edit a channel used in several places.** In the zone editor, Waffle lists its other uses and asks whether to apply the change only here or everywhere. Changing a repeater's overall settings keeps other repeaters' shared channels unchanged.
 
-![WaffleCPS repeater overview for CT-Brooklyn Ares](docs/screenshots/repeater.png)
+**Move programming to another radio.** Choose **Codeplug → Convert**, select the destination and its supported VHF/UHF ranges, then review what transfers, changes, or is omitted. Oversized zones are split to fit. Only settings represented in Waffle transfer; other radio-specific settings do not. Conversion opens an unsaved destination project and does not write to the radio.
 
-**Add talkgroup** — choose an existing group contact and give the radio channel its own name.
+**Update OpenGD77 satellite data.** Open **Radio Settings → Satellites**, edit your satellite list if needed, then choose **Update radio**. This downloads fresh orbital data and updates supported radios' satellite information and clock.
 
-![Add talkgroup dialog with NY NJ Metro selected and Brooklyn Metro entered as the channel name](docs/screenshots/add-talkgroup.png)
+## Supported radios
 
-**Contacts** — people and talkgroups have separate searchable tabs.
+Compatibility depends on the exact model, version, and codeplug layout. These definitions include codeplug handling and direct radio-transfer instructions:
 
-![WaffleCPS contacts view showing people from the imported codeplug](docs/screenshots/contacts.png)
+| Radio or firmware | Codeplug file |
+| --- | --- |
+| CS7000-M17 Plus | `.rdbx` |
+| CS700 / CS701 | `.rdt` |
+| CS750 | `.rdb` — D4.0.03 and D4.3.01 layouts |
+| CS800 | `.rdb` |
+| CS800D | `.rdb` — D4.3.01 layout |
+| MD-380 / MD-390 | `.rdt` |
+| MD-UV390 | `.rdt` |
+| MD9600 | `.rdt` |
+| OpenGD77 | `.g77` |
+| DM-32UV | `.data` |
 
-## What works today
+Radio read and write have been tested on hardware with CS7000-M17 Plus, CS700/CS701, CS750, CS800, CS800D, DM-32UV, and DM-1701 running OpenGD77. MD-380/MD-390, MD-UV390, MD9600, and other OpenGD77 hardware still need transfer verification.
 
-- Import codeplug files with automatic format detection or choose a radio definition explicitly.
-- Browse imported repeaters, zones, channels, and contacts. A zone with one repeater frequency pair and color code appears as a repeater, even if it also contains simplex frequencies. Separate zones remain separate entries.
-- View each repeater's frequencies, color code, transmit power, time slots, and additional simplex frequencies. The channel name appears above its talkgroup name and ID.
-- Search people and talkgroups in separate contact tabs. Add a repeater talkgroup from the group contact list or create one in the same flow, with a separate name for its radio channel.
-- Add or remove talkgroups and additional simplex frequencies. When an imported channel is shared with another zone, removing it from the selected zone leaves the shared record available to the other zone.
-- Create a blank project and save or open `.waffle` projects. Imported projects retain the original codeplug bytes as an untouched attachment.
-- Set a radio name or call sign and DMR radio ID on the Radio Settings page. Imported values are shown automatically and saved with the project.
-- Create a new codeplug for a selected radio, or export an edited import using its radio definition and preserved source bytes.
-- Convert between supported radio formats, including from a blank project, with a review of capacity limits, frequency exclusions, name changes, and settings that will not transfer.
-- Reorder zones and repeaters, including alphabetically, and arrange channels in radio order.
-- Assign channels to Top, Bottom, or Both displays on radios with separate channel lists, and order each display independently.
-- View and edit transmit and receive CTCSS tones for analog channels when supported by the selected definition.
-- Read and write radios using the included transfer definitions, as described in Radio support above.
-- Edit satellite presets and download fresh orbital data to update satellite information and the clock on supported OpenGD77 radios.
+Waffle does not expose every radio setting. File export remains experimental: keep your original files and check exports in the vendor's programming software. The [project checklist](docs/ProjectChecklist.md) records remaining work.
 
-The application version and build commit ID appear beneath the WaffleCPS name. Click them to open About, view credits, or copy the version for a problem report.
+## See the interface
 
-The editor does not yet expose every radio setting, receive group, or scan list. File export remains experimental; keep your original codeplug and check exports in the vendor's CPS. The [project checklist](docs/ProjectChecklist.md) tracks the remaining work.
+**Repeater overview:** frequencies, time slots, and talkgroups together.
+
+![Repeater overview for CT-Brooklyn Ares](docs/screenshots/repeater.png)
+
+**Add talkgroup:** choose a talkgroup and give its radio channel a useful name.
+
+![Add talkgroup dialog](docs/screenshots/add-talkgroup.png)
+
+**Contacts:** searchable lists of people and talkgroups.
+
+![Contacts view](docs/screenshots/contacts.png)
+
+## Get help or report a problem
+
+Open an [issue on GitHub](https://github.com/compuvin/WaffleCPS/issues). Include your operating system, radio model, the steps you took, and any error message.
+
+The version and build commit appear below the WaffleCPS name. Click them to open **About**, then copy the version for your report.
 
 ## Build from source
 
-WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer with Qt SerialPort, zlib, libusb, and Git for build identification. On Ubuntu 24.04, install the build tools and Qt development/QML packages:
+<details>
+<summary>Instructions for developers and users who want to build WaffleCPS</summary>
+
+WaffleCPS uses C++17, CMake 3.21 or newer, Qt 6.4 or newer with Qt SerialPort, zlib, libusb, and Git for build identification.
+
+On Ubuntu 24.04:
 
 ```sh
 sudo apt install git cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-serialport-dev \
@@ -105,7 +116,7 @@ sudo apt install git cmake g++ pkg-config libusb-1.0-0-dev zlib1g-dev qt6-base-d
   qml6-module-qtquick-window
 ```
 
-Then build and launch the application:
+From the repository root:
 
 ```sh
 cmake -S . -B build
@@ -113,30 +124,24 @@ cmake --build build
 ./build/wafflecps
 ```
 
-Keep the `definitions/` directory available beside the project or executable. Use **Import codeplug** for a file format declared by a loaded definition, or **Open** for a `.waffle` project. You can also pass either file type when launching the app:
+Keep the `definitions/` directory available beside the project or executable. You can also pass a project or codeplug filename when launching Waffle:
 
 ```sh
 ./build/wafflecps path/to/project.waffle
 ./build/wafflecps path/to/codeplug.rdbx
 ```
 
-File handling and radio transfers use `.wcp` packages. USB transfer rules are stored as `usb.json` inside each package, with version-specific overrides when needed. See [radio reading](docs/RadioReading.md) for the CS7000 read workflow and Linux USB permission instructions.
-
-Run the automated checks with:
+Run automated checks with:
 
 ```sh
 ctest --test-dir build --output-on-failure -E '^RequiresCodeplug-'
 ```
 
-Run without `-E` when the required local samples are present in `Codeplugs/`.
+Run without `-E` when the required local samples are available in `Codeplugs/`.
 
-## Project documents
+Radio-specific file handling and transfer rules live in `.wcp` packages. For design and format details, see the [project plan](ProjectPlan.md), [project format](docs/ProjectFormat.md), and [import/data model](docs/ImportAndDataModel.md).
 
-- [Project checklist](docs/ProjectChecklist.md) — agreed scope and progress.
-- [Project plan](ProjectPlan.md) — original product direction.
-- [Project format](docs/ProjectFormat.md) — the open `.waffle` archive format.
-- [Import and data model](docs/ImportAndDataModel.md) — classification and editor design.
-- [Codeplug research](docs/CodeplugResearch.md) — findings from the tested sample.
+</details>
 
 ## License and support
 

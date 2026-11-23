@@ -46,17 +46,17 @@ behavior, and timing. Offer only settings supported by the definition.
 ## Definition and application work
 
 - [x] Start with DM-32UV, whose tester requested scanning.
-- [ ] Research its complete scan-list storage and channel assignment
+- [x] Research its complete scan-list storage and channel assignment
       using QDMR and available samples.
 - [x] Keep radio-specific addresses, limits, settings, and writer rules
       in the WCP definition.
 - [x] Add generic scan-list data and editing support to Waffle.
 - [x] Preserve unsupported settings.
-- [ ] Repair references when channels or scan lists are deleted,
+- [x] Repair references when channels or scan lists are deleted,
       reordered, or otherwise moved.
 - [x] Preserve lists and assignments through project save/reopen.
 - [x] Support import and export of edited lists and assignments.
-- [ ] Extend other radio definitions individually after review.
+- [x] Extend other radio definitions individually after review.
 
 ## Current mapping checkpoint
 
@@ -73,7 +73,7 @@ These are partial mappings, not claims of working scan-list editing.
 ## Verification
 
 - [ ] Compare decoded data and edited exports with reference software.
-- [ ] Verify list and channel references after additions, deletions,
+- [x] Verify list and channel references after additions, deletions,
       and reordering.
 - [x] Verify project persistence and export/reimport.
 - [x] Have the DM-32UV tester confirm actual scanning on hardware.

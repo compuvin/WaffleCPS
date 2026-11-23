@@ -61,19 +61,19 @@ lists or copying one over the other would lose programming information.
 
 ## Deferred implementation checklist
 
-- [ ] Add generic support for arrays split across storage regions.
-- [ ] Represent both channel lists and their pairing in the shared model.
-- [ ] Keep one sidebar entry per named zone or repeater.
-- [ ] Present A/B lists within the editor.
+- [x] Add generic support for arrays split across storage regions.
+- [x] Represent both channel lists and their pairing in the shared model.
+- [x] Keep one sidebar entry per named zone or repeater.
+- [x] Present A/B lists within the editor.
 - [ ] Offer shared editing only when appropriate; preserve differing
       imported lists.
-- [ ] Define classification when A/B contain different repeaters or
+- [x] Define classification when A/B contain different repeaters or
       channel combinations.
-- [ ] Declare addresses, capacities, and list roles in the WCP.
-- [ ] Support import, export, starter generation, and project persistence.
-- [ ] Preserve pairing when zones are reordered.
-- [ ] Repair references in both lists when channels move or are deleted.
-- [ ] Verify unchanged and edited export/reimport.
+- [x] Declare addresses, capacities, and list roles in the WCP.
+- [x] Support import, export, starter generation, and project persistence.
+- [x] Preserve pairing when zones are reordered.
+- [x] Repair references in both lists when channels move or are deleted.
+- [x] Verify unchanged and edited export/reimport.
 - [ ] Obtain hardware validation separately.
 
 USB support remains a separate future step. Shared layout evidence

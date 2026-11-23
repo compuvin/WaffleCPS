@@ -61,7 +61,8 @@ int main(int argc, char **argv)
             if (model.separateDisplayLists) { b.channelIndexes = {2}; b.bottomChannelIndexes = {0}; }
             model.zones = {a, b, c};
             if (model.scanListsSupported) {
-                ImportedScanList list; list.name = "Scan test"; list.channelIndexes = {-1, 3};
+                ImportedScanList list; list.name = "Scan test"; list.channelIndexes = {3};
+                if (model.scanCurrentChannelSupported) list.channelIndexes.prepend(-1);
                 model.scanLists.append(list);
             }
             QByteArray bytes;
@@ -88,8 +89,11 @@ int main(int argc, char **argv)
                 const int expectedChannels = !cleanup ? 5 : model.scanListsSupported ? 4 : 3;
                 check(result.channels.size() == expectedChannels, "Wrong remaining channel count");
                 check(result.contacts.size() == model.contacts.size(), "Contacts changed");
-                if (cleanup && model.scanListsSupported)
-                    check(result.scanLists[0].channelIndexes == QVector<int>({-1, 2}), "Scan references not remapped");
+                if (cleanup && model.scanListsSupported) {
+                    QVector<int> expected{2};
+                    if (model.scanCurrentChannelSupported) expected.prepend(-1);
+                    check(result.scanLists[0].channelIndexes == expected, "Scan references not remapped");
+                }
                 if (cleanup && model.separateDisplayLists)
                     check(result.zones[0].bottomChannelIndexes == QVector<int>({0}), "Bottom-only shared channel lost");
                 const QString project = temporary.filePath(definition + ".waffle");
