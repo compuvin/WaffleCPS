@@ -1675,8 +1675,45 @@ ApplicationWindow {
         id: editDialog
         property bool creating: false
         property bool forImported: false
+        property bool initializingOffset: true
+        property bool suggestOffset: true
+        readonly property var offsetsHz: [-600000, 600000, -5000000, 5000000, 0]
+
+        function receiveHz() {
+            const text = rxField.text.trim()
+            if (!/^\d{3}(?:\.\d{1,6})?$/.test(text)) return 0
+            return Math.round(Number(text) * 1000000)
+        }
+        function suggestedOffsetIndex(hz) {
+            if ((hz >= 145200000 && hz < 145500000)
+                || (hz >= 146610000 && hz <= 146970000)) return 0
+            if (hz >= 147000000 && hz <= 147390000) return 1
+            if (hz >= 442000000 && hz < 445000000) return 3
+            if (hz >= 447000000 && hz < 450000000) return 2
+            return 4
+        }
+        function initializeOffset() {
+            suggestOffset = creating
+            const delta = Math.round(Number(txField.text) * 1000000) - receiveHz()
+            const match = offsetsHz.slice(0, 4).indexOf(delta)
+            offsetChoice.currentIndex = creating || match < 0 ? 4 : match
+            initializingOffset = false
+        }
+        function updateTransmit() {
+            if (initializingOffset || offsetChoice.currentIndex < 0
+                || offsetChoice.currentIndex === 4) return
+            const hz = receiveHz()
+            txField.text = hz > 0
+                ? ((hz + offsetsHz[offsetChoice.currentIndex]) / 1000000).toFixed(6) : ""
+        }
+        function receiveChanged() {
+            if (initializingOffset) return
+            if (suggestOffset) offsetChoice.currentIndex = suggestedOffsetIndex(receiveHz())
+            updateTransmit()
+        }
 
         function openForCurrent() {
+            initializingOffset = true
             creating = false
             forImported = false
             repeaterNameField.text = store.selectedName
@@ -1685,10 +1722,12 @@ ApplicationWindow {
             colorCodeField.value = store.colorCode
             powerField.currentIndex = store.selectedPower === "Low" ? 1 : 0
             editError.text = ""
+            initializeOffset()
             open()
         }
 
         function openForNew() {
+            initializingOffset = true
             creating = true
             forImported = false
             repeaterNameField.text = ""
@@ -1697,11 +1736,13 @@ ApplicationWindow {
             colorCodeField.value = 1
             powerField.currentIndex = 0
             editError.text = ""
+            initializeOffset()
             open()
             repeaterNameField.forceActiveFocus()
         }
 
         function openForImported() {
+            initializingOffset = true
             creating = false
             forImported = true
             const group = store.selectedImportedGroup
@@ -1711,63 +1752,103 @@ ApplicationWindow {
             colorCodeField.value = group.colorCode
             powerField.currentIndex = store.powerChoices.indexOf(group.power)
             editError.text = ""
+            initializeOffset()
             open()
         }
 
         x: Math.round((window.width - width) / 2)
         y: Math.round((window.height - height) / 2)
         width: 380
+        height: Math.min(700, window.height - 40)
         modal: true
         title: creating ? "Add repeater" : "Edit repeater"
         standardButtons: Dialog.NoButton
 
-        ColumnLayout {
-            anchors.fill: parent
+        contentItem: ColumnLayout {
             spacing: 10
+            ScrollView {
+                id: repeaterFieldsScroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+                ColumnLayout {
+                    width: repeaterFieldsScroll.availableWidth
+                    spacing: 10
 
-            Label { text: "Name" }
-            PageField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
-            RowLayout {
-                Label { text: "Receive frequency (MHz)" }
-                PageHelpButton {
-                    helpTitle: "Receive frequency"
-                    helpText: "The frequency your radio listens on—the repeater’s output."
-                }
-            }
-            PageField { id: rxField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
-            RowLayout {
-                Label { text: "Transmit frequency (MHz)" }
-                PageHelpButton {
-                    helpTitle: "Transmit frequency"
-                    helpText: "The frequency your radio sends on—the repeater’s input."
-                }
-            }
-            PageField { id: txField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
-            Label { text: "Color code" }
-            PageSpinBox { id: colorCodeField; from: 0; to: 15 }
-            Label { text: "Transmit power" }
-            PageComboBox {
-                id: powerField
-                objectName: "repeaterPowerField"
-                Layout.fillWidth: true
-                model: editDialog.forImported ? store.powerChoices : ["High", "Low"]
-                displayText: currentIndex < 0
-                             ? (store.selectedImportedGroup.power || "Unknown") + " (unchanged)"
-                             : currentText
-            }
-            Label {
-                text: "Applies to this zone's repeater channels. Additional simplex frequencies are unchanged."
-                color: "#64776c"
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
+                    Label { text: "Name" }
+                    PageField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
+                    RowLayout {
+                        Label { text: "Receive frequency (MHz)" }
+                        PageHelpButton {
+                            helpTitle: "Receive frequency"
+                            helpText: "The frequency your radio listens on—the repeater’s output."
+                        }
+                    }
+                    PageField {
+                        id: rxField
+                        Layout.fillWidth: true
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onTextChanged: editDialog.receiveChanged()
+                    }
+                    RowLayout {
+                        Label { text: "Offset" }
+                        PageHelpButton {
+                            helpTitle: "Repeater offset"
+                            helpText: "The offset is added to Receive to calculate your radio’s Transmit frequency. Suggested defaults follow common U.S. repeater conventions; local choices can differ. Use the repeater’s published settings. Choose Custom transmit frequency (odd split) to enter Transmit directly."
+                        }
+                    }
+                    PageComboBox {
+                        id: offsetChoice
+                        objectName: "repeaterOffsetChoice"
+                        Layout.fillWidth: true
+                        model: ["−600 kHz", "+600 kHz", "−5 MHz", "+5 MHz",
+                                "Custom transmit frequency (odd split)"]
+                        onActivated: function(index) {
+                            editDialog.suggestOffset = false
+                            editDialog.updateTransmit()
+                        }
+                    }
+                    RowLayout {
+                        Label { text: "Transmit frequency (MHz)" }
+                        PageHelpButton {
+                            helpTitle: "Transmit frequency"
+                            helpText: "The frequency your radio sends on—the repeater’s input."
+                        }
+                    }
+                    PageField {
+                        id: txField
+                        Layout.fillWidth: true
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        readOnly: offsetChoice.currentIndex !== 4
+                    }
+                    Label { text: "Color code" }
+                    PageSpinBox { id: colorCodeField; from: 0; to: 15 }
+                    Label { text: "Transmit power" }
+                    PageComboBox {
+                        id: powerField
+                        objectName: "repeaterPowerField"
+                        Layout.fillWidth: true
+                        model: editDialog.forImported ? store.powerChoices : ["High", "Low"]
+                        displayText: currentIndex < 0
+                                     ? (store.selectedImportedGroup.power || "Unknown") + " (unchanged)"
+                                     : currentText
+                    }
+                    Label {
+                        text: "Applies to this zone's repeater channels. Additional simplex frequencies are unchanged."
+                        color: "#64776c"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
 
-            Label {
-                id: editError
-                visible: text.length > 0
-                color: "#a33a33"
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+                    Label {
+                        id: editError
+                        visible: text.length > 0
+                        color: "#a33a33"
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+                }
             }
 
             RowLayout {
