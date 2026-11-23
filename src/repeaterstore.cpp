@@ -2542,6 +2542,76 @@ bool RepeaterStore::addRepeater(const QString &name, const QString &rxFrequency,
     return true;
 }
 
+bool RepeaterStore::duplicateSelectedRepeater(const QString &name, bool entireRepeater)
+{
+    const QString cleanName = name.trimmed();
+    const int maximumNameLength = hasImportedCodeplug() ? 16 : 32;
+    if (cleanName.isEmpty() || cleanName.size() > maximumNameLength)
+        return fail(tr("Enter a repeater name of 1–%1 characters.").arg(maximumNameLength));
+    for (const auto &zone : m_importedCodeplug.zones)
+        if (zone.name.compare(cleanName, Qt::CaseInsensitive) == 0)
+            return fail(tr("A repeater or zone already has this name."));
+    for (const auto &repeater : m_repeaters)
+        if (repeater.name.compare(cleanName, Qt::CaseInsensitive) == 0)
+            return fail(tr("A repeater or zone already has this name."));
+
+    if (hasImportedCodeplug()) {
+        const int sourceZone = selectedZoneIndex();
+        if (sourceZone < 0 || !m_importedGroups[m_selectedImportedIndex].repeater)
+            return fail(tr("Select a repeater to duplicate."));
+        if (m_importedCodeplug.zones.size() >= m_importedCodeplug.zoneCapacity)
+            return fail(tr("The selected radio's repeater/zone limit has been reached."));
+        auto copy = m_importedCodeplug.zones[sourceZone];
+        copy.name = cleanName;
+        if (!entireRepeater) {
+            if (!zoneMembers(copy).isEmpty()) {
+                copy.repeaterTemplate.reset();
+                for (int index : zoneMembers(copy)) {
+                    const auto &channel = m_importedCodeplug.channels[index];
+                    if (channel.frequencyAHz != channel.frequencyBHz) {
+                        copy.repeaterTemplate = channel;
+                        break;
+                    }
+                }
+            }
+            if (!copy.repeaterTemplate.has_value())
+                return fail(tr("Could not read this repeater's details."));
+            copy.repeaterTemplate->setPowerValue(
+                selectedImportedGroup().value("newChannelPower").toString().toLower());
+            copy.channelIndexes.clear();
+            copy.bottomChannelIndexes.clear();
+            copy.sourceRecord = -1;
+        }
+        const int newZone = m_importedCodeplug.zones.size();
+        leaveZoneEditor();
+        m_importedCodeplug.zones.append(copy);
+        rebuildImportedGroups();
+        selectZoneIndex(newZone);
+        setModified(true);
+        return true;
+    }
+
+    if (m_selectedIndex < 0 || m_selectedIndex >= int(m_repeaters.size()))
+        return fail(tr("Select a repeater to duplicate."));
+    if (m_repeaters.size() >= 10000)
+        return fail(tr("The project repeater limit has been reached."));
+    auto copy = selected();
+    copy.name = cleanName;
+    if (!entireRepeater) {
+        copy.slot1.clear();
+        copy.slot2.clear();
+        copy.simplexFrequencies.clear();
+    }
+    m_repeaters.push_back(copy);
+    m_selectedIndex = int(m_repeaters.size()) - 1;
+    emit repeatersChanged();
+    emit selectedRepeaterChanged();
+    emit talkgroupsChanged();
+    emit simplexFrequenciesChanged();
+    setModified(true);
+    return true;
+}
+
 void RepeaterStore::selectRepeater(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_repeaters.size()) || index == m_selectedIndex)

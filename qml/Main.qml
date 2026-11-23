@@ -36,6 +36,7 @@ ApplicationWindow {
         target: store
         function onAboutToResetProject() {
             entryDeleteDialog.close()
+            duplicateRepeaterDialog.close()
             scanNameDialog.close()
             window.selectedScanList = -1
             createZoneDialog.close()
@@ -693,6 +694,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
+                                PageAction { text: "Duplicate"; onClicked: duplicateRepeaterDialog.openForSelection() }
                                 PageAction { text: "Delete"; onClicked: entryDeleteDialog.openForSelection() }
                                 PageAction { text: "Edit"; onClicked: editDialog.openForCurrent() }
                             }
@@ -985,6 +987,7 @@ ApplicationWindow {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Label { text: "REPEATER DETAILS"; color: "#6f8175"; font.pixelSize: 11; font.bold: true; Layout.fillWidth: true }
+                                PageAction { text: "Duplicate"; onClicked: duplicateRepeaterDialog.openForSelection() }
                                 PageAction { text: "Delete"; onClicked: entryDeleteDialog.openForSelection() }
                                 PageAction { text: "Edit"; onClicked: editDialog.openForImported() }
                             }
@@ -1574,6 +1577,96 @@ ApplicationWindow {
                 text: "Cancel"
                 Layout.alignment: Qt.AlignRight
                 onClicked: newRadioDialog.close()
+            }
+        }
+    }
+
+    PageDialog {
+        id: duplicateRepeaterDialog
+        objectName: "duplicateRepeaterDialog"
+        property bool entireRepeater: true
+        property string sourceName: ""
+        function openForSelection() {
+            sourceName = store.hasImportedCodeplug
+                ? store.selectedImportedGroup.name : store.selectedName
+            duplicateRepeaterName.text = ""
+            entireRepeater = true
+            open()
+            duplicateRepeaterName.forceActiveFocus()
+        }
+        x: Math.round((window.width - width) / 2)
+        y: Math.round((window.height - height) / 2)
+        width: Math.min(520, window.width - 32)
+        modal: true
+        title: "Duplicate repeater"
+        standardButtons: Dialog.NoButton
+        contentItem: ColumnLayout {
+            spacing: 14
+            Label {
+                text: "Duplicate “" + duplicateRepeaterDialog.sourceName + "”"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+            Label { text: "New repeater name" }
+            PageField {
+                id: duplicateRepeaterName
+                objectName: "duplicateRepeaterName"
+                Layout.fillWidth: true
+                maximumLength: store.hasImportedCodeplug ? 16 : 32
+                Accessible.name: "New repeater name"
+            }
+            Label { text: "What would you like to copy?" }
+            PageChoice {
+                objectName: "duplicateDetailsOnly"
+                Layout.fillWidth: true
+                text: "Details only"
+                highlighted: !duplicateRepeaterDialog.entireRepeater
+                onClicked: duplicateRepeaterDialog.entireRepeater = false
+                contentItem: ColumnLayout {
+                    spacing: 6
+                    Label { text: "Details only"; font.bold: true; color: "#173d30" }
+                    Label {
+                        text: "Copy frequencies, color code, and power into an empty repeater. No channels are included."
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: "#405b4b"
+                    }
+                }
+            }
+            PageChoice {
+                objectName: "duplicateEntireRepeater"
+                Layout.fillWidth: true
+                text: "Entire repeater"
+                highlighted: duplicateRepeaterDialog.entireRepeater
+                onClicked: duplicateRepeaterDialog.entireRepeater = true
+                contentItem: ColumnLayout {
+                    spacing: 6
+                    Label { text: "Entire repeater"; font.bold: true; color: "#173d30" }
+                    Label {
+                        text: "Also include the existing channels and talkgroups, including additional simplex channels. Keep their order and top/bottom selections."
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        color: "#405b4b"
+                    }
+                }
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                PageAction { text: "Cancel"; onClicked: duplicateRepeaterDialog.close() }
+                PageAction {
+                    objectName: "confirmDuplicateRepeater"
+                    text: "Duplicate"
+                    primary: true
+                    enabled: duplicateRepeaterName.text.trim().length > 0
+                    onClicked: {
+                        if (store.duplicateSelectedRepeater(duplicateRepeaterName.text,
+                                                          duplicateRepeaterDialog.entireRepeater)) {
+                            window.currentSection = "repeaters"
+                            window.repeatersExpanded = true
+                            duplicateRepeaterDialog.close()
+                        }
+                    }
+                }
             }
         }
     }

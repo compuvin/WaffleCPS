@@ -142,6 +142,7 @@ public:
     Q_INVOKABLE void selectRepeater(int index);
     Q_INVOKABLE bool addRepeater(const QString &name, const QString &rxFrequency,
                                 const QString &txFrequency, int colorCode, bool highPower = true);
+    Q_INVOKABLE bool duplicateSelectedRepeater(const QString &name, bool entireRepeater);
     Q_INVOKABLE bool updateSelectedRepeater(const QString &name, const QString &rxFrequency,
                                             const QString &txFrequency, int colorCode,
                                             bool highPower = true);
