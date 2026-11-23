@@ -21,8 +21,8 @@ This is a working checklist drawn from [ProjectPlan.md](../ProjectPlan.md), late
   - [x] Preserve an imported zone's original channel order until the user changes it.
   - [x] Default newly generated repeater zones to Time Slot 2 channels, then Time Slot 1 channels, then Additional simplex frequencies.
   - [x] Keep repeater frequencies and color code on the repeater, rather than repeating them in channel editing controls.
-- [ ] Duplicate a repeater.
-  - [ ] Ask whether to copy only its frequencies and color code or the entire repeater entry, including time slots, talkgroups, and additional simplex frequencies.
+- [x] Duplicate a repeater.
+  - [x] Ask whether to copy only its frequencies and color code or the entire repeater entry, including time slots, talkgroups, and additional simplex frequencies.
 - [x] Generate contacts, channels, and a default zone for a newly created repeater. Today manual repeaters are project-editor data only.
 - [ ] Validate capacity using the selected radio model and firmware's limits, including channels per zone.
   - [ ] When a zone would exceed its limit, offer to split it into another zone or remove the extra channel or channels.

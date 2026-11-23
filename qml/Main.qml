@@ -322,7 +322,7 @@ ApplicationWindow {
                                 ToolTip.text: radioReader.busy || radioWriter.busy
                                               ? "A radio transfer is in progress."
                                               : store.hasImportedCodeplug
-                                                ? "No USB transfer definition is available for this radio."
+                                                ? "Waffle does not yet support direct transfers to this radio."
                                                 : "No radio read definitions are available."
                                 enabled: (store.hasImportedCodeplug
                                           ? store.radioTransferAvailable
@@ -344,7 +344,7 @@ ApplicationWindow {
                                 ToolTip.text: radioReader.busy || radioWriter.busy
                                               ? "A radio transfer is in progress."
                                               : store.hasImportedCodeplug
-                                                ? "No USB transfer definition is available for this radio."
+                                                ? "Waffle does not yet support direct transfers to this radio."
                                                 : "Create or load a radio project before writing."
                                 enabled: store.radioTransferAvailable && !radioReader.busy && !radioWriter.busy
                                 onClicked: radioWriteConfirmation.open()
@@ -1727,9 +1727,21 @@ ApplicationWindow {
 
             Label { text: "Name" }
             PageField { id: repeaterNameField; Layout.fillWidth: true; maximumLength: editDialog.forImported ? 16 : 32 }
-            Label { text: "Receive frequency (MHz)" }
+            RowLayout {
+                Label { text: "Receive frequency (MHz)" }
+                PageHelpButton {
+                    helpTitle: "Receive frequency"
+                    helpText: "The frequency your radio listens on—the repeater’s output."
+                }
+            }
             PageField { id: rxField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
-            Label { text: "Transmit frequency (MHz)" }
+            RowLayout {
+                Label { text: "Transmit frequency (MHz)" }
+                PageHelpButton {
+                    helpTitle: "Transmit frequency"
+                    helpText: "The frequency your radio sends on—the repeater’s input."
+                }
+            }
             PageField { id: txField; Layout.fillWidth: true; inputMethodHints: Qt.ImhFormattedNumbersOnly }
             Label { text: "Color code" }
             PageSpinBox { id: colorCodeField; from: 0; to: 15 }
@@ -2421,7 +2433,7 @@ ApplicationWindow {
         y: Math.round((window.height - height) / 2)
         title: "Write complete"
         standardButtons: Dialog.Ok
-        Label { text: "The radio acknowledged every codeplug block." }
+        Label { text: "Codeplug written to the radio successfully." }
     }
 
     PageDialog {

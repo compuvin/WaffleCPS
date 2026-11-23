@@ -195,7 +195,7 @@ ColumnLayout {
         readonly property string selectedContactText: {
             if (selectedContactIndex === 0) return "Select a contact"
             const selected = contactChoices.find(c => c.number === selectedContactIndex)
-            return selected ? selected.name + " · " + selected.id + (selected.groupCall ? " · Group" : " · Private") : "Select a contact"
+            return selected ? selected.name + " · " + selected.id + (selected.groupCall ? " · Talkgroup" : " · Person") : "Select a contact"
         }
         readonly property bool choosingExisting: !editing && addTabs.currentIndex === 0
         readonly property var filteredChannels: {
@@ -450,7 +450,7 @@ ColumnLayout {
                                 property int contactNumber: modelData.number
                                 width: contactList.width
                                 height: 54
-                                text: modelData.name + " · " + modelData.id + (modelData.groupCall ? " · Group" : " · Private")
+                                text: modelData.name + " · " + modelData.id + (modelData.groupCall ? " · Talkgroup" : " · Person")
                                 highlighted: channelDialog.selectedContactIndex === modelData.number
                                 onClicked: { channelDialog.selectedContactIndex = modelData.number; contactList.currentIndex = index }
                             }

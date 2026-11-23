@@ -56,9 +56,9 @@ Preserve existing wording and checkbox states.
 ## Additional review — November 17, 2026
 
 - [ ] Distinguish the user's DMR radio ID from a talkgroup ID. Both are numbers entered during setup, but they identify different things.
-- [ ] Review “Group” and “Private” in the channel contact picker. Relate these labels to “Talkgroups” and “People” used on the Contacts page.
+- [x] Review “Group” and “Private” in the channel contact picker. Relate these labels to “Talkgroups” and “People” used on the Contacts page.
 - [ ] Provide optional help for analog CTCSS settings: what Transmit and Receive mean, and when to leave either set to None.
 - [ ] Review “Top / Bottom” and “Both” with a first-time user. Check whether they understand these control channel availability on the radio's two displays.
 - [ ] Explain scan-list editing availability where appropriate. The Scan Lists section disappears for unsupported definitions, which could leave users unsure whether their radio cannot scan or Waffle cannot yet edit its lists.
-- [ ] Replace implementation terminology in disabled Radio menu tooltips. “No USB transfer definition is available” should explain that Waffle does not currently support transferring directly to this radio.
-- [ ] Review the write-success message. “The radio acknowledged every codeplug block” should describe the completed action in plain language.
+- [x] Replace implementation terminology in disabled Radio menu tooltips. “No USB transfer definition is available” should explain that Waffle does not currently support transferring directly to this radio.
+- [x] Review the write-success message. “The radio acknowledged every codeplug block” should describe the completed action in plain language.

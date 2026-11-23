@@ -81,6 +81,7 @@ qt_add_resources(wafflecps "qml"
         qml/ConversionDialog.qml
         qml/ScanListEditor.qml
         qml/PageAction.qml
+        qml/PageHelpButton.qml
         qml/PageField.qml
         qml/PageComboBox.qml
         qml/PageSpinBox.qml
@@ -302,7 +303,7 @@ if(BUILD_TESTING)
         PREFIX "/"
         FILES assets/waffle-radio.png qml/Main.qml qml/AboutDialog.qml qml/SatelliteDialog.qml qml/ConversionDialog.qml qml/ScanListEditor.qml qml/PageAction.qml qml/PageField.qml
               qml/PageComboBox.qml qml/PageSpinBox.qml qml/PageTabButton.qml qml/PageCheckBox.qml
-              qml/PageChoice.qml qml/PageDialog.qml
+              qml/PageChoice.qml qml/PageDialog.qml qml/PageHelpButton.qml
               qml/SlotPanel.qml qml/ContactsView.qml qml/ZoneEditor.qml
     )
     target_link_libraries(ui_smoke_test PRIVATE
